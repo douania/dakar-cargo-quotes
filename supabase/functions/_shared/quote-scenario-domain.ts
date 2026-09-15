@@ -1,4 +1,5 @@
 import { SCENARIO_CARGO_V2_KEYS, scenarioCargoV2Violation, scenarioCargoV1ValidationShape } from "./scenario-cargo.ts";
+import { scenarioPadViolation, scenarioV2Shape } from "./scenario-pad-contract.ts";
 
 /**
  * Phase P1-A2 — Domaine PUR de l'Edge Function manage-quote-scenario.
@@ -776,6 +777,13 @@ export function validateScopeSnapshot(
   const structural = snapshotStructuralViolation(raw);
   if (structural) {
     return { ok: false, message: `scope_snapshot rejeté (${structural})` };
+  }
+
+  if (isPlainObject(raw) && raw.schema_version === 3) {
+    const violation = scenarioPadViolation(raw);
+    if (violation) return { ok: false, message: `scope_snapshot rejeté (${violation})` };
+    const legacy = validateScopeSnapshot(scenarioV2Shape(raw));
+    return legacy.ok ? { ok: true, value: raw } : legacy;
   }
 
   const top = closedObject(raw, "scope_snapshot", SNAPSHOT_TOP_KEYS);

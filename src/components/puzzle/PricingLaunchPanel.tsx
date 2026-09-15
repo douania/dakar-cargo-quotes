@@ -4,7 +4,7 @@
 // + Lot 4: Pilote DDP provisoire borné
 // ============================================================================
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Loader2, Calculator, Info, AlertTriangle, ShieldAlert } from 'lucide-react';
@@ -51,6 +51,7 @@ type PricingPrecheck = {
 };
 
 interface PricingLaunchPanelProps {
+  estimateResult?: ReactNode;
   caseId: string;
   onComplete?: () => void;
   blockedByIntent?: string;
@@ -61,7 +62,7 @@ interface PricingLaunchPanelProps {
   isEstimating?: boolean;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false, onEstimate, isEstimating = false }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false, onEstimate, isEstimating = false, estimateResult }: PricingLaunchPanelProps) {
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -224,10 +225,10 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-warning-foreground" />
-            <CardTitle className="text-base">{isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}</CardTitle>
+            <CardTitle className="text-base">{onEstimate ? 'Estimation et devis confirmé' : isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}</CardTitle>
           </div>
           <CardDescription>
-          {isRerun
+          {onEstimate ? 'Relancez l’estimation ci-dessous. Le devis confirmé reste un parcours distinct, soumis à ses propres contrôles.' : isRerun
               ? 'Un pricing a déjà été calculé. Vous pouvez relancer le calcul avec les données mises à jour.'
               : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
           </CardDescription>
@@ -266,7 +267,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             </AlertDescription>
           </Alert>
           
-          {error && (
+          {!onEstimate && error && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
@@ -285,6 +286,11 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               </p>
             </div>
           )}
+          {estimateResult}
+          {onEstimate && error && <Alert variant="destructive" aria-label="Blocage du devis confirmé"><AlertDescription>
+            Devis confirmé uniquement : {error === 'IMO goods scope requires clarification' ? 'Le rattachement des marchandises dangereuses aux groupes n’est pas établi dans les faits du dossier.' : error}
+            {' '}Ce refus ne décrit pas le résultat de l’estimation par scénario ci-dessus.
+          </AlertDescription></Alert>}
           <Button
             onClick={() => setConfirmOpen(true)}
             disabled={isLoading || isEstimating || !!blockedByIntent || pricingPrechecks.length > 0}

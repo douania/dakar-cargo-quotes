@@ -2,7 +2,7 @@ import { buildScopeSnapshot, emptyCargoUnitDraft, emptyScenarioDraftV2, type Sce
 import type { ScenarioProposal } from "../../supabase/functions/recommend-pad-category/scenario-domain";
 export type { ScenarioProposal };
 
-export function proposalToDraft(proposal: ScenarioProposal): ScenarioDraft {
+export function proposalToDraft(proposal: ScenarioProposal, choices?: Record<string, string>): ScenarioDraft {
   if (proposal.status !== "proposed" || !/^[a-f0-9]{64}$/.test(proposal.source_fingerprint) ||
     !Array.isArray(proposal.groups) || !proposal.groups.length || proposal.groups.length > 12) throw new Error("Proposition source invalide");
   const draft = emptyScenarioDraftV2();
@@ -16,6 +16,16 @@ export function proposalToDraft(proposal: ScenarioProposal): ScenarioDraft {
     // Keep the full source fingerprint and email ID; no PAD amounts or inferred facts in this field.
     scenarioBasis: `Hypothèses à vérifier; e-mail ${g.source_email_id}; SHA256 ${proposal.source_fingerprint}; ${g.assumptions.some(a => a.includes("fourchette")) ? "poids haut; " : ""}${g.quantity_basis === "explicit_containers" ? "Qté conteneurs source." : "1 unité/conteneur."}`,
   }));
+  if (choices && Object.values(choices).some(Boolean)) {
+    if (Object.keys(choices).some(ref => !proposal.groups.some(g => g.unit_ref === ref))) throw new Error("Groupe PAD inconnu");
+    draft.schemaVersion = 3;
+    draft.padChoices = proposal.groups.map(g => {
+      const category = choices[g.unit_ref] || null;
+      const candidate = proposal.pad_candidates.find(c => c.unit_ref === g.unit_ref && c.category === category);
+      if (category && !candidate) throw new Error("Choix PAD absent de la proposition");
+      return { unit_ref: g.unit_ref, category, basis: candidate ? `Choix opérateur PAD ${category}; ${candidate.justification}`.slice(0, 200) : "" };
+    });
+  }
   const built = buildScopeSnapshot(draft);
   if (!built.ok || draft.cargoUnits.some(g => (g.scenarioBasis?.length ?? 0) > 200)) throw new Error("Proposition incompatible avec le contrat scénario ; vérifier les groupes");
   return draft;
@@ -24,6 +34,7 @@ export function proposalToDraft(proposal: ScenarioProposal): ScenarioDraft {
 export function proposalReason(code: string): string {
   const labels: Record<string, string> = {
     CLIENT_SOURCE_UNVERIFIED: "Expéditeur client non vérifié : pas de proposition automatique.",
+    CLIENT_IDENTITY_CONFLICT: "Identités client contradictoires ou invalides entre le dossier et le fil : vérifier la source.",
     SOURCE_BODY_UNAVAILABLE: "Corps d’e-mail absent, encodé ou incomplet : lecture manuelle nécessaire.",
     SOURCE_REVISION_REVIEW: "Une correction ou annulation est mentionnée : vérifier quelle liste fait foi.",
     CARGO_ROW_UNSUPPORTED: "Une ligne de marchandises n’est pas interprétable sans ambiguïté.",

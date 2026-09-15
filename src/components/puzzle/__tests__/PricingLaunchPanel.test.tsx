@@ -78,6 +78,16 @@ afterEach(() => {
 });
 
 describe('versioned-case manual pricing and latest-run recovery', () => {
+  it('scopes a canonical error separately from an available scenario result',async()=>{
+    vi.spyOn(console,'error').mockImplementation(()=>undefined);
+    invokeMock.mockResolvedValue({data:null,error:new Error('IMO goods scope requires clarification')});
+    const user=userEvent.setup(); renderPanel({onEstimate:vi.fn(),estimateResult:<p>Résultat scénario courant</p>});
+    await user.click(screen.getByRole('button',{name:'Calculer le devis confirmé'}));
+    await user.click(await screen.findByRole('button',{name:'Confirmer'}));
+    expect(await screen.findByLabelText('Blocage du devis confirmé')).toHaveTextContent('ne décrit pas le résultat de l’estimation');
+    expect(screen.getByText('Résultat scénario courant')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Estimer avec le scénario sélectionné'})).toBeEnabled();
+  });
   it('shows an in-flight estimate and prevents launching either pricing path concurrently', () => {
     renderPanel({ onEstimate: vi.fn(), isEstimating: true, canProvisionalDdp: true });
     expect(screen.getByRole('button', { name: 'Estimation en cours…' })).toBeDisabled();

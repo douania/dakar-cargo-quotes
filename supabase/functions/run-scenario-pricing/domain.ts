@@ -324,7 +324,7 @@ export function buildPricingInputs(facts: PricingFactRow[]): PricingInputs {
 
 /** Versioned cargo overlay is isolated from the canonical facts and legacy snapshots. */
 export function buildScenarioCargoPricing(inputs: PricingInputs, snapshot: Record<string, unknown>, facts: PricingFactRow[]) {
-  const context: ScenarioCargoContext | null = snapshot.schema_version === 2
+  const context: ScenarioCargoContext | null = snapshot.schema_version === 2 || snapshot.schema_version === 3
     ? { schema_version: 2, cargo_units: Array.isArray(snapshot.cargo_units) ? snapshot.cargo_units : [] }
     : null;
   const plan = context ? resolveScenarioCargo(context) : null;
@@ -397,7 +397,7 @@ export function resolveScenarioContainerTerminal(
   const inputs = buildPricingInputs(facts);
   const dakarPort = [inputs.originPort, inputs.destinationPort].some(port =>
     ["dakar", "dakar port", "port de dakar", "sndkr", "sn dkr"].includes(normalizeText(port)));
-  const eligible = snapshot.schema_version === 2 && snapshot.transport_mode === "MARITIME" &&
+  const eligible = (snapshot.schema_version === 2 || snapshot.schema_version === 3) && snapshot.transport_mode === "MARITIME" &&
     ["IMPORT", "TRANSIT"].includes(String(snapshot.movement_direction)) &&
     dakarPort &&
     units.length > 0 && units.every(u => isPlainObject(u) && u.unit_kind === "CONTAINER") &&
@@ -523,7 +523,7 @@ export function computeScenarioTotals(
     const validAmount = Number.isFinite(amount) && amount >= 0;
     const dependencyKeys = dependencyKeysForLine(line, assumptionKeys);
     const firmEligible = validAmount && !isReserve && dependencyKeys.length === 0 && sourceAllowsFirm(line);
-    const isHonoraires = normalizeText(line.bloc) === "honoraires";
+    const isHonoraires = normalizeText(line.bloc) === "honoraires" && source.vat_applicable !== false;
     if (validAmount && !isReserve) {
       indicative += amount;
       if (isHonoraires) indicativeHonoraires += amount;

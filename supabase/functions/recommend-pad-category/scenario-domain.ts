@@ -1,6 +1,7 @@
 import { computeCanonicalHash } from "../_shared/canonical-hash.ts";
 import { resolveImoFromUn } from "../_shared/imo-un-resolution.ts";
 import { CONTAINER_PROFILES } from "../_shared/dpw-dthc-tariff.ts";
+import { proposalPlainBody } from "./scenario-source.ts";
 
 export type Row = Record<string, unknown>;
 export interface ProposedGroup {
@@ -18,6 +19,7 @@ export interface PadCandidate {
   qualification: "PROPOSAL_ONLY";
 }
 export interface ScenarioProposal {
+  client_source?: string;
   source_fingerprint: string; status: "proposed" | "needs_review";
   groups: ProposedGroup[]; reasons: string[]; pad_candidates: PadCandidate[];
 }
@@ -38,11 +40,11 @@ export function proposeGroups(client: unknown, emails: Row[]): Pick<ScenarioProp
   if (!normalize(client)) return { status: "needs_review", groups, reasons: ["CLIENT_SOURCE_UNVERIFIED"] };
   for (const email of emails) {
     if (normalize(email.from_address) !== normalize(client)) continue;
-    if (typeof email.body_text !== "string" || email.body_text.length > 100000 ||
-      /\uFFFD|content-transfer-encoding:|boundary=|<html|\[(?:truncated|tronqu[ée])/i.test(email.body_text)) {
+    const readableBody = proposalPlainBody(email.body_text);
+    if (readableBody === null) {
       reasons.add("SOURCE_BODY_UNAVAILABLE"); continue;
     }
-    const body = activeBody(email.body_text);
+    const body = activeBody(readableBody);
     if (/\b(?:revised|instead|replace[ds]?|correction|cancel(?:led)?|annul[ée]|remplac[ée]|corrig[ée])\b/i.test(body)) reasons.add("SOURCE_REVISION_REVIEW");
     const numbered = body.split(/\r?\n/).filter(line => /^\s*\d{1,2}[.)]/.test(line));
     const ordinals: number[] = [];
@@ -114,10 +116,12 @@ export function validatePadCandidates(raw: unknown, groups: ProposedGroup[], ali
       known => known.is_validated === true && known.pad_category === c.category && normalize(known.normalized_term) === normalize(a))) as string[] : [];
     if (!matched.length) continue;
     const rates = tariffs.filter(t => t.classification === c.category && t.provider === "PAD" && t.category === "DROIT_PASSAGE" &&
-      t.operation_type === "IMPORT" && t.cargo_type === "CONTENEUR" && t.is_active === true &&
+      // Existing PAD catalogue is in FCFA/t and has no per-row currency column.
+      t.operation_type === "IMPORT" && t.cargo_type === "CONTENEUR" && t.is_active === true && (t.currency === undefined || t.currency === "XOF") &&
       ["official", "validated_internal"].includes(String(t.evidence_level)) && typeof t.source_document === "string" && t.source_document.trim() &&
       ["tonne", "tonnes", "t", "ton"].includes(normalize(t.unit)) && typeof t.amount === "number" && Number.isFinite(t.amount) && t.amount > 0 &&
-      typeof t.effective_date === "string" && t.effective_date.slice(0, 10) <= today && (!t.expiry_date || String(t.expiry_date).slice(0, 10) >= today));
+      typeof t.effective_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.effective_date) && t.effective_date <= today &&
+      (t.expiry_date === null || (typeof t.expiry_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.expiry_date) && t.expiry_date >= today)));
     const rate = rates.length === 1 ? rates[0] : null;
     out.push({ unit_ref: String(c.unit_ref), category: c.category, justification: c.justification, matching_aliases: [...new Set(matched)].slice(0, 5),
       rate: rate ? Number(rate.amount) : null, tariff_source: rate ? { id: rate.id, source_document: rate.source_document,

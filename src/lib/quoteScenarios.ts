@@ -1,4 +1,5 @@
 import { scenarioCargoV2Violation } from "../../supabase/functions/_shared/scenario-cargo";
+import { scenarioPadViolation } from "../../supabase/functions/_shared/scenario-pad-contract";
 
 /**
  * Phase P1-A2 — Contrat front des scénarios de périmètre.
@@ -350,7 +351,8 @@ export interface ScenarioLinkDraft {
 }
 
 export interface ScenarioDraft {
-  schemaVersion?: 1 | 2;
+  schemaVersion?: 1 | 2 | 3;
+  padChoices?: import("../../supabase/functions/_shared/scenario-pad-contract").ScenarioPadChoice[];
   title: string;
   status: ScenarioWritableStatus;
   blockedReason: string;
@@ -471,7 +473,7 @@ export function emptyScenarioDraft(): ScenarioDraft {
 
 /** Explicit new revision; a legacy false is not evidence of non-dangerous cargo. */
 export function upgradeScenarioDraft(draft: ScenarioDraft): ScenarioDraft {
-  if (draft.schemaVersion === 2) return draft;
+  if (draft.schemaVersion === 2 || draft.schemaVersion === 3) return draft;
   return { ...draft, schemaVersion: 2, cargoUnits: draft.cargoUnits.map(unit => ({
     ...unit, dangerousGoods: unit.dangerousGoods === true ? true : null,
     ownership: "unknown", unNumber: "", imoClass: "", weightBasis: "unknown", scenarioBasis: "",
@@ -727,7 +729,7 @@ export function buildScopeSnapshot(draft: ScenarioDraft): BuildSnapshotResult {
   const cargoUnits: Record<string, unknown>[] = [];
   const seenRefs = new Set<string>();
   for (let i = 0; i < draft.cargoUnits.length; i++) {
-    const unit = buildCargoUnit(draft.cargoUnits[i], i + 1, draft.schemaVersion ?? 1);
+    const unit = buildCargoUnit(draft.cargoUnits[i], i + 1, draft.schemaVersion === 3 ? 2 : draft.schemaVersion ?? 1);
     if (!unit.ok) return { ok: false, message: unit.message };
     const ref = unit.value.unit_ref as string;
     if (seenRefs.has(ref)) {
@@ -781,6 +783,7 @@ export function buildScopeSnapshot(draft: ScenarioDraft): BuildSnapshotResult {
   if (!transitRefs.ok) return { ok: false, message: transitRefs.message };
 
   const snapshot: Record<string, unknown> = {
+    ...(draft.schemaVersion === 3 ? { pad_choices: draft.padChoices ?? [] } : {}),
     schema_version: draft.schemaVersion ?? 1,
     transport_mode: draft.transportMode,
     movement_direction: draft.movementDirection,
@@ -799,6 +802,10 @@ export function buildScopeSnapshot(draft: ScenarioDraft): BuildSnapshotResult {
     },
   };
 
+  if (draft.schemaVersion === 3) {
+    const violation = scenarioPadViolation(snapshot);
+    if (violation) return { ok: false, message: `Choix PAD par groupe à vérifier (${violation})` };
+  }
   const bytes = jsonbTextByteLength(snapshot);
   if (bytes > MAX_SNAPSHOT_BYTES) {
     return {
@@ -1208,7 +1215,7 @@ export function draftFromScenario(
   const rawUnits = Array.isArray(snapshot.cargo_units) ? snapshot.cargo_units : [];
   const cargoUnits =
     rawUnits.length > 0
-      ? rawUnits.slice(0, MAX_CARGO_UNITS).map((u, i) => cargoUnitDraftFrom(u, i + 1, snapshot.schema_version === 2 ? 2 : 1))
+      ? rawUnits.slice(0, MAX_CARGO_UNITS).map((u, i) => cargoUnitDraftFrom(u, i + 1, snapshot.schema_version === 2 || snapshot.schema_version === 3 ? 2 : 1))
       : base.cargoUnits;
 
   const customs = isPlainObject(snapshot.customs) ? snapshot.customs : {};
@@ -1224,7 +1231,8 @@ export function draftFromScenario(
 
   return {
     ...base,
-    schemaVersion: snapshot.schema_version === 2 ? 2 : 1,
+    schemaVersion: snapshot.schema_version === 3 ? 3 : snapshot.schema_version === 2 ? 2 : 1,
+    ...(snapshot.schema_version === 3 ? { padChoices: structuredClone(snapshot.pad_choices) as ScenarioDraft["padChoices"] } : {}),
     title: scenario.title,
     status: enumOr(scenario.status, SCENARIO_WRITABLE_STATUSES, "draft"),
     blockedReason: scenario.blocked_reason ?? "",
@@ -1378,6 +1386,10 @@ export function projectScopeFields(raw: unknown): ScopeFieldValue[] {
   const constraints = isPlainObject(s.constraints) ? s.constraints : {};
 
   return [
+    ...(s.schema_version === 3 && Array.isArray(s.pad_choices) ? s.pad_choices.map((c: Record<string, unknown>) => ({
+      path: `pad_choices.${String(c.unit_ref)}`, label: `Choix PAD — ${String(c.unit_ref)}`,
+      value: `${c.category ?? "À confirmer"} — ${c.basis ?? ""}`,
+    })) : []),
     {
       path: "transport_mode",
       label: "Mode de transport",

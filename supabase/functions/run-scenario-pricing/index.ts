@@ -25,6 +25,9 @@ import {
   SERVICE_PACKAGES,
 } from "../_shared/service-scope.ts";
 import { resolvePadScopeBlocker } from "../_shared/pad-scope-blocker.ts";
+import { priceScenarioPad } from "./pad-pricing.ts";
+import { priceScenarioFees } from "./fee-pricing.ts";
+import type { FeeLineRow, FeeRuleRow } from "../_shared/fee-rules.ts";
 import {
   buildEngineRequest,
   buildScenarioCargoPricing,
@@ -375,6 +378,10 @@ async function handleRequest(req: Request): Promise<Response> {
     const servicesOnly = cargoPlan !== null && cargoContext !== null && transportMode === "MARITIME" &&
       String(inputs.incoterm ?? "").trim().toUpperCase() === "DAP" &&
       !packageKey.split("_").includes("DDP");
+    // Never silently discard v3 group classifications in the legacy valuation path.
+    if (scenarioSnapshot.schema_version === 3 && !servicesOnly) {
+      blockers.push("SCENARIO_PAD_PRICING_SCOPE_UNSUPPORTED");
+    }
 
     const padBlocker = resolvePadScopeBlocker({
       facts: overlay.facts,
@@ -427,7 +434,7 @@ async function handleRequest(req: Request): Promise<Response> {
         code: "SCENARIO_DAP_SERVICES_ONLY", source: "scenario_services_policy_v1",
         message: "Estimation des prestations DAP uniquement. Droits et taxes douaniers et calcul CAF exclus ; aucune valeur marchandise de remplacement.",
       }] : []),
-      ...(servicesOnly && padBlocker ? [{
+      ...(servicesOnly && padBlocker && scenarioSnapshot.schema_version !== 3 ? [{
         code: "SCENARIO_PAD_PENDING", source: "scenario_services_policy_v1",
         message: "Droit de passage PAD non chiffré : catégorie et tarif applicables à déterminer. Ce poste n’est pas gratuit et n’est pas inclus dans le sous-total.",
       }] : []),
@@ -490,6 +497,31 @@ async function handleRequest(req: Request): Promise<Response> {
               explicitlyRemovedServiceKeys,
             );
             tariffLines = scopeFiltered.keptLines;
+            if (servicesOnly && scenarioSnapshot.schema_version === 3 && effectiveServiceKeys.includes("PORT_DAKAR_HANDLING")) {
+              const rates = await serviceClient.from("port_tariffs")
+                .select("id,provider,category,operation_type,cargo_type,classification,amount,unit,source_document,evidence_level,effective_date,expiry_date,is_active", { count: "exact" })
+                .eq("provider", "PAD").eq("category", "DROIT_PASSAGE").eq("operation_type", "IMPORT").eq("cargo_type", "CONTENEUR").eq("is_active", true).limit(201);
+              const complete = !rates.error && rates.count !== null && rates.count <= 200 && rates.count === rates.data?.length;
+              if (!complete) reservations.push({ code: "PAD_CATALOG_UNAVAILABLE", source: "scenario_catalog_read" });
+              const padLines = priceScenarioPad(scenarioSnapshot, complete ? rates.data ?? [] : [], new Date().toISOString().slice(0, 10));
+              // Do not retain an aggregate PAD line alongside the per-group lines.
+              tariffLines = [...tariffLines.filter(l => l.category !== "PAD_DROIT_PASSAGE"), ...padLines];
+            }
+            if (servicesOnly && scenarioSnapshot.schema_version === 3 && cargoContext && cargoPlan) {
+              const [feeLines, feeRules] = await Promise.all([
+                serviceClient.from("fee_lines").select("*", { count: "exact" }).eq("is_active", true).limit(501),
+                serviceClient.from("fee_rules").select("*", { count: "exact" }).eq("is_active", true).limit(2001),
+              ]);
+              const complete = !feeLines.error && !feeRules.error && feeLines.count !== null && feeRules.count !== null &&
+                feeLines.count <= 500 && feeRules.count <= 2000 && feeLines.count === feeLines.data?.length && feeRules.count === feeRules.data?.length;
+              if (!complete) reservations.push({ code: "SCENARIO_FEE_CATALOG_UNAVAILABLE", source: "scenario_catalog_read" });
+              const fees = priceScenarioFees({ facts: overlay.facts, cargo: cargoContext, containers: cargoPlan.containers,
+                weightKg: cargoPlan.cargoWeight === undefined ? null : cargoPlan.cargoWeight * 1000,
+                requested: effectiveServiceKeys, lines: complete ? feeLines.data as FeeLineRow[] : [],
+                rules: complete ? feeRules.data as FeeRuleRow[] : [], today: new Date().toISOString().slice(0, 10) });
+              const replaced = new Set(fees.map(f => String(f.category)));
+              tariffLines = [...tariffLines.filter(line => !replaced.has(String(line.category).toUpperCase()) && ![...inferCoveredServices([line])].some(key => replaced.has(key))), ...fees];
+            }
             if (scopeFiltered.removedLines.length > 0) {
               reservations.push(...scopeFiltered.removedLines.map((line) => ({
                 code: "SERVICE_EXPLICITLY_REMOVED",

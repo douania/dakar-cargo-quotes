@@ -55,3 +55,15 @@ it("presents verified candidate sources without applying their rates to the draf
   expect(await screen.findByText(/proposition, non appliquée au calcul/)).toBeInTheDocument();
   expect(screen.getByText(/Source synthétique/)).toBeInTheDocument(); expect(screen.getByText(/ce n’est pas le montant du lot/)).toBeInTheDocument();
 });
+
+it("operator selection is retained only after source recheck, never auto-selects a PAD candidate",async()=>{
+  const data={...result(),pad_candidates:[{unit_ref:"lot-1",category:"T02",justification:"Équipement",matching_aliases:["equipement"],rate:100,qualification:"PROPOSAL_ONLY",tariff_source:null}]};
+  const useDraft=vi.fn(); mocks.invoke.mockResolvedValueOnce({data,error:null}).mockResolvedValueOnce({data:{verified:true},error:null});
+  render(<ScenarioProposalPanel caseId={CASE} onUseDraft={useDraft}/>);fireEvent.click(proposeButton());
+  const select=await screen.findByLabelText("Choix PAD pour lot-1");expect(select).toHaveValue("");
+  fireEvent.change(select,{target:{value:"T02"}});
+  fireEvent.click(screen.getByRole("button",{name:"Reprendre cette proposition dans un brouillon"}));
+  await waitFor(()=>expect(useDraft).toHaveBeenCalledOnce());
+  expect(useDraft.mock.lastCall![0]).toMatchObject({schemaVersion:3,padChoices:[{unit_ref:"lot-1",category:"T02"}]});
+  expect(JSON.stringify(useDraft.mock.lastCall![0])).not.toContain('"rate":');
+});

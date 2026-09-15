@@ -4,6 +4,7 @@ export type ScenarioPricingStatus = "success" | "blocked" | "failed" | "supersed
 export type ScenarioPricingQualification = "provisional" | "partial" | "blocked";
 
 export interface ScenarioPricingRunSummary {
+  tariff_lines?: unknown;
   id: string;
   scenario_id: string;
   run_seq: number;
@@ -113,6 +114,12 @@ export function scenarioPricingCodeMessage(code: string): string {
       return "Estimation des prestations DAP : droits et taxes douaniers et calcul CAF exclus, sans valeur marchandise fictive. Le montant affiché est un sous-total des postes chiffrés.";
     case "SCENARIO_PAD_PENDING":
       return "Droit de passage PAD à déterminer : poste non chiffré, exclu du sous-total et non considéré comme gratuit.";
+    case "PAD_CATALOG_UNAVAILABLE":
+      return "Lecture complète du catalogue PAD impossible : postes PAD non chiffrés, réessayer avant de conclure à un tarif manquant.";
+    case "SCENARIO_FEE_CATALOG_UNAVAILABLE":
+      return "Lecture complète du catalogue d’honoraires impossible : honoraires non chiffrés, réessayer avant de conclure à une règle manquante.";
+    case "SCENARIO_PAD_PRICING_SCOPE_UNSUPPORTED":
+      return "Le calcul PAD par groupe est disponible pour l’estimation maritime import DAP. Les choix PAD ne peuvent pas être ignorés dans un autre périmètre.";
     case "QUOTATION_ENGINE_MODE_NOT_ACKNOWLEDGED":
       return "Le moteur ne confirme pas le mode estimation DAP. Aucun montant retenu ; vérifier la concordance des versions déployées.";
     case "SCENARIO_CARGO_V2_REQUIRED":

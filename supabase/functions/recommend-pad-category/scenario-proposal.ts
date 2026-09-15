@@ -3,6 +3,7 @@ import { errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { proposalFingerprint, proposeGroups, validatePadCandidates, type Row } from "./scenario-domain.ts";
+import { proposalClient } from "./scenario-source.ts";
 
 /** Read-only addition to the recommendation endpoint. Even source/catalog reads use the caller's RLS. */
 export async function handleScenarioProposal(body: Row, authorization: string): Promise<Response> {
@@ -23,12 +24,13 @@ export async function handleScenarioProposal(body: Row, authorization: string): 
     db.from("emails").select("id, from_address, body_text, sent_at", { count: "exact" })
       .eq("thread_ref", access.data.thread_id).order("sent_at", { ascending: true }).limit(201),
     db.from("quote_facts").select("fact_key, value_text, value_json, value_number").eq("case_id", body.case_id).eq("is_current", true)
-      .in("fact_key", ["routing.transport_mode", "routing.movement_direction", "service.package"]),
+      .in("fact_key", ["routing.transport_mode", "routing.movement_direction", "service.package", "contacts.client_email"]),
   ]);
   if (thread.error || !thread.data || emails.error || scope.error || emails.count === null || emails.count > 200 || emails.count !== emails.data?.length) {
     return errorResponse("Source complète non vérifiable : aucun brouillon automatique", 422);
   }
   if ((scope.data ?? []).some(f => {
+    if (f.fact_key === "contacts.client_email") return false;
     const values = [f.value_text, f.value_json, f.value_number].filter(v => v !== null && v !== undefined && v !== "");
     if (f.fact_key === "routing.transport_mode") return values.some(v => typeof v !== "string" || v.trim().toUpperCase() !== "MARITIME");
     if (f.fact_key === "routing.movement_direction") return values.some(v => typeof v !== "string" || v.trim().toUpperCase() !== "IMPORT");
@@ -41,8 +43,9 @@ export async function handleScenarioProposal(body: Row, authorization: string): 
     scope: [...(scope.data ?? [])].sort((a, b) => a.fact_key.localeCompare(b.fact_key)) }, emails.data as Row[]);
   if (body.action === "verify_scenario_source") return body.source_fingerprint === fingerprint
     ? jsonResponse({ verified: true }) : errorResponse("Le fil source a changé : relancez la proposition avant de reprendre ce brouillon", 409);
-  const proposal = proposeGroups(thread.data.client_email, emails.data as Row[]);
-  const base = { ...proposal, case_id: body.case_id, source_fingerprint: fingerprint, pad_candidates: [],
+  const identity = proposalClient(thread.data.client_email, scope.data ?? []);
+  const proposal = identity.reason ? { status: "needs_review", groups: [], reasons: [identity.reason] } : proposeGroups(identity.email, emails.data as Row[]);
+  const base = { ...proposal, client_source: identity.source, case_id: body.case_id, source_fingerprint: fingerprint, pad_candidates: [],
     policy: "PROPOSAL_ONLY", generated_at: new Date().toISOString() };
   if (proposal.status !== "proposed") return jsonResponse(base);
   const [aliasResult, tariffResult] = await Promise.all([

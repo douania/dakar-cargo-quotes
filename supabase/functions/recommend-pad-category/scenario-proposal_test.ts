@@ -88,14 +88,15 @@ Deno.test("PAD proposals: only actual validated aliases and unique applicable ta
     assertEquals(validatePadCandidates([r], groups, aliases, tariffs, "2026-09-15"), []);
   for (const badRates of [[], [...tariffs, ...tariffs], [{ ...tariffs[0], expiry_date: "2026-01-01" }],
     [{ ...tariffs[0], evidence_level: "assumed" }], [{ ...tariffs[0], amount: 0 }], [{ ...tariffs[0], unit: "EVP" }],
-    [{ ...tariffs[0], effective_date: "2027-01-01" }]]) {
+    [{ ...tariffs[0], effective_date: "2027-01-01" }], [{ ...tariffs[0], currency: "USD" }],
+    [{ ...tariffs[0], currency: null }], [{ ...tariffs[0], effective_date: "" }]]) {
     const out = validatePadCandidates([candidate], groups, aliases, badRates, "2026-09-15");
     assertEquals(out[0].rate, null); assertEquals(out[0].tariff_source, null);
   }
   assertEquals(validatePadCandidates([candidate], groups, [{ ...aliases[0], is_validated: false }], tariffs, "2026-09-15"), []);
 });
 
-interface Options { invisible?: boolean; invalidAuth?: boolean; incomplete?: boolean; aiFail?: boolean; catalogFail?: boolean; scope?: unknown; scopeKey?: string; changed?: boolean }
+interface Options { invisible?: boolean; invalidAuth?: boolean; incomplete?: boolean; aiFail?: boolean; catalogFail?: boolean; scope?: unknown; scopeKey?: string; changed?: boolean; threadClient?: string | null; contact?: string; encoded?: boolean }
 async function withTransport(options: Options, check: (invoke: (body: Row, auth?: boolean) => Promise<Response>, calls: string[], aiBodies: Row[]) => Promise<void>) {
   const fetchBefore = globalThis.fetch; const names = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "LOVABLE_API_KEY"];
   const envBefore = names.map(k => Deno.env.get(k)); const calls: string[] = []; const aiBodies: Row[] = []; const unexpected: string[] = [];
@@ -114,11 +115,14 @@ async function withTransport(options: Options, check: (invoke: (body: Row, auth?
         assertEquals(req.headers.get("apikey"), "synthetic-anon");
         if (url.pathname === "/auth/v1/user") return options.invalidAuth ? reply({}, 401) : reply({ id: CASE, aud: "authenticated" });
         if (url.pathname === "/rest/v1/quote_cases") { assertEquals(url.searchParams.get("id"), `eq.${CASE}`); return reply(options.invisible ? null : { id: CASE, thread_id: "thread", request_type: "IMPORT" }); }
-        if (url.pathname === "/rest/v1/email_threads") { assertEquals(url.searchParams.get("id"), "eq.thread"); return reply({ client_email: CLIENT }); }
-        if (url.pathname === "/rest/v1/emails") { assertEquals(url.searchParams.get("thread_ref"), "eq.thread"); return reply([mail(options.changed ? CARGO + "\nchanged" : CARGO)], 200, options.incomplete ? 2 : 1); }
-        if (url.pathname === "/rest/v1/quote_facts") { assertEquals(url.searchParams.get("is_current"), "eq.true"); assertEquals(url.searchParams.get("case_id"), `eq.${CASE}`); return reply(options.scope ? [{ fact_key: options.scopeKey ?? "service.package", value_text: options.scope }] : []); }
+        if (url.pathname === "/rest/v1/email_threads") { assertEquals(url.searchParams.get("id"), "eq.thread"); return reply({ client_email: "threadClient" in options ? options.threadClient : CLIENT }); }
+        if (url.pathname === "/rest/v1/emails") { assertEquals(url.searchParams.get("thread_ref"), "eq.thread"); return reply([mail(options.encoded ? `Content-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n\n${btoa(CARGO)}` : options.changed ? CARGO + "\nchanged" : CARGO)], 200, options.incomplete ? 2 : 1); }
+        if (url.pathname === "/rest/v1/quote_facts") { assertEquals(url.searchParams.get("is_current"), "eq.true"); assertEquals(url.searchParams.get("case_id"), `eq.${CASE}`); return reply([...(options.scope ? [{ fact_key: options.scopeKey ?? "service.package", value_text: options.scope }] : []), ...(options.contact ? [{ fact_key: "contacts.client_email", value_text: options.contact }] : [])]); }
         if (url.pathname === "/rest/v1/pad_designation_aliases") return reply(aliases, 200, aliases.length);
-        if (url.pathname === "/rest/v1/port_tariffs") return options.catalogFail ? reply([], 200, 2) : reply(tariffs, 200, tariffs.length);
+        if (url.pathname === "/rest/v1/port_tariffs") {
+          assert(!String(url.searchParams.get("select")).split(",").map(s => s.trim()).includes("currency"), "port_tariffs has no currency column");
+          return options.catalogFail ? reply([], 200, 2) : reply(tariffs, 200, tariffs.length);
+        }
       }
       unexpected.push(`${req.method} ${url}`); throw new Error("Unexpected operation refused");
     }) as typeof fetch;
@@ -140,6 +144,24 @@ Deno.test("proposal HTTP: actual authenticated route reads only case-bound data 
     const messages = ai[0].messages as Row[]; const context = JSON.parse(String(messages[1].content)); assertEquals(context.groups.length, 3);
     const verified = await invoke({ action: "verify_scenario_source", case_id: CASE, source_fingerprint: body.source_fingerprint });
     assertEquals(await verified.json(), { verified: true }); assertEquals(ai.length, 1);
+  });
+});
+
+Deno.test("proposal HTTP: missing thread identity uses existing case contact and complete MIME, no writes; changed contact invalidates draft", async () => {
+  const options: Options={threadClient:null,contact:CLIENT,encoded:true};
+  await withTransport(options,async(invoke,calls,ai)=>{
+    const response=await invoke({action:"propose_scenario",case_id:CASE});const body=await response.json();
+    assertEquals(body.status,"proposed");assertEquals(body.client_source,"case_contact_fact");assertEquals(body.groups.length,3);
+    assertEquals(calls.filter(c=>c.startsWith("POST")),["POST /v1/chat/completions"]);
+    options.contact="changed@example.invalid";
+    assertEquals((await invoke({action:"verify_scenario_source",case_id:CASE,source_fingerprint:body.source_fingerprint})).status,409);
+    assertEquals(ai.length,1);
+  });
+});
+Deno.test("proposal HTTP: client identity conflict refuses before AI and never invents another sender",async()=>{
+  await withTransport({contact:"other@example.invalid"},async(invoke,_calls,ai)=>{
+    const response=await invoke({action:"propose_scenario",case_id:CASE});const body=await response.json();
+    assertEquals(body.status,"needs_review");assertEquals(body.reasons,["CLIENT_IDENTITY_CONFLICT"]);assertEquals(ai,[]);
   });
 });
 

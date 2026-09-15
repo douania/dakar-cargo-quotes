@@ -31,6 +31,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ScenarioProposalPanel, type ScenarioProposalAction } from "./ScenarioProposalPanel";
+import type { SelectedScenarioEstimate } from "./ScenarioEstimateResult";
 import type { Database } from "@/integrations/supabase/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -149,6 +150,7 @@ type QuoteScenarioSelection =
   Database["public"]["Tables"]["quote_scenario_selections"]["Row"];
 
 interface QuoteScenariosPanelProps {
+  onSelectedEstimateChange?: (estimate: SelectedScenarioEstimate | null) => void;
   caseId: string;
   actionRef?: Ref<ScenarioPricingAction>;
   onPricingPendingChange?: (pending: boolean) => void;
@@ -171,7 +173,7 @@ const SELECTION_COLUMNS =
 const SCENARIO_PRICING_COLUMNS =
   "id, scenario_id, run_seq, status, qualification, blockers, reservations, " +
   "assumptions_snapshot, firm_total_ht, firm_total_ttc, indicative_total_ht, " +
-  "indicative_total_ttc, currency, completed_at";
+  "indicative_total_ttc, currency, completed_at, tariff_lines";
 
 const SCENARIO_OUTPUT_COLUMNS =
   "id, scenario_pricing_run_id, snapshot, created_at";
@@ -655,7 +657,10 @@ function ScenarioForm({
 
   const setUnit = (index: number, unit: CargoUnitDraft) => {
     const cargoUnits = draft.cargoUnits.map((u, i) => (i === index ? unit : u));
-    onChange({ ...draft, cargoUnits });
+    // A renamed group is a new classification target: never silently carry its old PAD choice.
+    const oldRef = draft.cargoUnits[index].unitRef;
+    onChange({ ...draft, cargoUnits, ...(draft.schemaVersion === 3 ? { padChoices: draft.padChoices?.map(c =>
+      c.unit_ref === oldRef && oldRef !== unit.unitRef ? { unit_ref: unit.unitRef, category: null, basis: "" } : c) } : {}) });
   };
 
   const setLink = (index: number, link: ScenarioLinkDraft) => {
@@ -747,7 +752,7 @@ function ScenarioForm({
           RoRo et ConRo sont des périmètres descriptifs légitimes : les décrire ici ne déclenche
           aucun calcul.
         </p>
-        {draft.schemaVersion === 2 && draft.transportMode !== "MARITIME" ? (
+        {(draft.schemaVersion ?? 1) >= 2 && draft.transportMode !== "MARITIME" ? (
           <p className="text-xs text-amber-800" role="status">
             Le calcul par groupes v2 est limité au maritime conteneurisé. Pour une estimation
             aérienne, utilisez « Nouveau scénario ». Ce brouillon et ses hypothèses restent
@@ -766,15 +771,15 @@ function ScenarioForm({
       </div>
 
       <div className="space-y-2">
-        {draft.schemaVersion !== 2 && draft.transportMode === "MARITIME" ? (
+        {(draft.schemaVersion ?? 1) < 2 && draft.transportMode === "MARITIME" ? (
           <p className="text-xs text-muted-foreground">Pour recalculer un scénario à conteneurs, passer explicitement ce brouillon en v2 et vérifier les hypothèses par lot. Les résultats historiques restent conservés. Les anciennes références d'équipement non reconnues doivent être remplacées par un code de conteneur explicite (ex. 40hc), sans conversion automatique.</p>
         ) : null}
-        {draft.schemaVersion === 2 ? (
+        {(draft.schemaVersion ?? 1) >= 2 ? (
           <p className="text-xs text-muted-foreground">Propriété conservée sans ajustement tarifaire SOC/COC dans cette version ; frais dépendants à vérifier.</p>
         ) : null}
         <div className="flex items-center justify-between gap-2">
           <SectionTitle>Lots ({draft.cargoUnits.length}/{MAX_CARGO_UNITS})</SectionTitle>
-          {draft.schemaVersion !== 2 && draft.transportMode === "MARITIME" ? <Button type="button" variant="outline" size="sm"
+          {(draft.schemaVersion ?? 1) < 2 && draft.transportMode === "MARITIME" ? <Button type="button" variant="outline" size="sm"
             onClick={() => onChange(upgradeScenarioDraft(draft))}>Passer ce brouillon en v2 maritime (danger non renseigné à revoir)</Button> : null}
           <Button
             variant="outline"
@@ -785,7 +790,8 @@ function ScenarioForm({
             onClick={() =>
               onChange({
                 ...draft,
-                cargoUnits: [...draft.cargoUnits, emptyCargoUnitDraft(draft.cargoUnits.length + 1, draft.schemaVersion ?? 1)],
+                cargoUnits: [...draft.cargoUnits, emptyCargoUnitDraft(draft.cargoUnits.length + 1, draft.schemaVersion === 3 ? 2 : draft.schemaVersion ?? 1)],
+                ...(draft.schemaVersion === 3 ? { padChoices: [...draft.padChoices ?? [], { unit_ref: `lot-${draft.cargoUnits.length + 1}`, category: null, basis: "" }] } : {}),
               })
             }
           >
@@ -801,7 +807,8 @@ function ScenarioForm({
             removable={draft.cargoUnits.length > 1}
             onChange={(next) => setUnit(index, next)}
             onRemove={() =>
-              onChange({ ...draft, cargoUnits: draft.cargoUnits.filter((_, i) => i !== index) })
+              onChange({ ...draft, cargoUnits: draft.cargoUnits.filter((_, i) => i !== index),
+                ...(draft.schemaVersion === 3 ? { padChoices: draft.padChoices?.filter(c => c.unit_ref !== unit.unitRef) } : {}) })
             }
           />
         ))}
@@ -809,6 +816,18 @@ function ScenarioForm({
 
       <div className="space-y-2">
         <SectionTitle>Douane, booking, documents</SectionTitle>
+        {draft.schemaVersion === 2 && draft.transportMode === "MARITIME" && draft.movementDirection === "IMPORT" && <Button type="button" variant="outline" onClick={() => onChange({ ...draft, schemaVersion: 3,
+          padChoices: draft.cargoUnits.map(u => ({ unit_ref: u.unitRef, category: null, basis: "" })) })}>Ajouter les choix PAD par groupe (v3)</Button>}
+        {draft.schemaVersion === 3 && <div className="space-y-2"><p>Choix PAD de scénario — hypothèses opérateur, pas des faits client. Le tarif applicable sera relu au calcul.</p>
+          {draft.padChoices?.map((choice, index) => <div key={choice.unit_ref} className="rounded border p-2">
+            <label>Catégorie PAD — {choice.unit_ref}<select aria-label={`Catégorie PAD — ${choice.unit_ref}`} className="block border bg-background" value={choice.category ?? ""}
+              onChange={e => set("padChoices", draft.padChoices!.map((c, i) => i === index ? { ...c, category: e.target.value || null } : c))}>
+              <option value="">À confirmer</option>{[...Array.from({ length: 14 }, (_, i) => `T${String(i + 1).padStart(2, "0")}`), ...Array.from({ length: 5 }, (_, i) => `P0${i + 1}`)].map(c => <option key={c}>{c}</option>)}
+            </select></label>
+            <label>Justification PAD — {choice.unit_ref}<Input aria-label={`Justification PAD — ${choice.unit_ref}`} value={choice.basis} maxLength={200}
+              onChange={e => set("padChoices", draft.padChoices!.map((c, i) => i === index ? { ...c, basis: e.target.value } : c))} /></label>
+          </div>)}
+        </div>}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           <EnumField
             label="Régime douanier"
@@ -1062,7 +1081,7 @@ function ComparisonBlock({ left, right }: ComparisonBlockProps) {
 
 const NO_SCENARIO = "__none__";
 
-export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange }: QuoteScenariosPanelProps) {
+export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange, onSelectedEstimateChange }: QuoteScenariosPanelProps) {
   const queryClient = useQueryClient();
   // Une réponse réseau perdue ne doit jamais transformer un rejeu manuel en
   // nouvelle création/révision. La clé reste associée au contenu logique exact
@@ -1533,6 +1552,15 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange 
     onPricingPendingChange?.(pricingMutation.isPending);
     return () => onPricingPendingChange?.(false);
   }, [onPricingPendingChange, pricingMutation.isPending]);
+
+  useEffect(() => {
+    const selected = scenarios.find(s => s.id === openSelection?.scenario_id && !s.superseded_by_scenario_id);
+    const error = errorMessage((pricingMutation.variables?.scenarioId === selected?.id ? pricingMutation.error : null) ?? scenariosQuery.error ?? selectionsQuery.error ?? pricingRunsQuery.error);
+    onSelectedEstimateChange?.(selected ? { caseId, title: selected.title,
+      run: latestPricingByScenario.get(selected.id) ?? null, pending: pricingMutation.isPending,
+      error } : null);
+  }, [caseId, scenarios, openSelection, latestPricingByScenario, pricingMutation.isPending, pricingMutation.error, pricingMutation.variables,
+    scenariosQuery.error, selectionsQuery.error, pricingRunsQuery.error, onSelectedEstimateChange]);
 
   // Le bouton principal réutilise exactement la mutation et l'idempotence du
   // panneau. Aucun lancement au montage, aucune création/sélection implicite.

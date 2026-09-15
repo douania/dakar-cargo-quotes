@@ -81,6 +81,7 @@ import { NextActionBanner } from "@/components/case/NextActionBanner";
 import { ReadyActionsPanel } from "@/components/case/ReadyActionsPanel";
 import { QuoteScenarioAssumptionsPanel } from "@/components/case/QuoteScenarioAssumptionsPanel";
 import { QuoteScenariosPanel, type ScenarioPricingAction } from "@/components/case/QuoteScenariosPanel";
+import { ScenarioEstimateResult, type SelectedScenarioEstimate } from "@/components/case/ScenarioEstimateResult";
 import { FinalRequestStatePanel } from "@/components/case/FinalRequestStatePanel";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
@@ -127,6 +128,7 @@ export default function CaseView() {
   const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
   const scenarioPanel = React.useRef<HTMLDivElement>(null);
   const [isScenarioEstimating, setIsScenarioEstimating] = React.useState(false);
+  const [selectedEstimate, setSelectedEstimate] = React.useState<SelectedScenarioEstimate | null>(null);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
@@ -1847,7 +1849,7 @@ export default function CaseView() {
         {caseId && <FinalRequestStatePanel caseId={caseId} />}
 
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
-        {caseId && <div ref={scenarioPanel}><QuoteScenariosPanel key={caseId} caseId={caseId} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} /></div>}
+        {caseId && <div ref={scenarioPanel}><QuoteScenariosPanel key={caseId} caseId={caseId} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} /></div>}
 
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
@@ -2092,10 +2094,10 @@ export default function CaseView() {
               <PricingLaunchPanel
                 caseId={caseId!}
                 isEstimating={isScenarioEstimating}
+                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} /> : null}
                 onEstimate={() => {
                   if (!scenarioPricingAction.current) { toast.warning("Scénarios indisponibles : réessayez après leur chargement."); return; }
                   scenarioPricingAction.current.estimateSelected();
-                  scenarioPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}
                 onComplete={handlePricingComplete}
                 isRerun={isPricingRerun(caseData.status)}
@@ -2194,7 +2196,8 @@ export default function CaseView() {
 
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <div className="mb-6">
+          <details className="mb-6 rounded border p-3">
+            <summary className="cursor-pointer">Résultat du devis confirmé — distinct de l’estimation par scénario, vérifier sa date</summary>
             <PricingResultPanel
               caseId={caseId!}
               isLocked={!!isPostSentLocked}
@@ -2202,7 +2205,7 @@ export default function CaseView() {
               isProvisional={pricingIsProvisional}
               onVersionCreated={() => setVersionRefreshToken(t => t + 1)}
             />
-          </div>
+          </details>
         )}
 
         {/* Phase 12: Quotation versions */}

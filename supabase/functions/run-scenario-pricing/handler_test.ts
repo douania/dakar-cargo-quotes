@@ -51,6 +51,8 @@ function fixture(air = false) {
 }
 
 interface Options {
+  v3Catalog?: boolean;
+  incompleteCatalog?: boolean;
   air?: boolean;
   invalidAuth?: boolean;
   invisible?: boolean;
@@ -135,6 +137,15 @@ async function withTransport(options: Options, check: (h: {
         assertEquals(apiKey, "synthetic-service-key");
         return reply(null);
       }
+      if (options.v3Catalog && req.method === "GET" && ["/rest/v1/port_tariffs", "/rest/v1/fee_lines", "/rest/v1/fee_rules"].includes(path)) {
+        assertEquals(apiKey, "synthetic-service-key");
+        if (path.endsWith("port_tariffs")) assert(!String(url.searchParams.get("select")).split(",").includes("currency"), "No currency column exists in port_tariffs");
+        const rows = path.endsWith("port_tariffs") ? [
+          { id:"synthetic-pad",provider:"PAD",category:"DROIT_PASSAGE",operation_type:"IMPORT",cargo_type:"CONTENEUR",classification:"T02",amount:100,unit:"tonne",source_document:"Synthetic PAD source",evidence_level:"official",effective_date:"2025-01-01",expiry_date:null,is_active:true },
+        ] : path.endsWith("fee_lines") ? [{ id:"synthetic-agency",code:"AGENCY",label_fr:"Agence",vat_applicable:true,is_active:true }] :
+          [{ id:"synthetic-rule",fee_line_id:"synthetic-agency",method:"FIXED",amount:1000,currency:"XOF",effective_from:"2025-01-01",is_active:true }];
+        return new Response(JSON.stringify(rows), { headers: { "Content-Type":"application/json", "Content-Range":`0-${rows.length-1}/${rows.length + (options.incompleteCatalog ? 1 : 0)}` } });
+      }
       if (req.method === "GET" && path === "/rest/v1/quote_scenarios") {
         assertEquals(url.searchParams.get("id"), `eq.${SCENARIO}`);
         if (apiKey === "synthetic-anon-key") {
@@ -215,6 +226,64 @@ Deno.test("scenario actual handler: v2 groups -> one engine call -> isolated per
     const access = h.calls.findIndex(c => c.path === "/rest/v1/quote_scenarios" && c.apiKey === "synthetic-anon-key");
     const privileged = h.calls.findIndex(c => c.apiKey === "synthetic-service-key");
     assert(access >= 0 && privileged > access);
+  });
+});
+
+Deno.test("scenario v3 actual route: PAD choices reach isolated result, fixed fee once, original engine remains v2", async () => {
+  await withTransport({ v3Catalog:true, mutate: s => {
+    s.snapshot.schema_version=3;
+    s.snapshot.pad_choices=(s.snapshot.cargo_units as Json[]).map(u => ({unit_ref:u.unit_ref,category:"T02",basis:"Synthetic operator review"}));
+  } }, async h => {
+    assertEquals((await h.invoke()).response.status,200);
+    const result=h.rpcBodies[0].p_result as Json; const lines=result.tariff_lines as Json[];
+    assertEquals(result.status,"success");
+    assertEquals(lines.filter(l=>l.category==="PAD_DROIT_PASSAGE").map(l=>l.amount),[7200,3600,null]);
+    assertEquals(lines.filter(l=>l.category==="AGENCY").map(l=>l.amount),[1000]);
+    assertEquals(lines.some(l=>l.id==="common-fee"),false);
+    assertEquals(result.indicative_total_ht,12100); assertEquals(result.indicative_total_ttc,12280);
+    assertEquals(((h.engineBodies[0].params as Json).scenarioCargoContext as Json).schema_version,2);
+    assertEquals((result.scenario_snapshot as Json).schema_version,3);
+    assertEquals(h.engineBodies.length,1);
+  });
+});
+
+for (const mode of [null, "RORO", "CONRO"]) Deno.test(`scenario v3: no terminal fact retains container THC policy (${mode})`, async () => {
+  await withTransport({ v3Catalog: true, terminalLines: true, mutate: s => {
+    dakarContainerScope(s, mode);
+    s.snapshot.schema_version = 3;
+    s.snapshot.pad_choices = (s.snapshot.cargo_units as Json[]).map(u => ({ unit_ref: u.unit_ref, category: "T02", basis: "Synthetic review" }));
+  } }, async h => {
+    await h.invoke();
+    const result = h.rpcBodies[0].p_result as Json;
+    assertEquals(result.status, "success");
+    assertEquals(result.blockers, []);
+    assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT"));
+    assertEquals(h.engineBodies.length, 1);
+  });
+});
+Deno.test("scenario v3: incomplete catalogs preserve other prices and expose dedicated reserves", async () => {
+  await withTransport({ v3Catalog: true, incompleteCatalog: true, mutate: s => {
+    s.snapshot.schema_version = 3;
+    s.snapshot.pad_choices = (s.snapshot.cargo_units as Json[]).map(u => ({ unit_ref: u.unit_ref, category: "T02", basis: "Synthetic review" }));
+  } }, async h => {
+    await h.invoke(); const result = h.rpcBodies[0].p_result as Json;
+    assertEquals(result.status, "success");
+    for (const code of ["PAD_CATALOG_UNAVAILABLE", "SCENARIO_FEE_CATALOG_UNAVAILABLE"])
+      assert((result.reservations as Json[]).some(r => r.code === code));
+    assert((result.tariff_lines as Json[]).filter(l => ["PAD_DROIT_PASSAGE", "AGENCY"].includes(String(l.category))).every(l => l.amount === null));
+  });
+});
+Deno.test("scenario v3: non-DAP never silently ignores per-group PAD choices", async () => {
+  await withTransport({ mutate: s => {
+    s.snapshot.schema_version = 3;
+    s.snapshot.pad_choices = (s.snapshot.cargo_units as Json[]).map(u => ({ unit_ref: u.unit_ref, category: "T02", basis: "Synthetic review" }));
+    s.facts.find(f => f.fact_key === "routing.incoterm")!.value_text = "DDP";
+  } }, async h => {
+    await h.invoke();
+    const result = h.rpcBodies[0].p_result as Json;
+    assertEquals(result.status, "blocked");
+    assert((result.blockers as string[]).includes("SCENARIO_PAD_PRICING_SCOPE_UNSUPPORTED"));
+    assertEquals(h.engineBodies.length, 0);
   });
 });
 

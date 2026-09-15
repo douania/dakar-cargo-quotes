@@ -40,6 +40,23 @@ function submit() {
 }
 
 describe("scenario creation contract routing", () => {
+  it("publishes the selected latest result and clears it when selection disappears", () => {
+    const scope = buildScopeSnapshot(emptyScenarioDraftV2()).snapshot;
+    mocks.queryRows["quote-scenarios"] = [{ id: "scenario-a", case_id: "synthetic-case", title: "Synthetic",
+      status: "draft", scope_hash: "a".repeat(64), scope_snapshot: scope, open_points: [], revision_no: 1 }];
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-a", released_at: null }];
+    const run = { id: "run-new", scenario_id: "scenario-a", run_seq: 2, status: "success", qualification: "partial",
+      reservations: [], blockers: [], assumptions_snapshot: [], firm_total_ht: 0, firm_total_ttc: 0,
+      indicative_total_ht: 350, indicative_total_ttc: 350, currency: "XOF", tariff_lines: [{ amount: null }] };
+    mocks.queryRows["quote-scenario-pricing-runs"] = [run, { ...run, id: "run-old", run_seq: 1 }];
+    const changed = vi.fn();
+    const view = render(<QuoteScenariosPanel caseId="synthetic-case" onSelectedEstimateChange={changed} />);
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ caseId: "synthetic-case", run, pending: false, error: null }));
+    mocks.queryRows["quote-scenario-selections"] = [];
+    view.rerender(<QuoteScenariosPanel caseId="synthetic-case" onSelectedEstimateChange={changed} />);
+    expect(changed).toHaveBeenLastCalledWith(null);
+  });
+
   it("labels a partial amount as a subtotal and never displays a zero as a firm quotation", () => {
     mocks.queryRows["quote-scenarios"] = [{ id: "scenario-a", case_id: "synthetic-case", title: "Synthetic",
       status: "draft", scope_hash: "a".repeat(64), scope_snapshot: buildScopeSnapshot(emptyScenarioDraftV2()).snapshot,

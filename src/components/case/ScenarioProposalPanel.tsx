@@ -22,6 +22,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
   caseId: string; disabled?: boolean; onUseDraft: (draft: ScenarioDraft) => void; actionRef?: Ref<ScenarioProposalAction>;
 }) {
   const [proposal, setProposal] = useState<ScenarioProposal | null>(null);
+  const [padChoices, setPadChoices] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -31,7 +32,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
 
   const propose = async () => {
     if (disabled || inFlight.current) return;
-    inFlight.current = true; setPending(true); setError(null); setProposal(null);
+    inFlight.current = true; setPending(true); setError(null); setProposal(null); setPadChoices({});
     try {
       const response = await supabase.functions.invoke("recommend-pad-category", { body: { action: "propose_scenario", case_id: caseId } });
       if (response.error || response.data?.error) throw new Error(responseMessage(response.data) || await serverErrorMessage(response.error) || "Proposition indisponible : vérifier les droits et la source du dossier.");
@@ -56,7 +57,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
         body: { action: "verify_scenario_source", case_id: caseId, source_fingerprint: proposal.source_fingerprint },
       });
       if (checkError || data?.verified !== true) throw new Error("Source modifiée ou non vérifiable : relancez la proposition. Aucun brouillon remplacé.");
-      if (alive.current) onUseDraft(proposalToDraft(proposal));
+      if (alive.current) onUseDraft(proposalToDraft(proposal, padChoices));
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "Source non vérifiée"); }
     finally { inFlight.current = false; if (alive.current) setPending(false); }
   };
@@ -68,6 +69,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
     <p className="text-xs text-muted-foreground">Lecture seule. Aucun fait, scénario ou tarif enregistré automatiquement. Les photos ne sont pas analysées par ce parcours.</p>
     <p className="text-xs text-muted-foreground">Les extraits des lignes de marchandises sont transmis au fournisseur IA configuré pour les suggestions PAD ; les adresses e-mail y sont masquées.</p>
     {proposal?.status === "proposed" && <p className="text-xs">Hypothèse d’import maritime conteneurisé à Dakar, à vérifier avant création du scénario.</p>}
+    {proposal?.client_source === "case_contact_fact" && <p className="text-xs">Source client : adresse déjà renseignée dans le dossier, rapprochée de l’expéditeur des e-mails. Aucun contact modifié.</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {proposal?.reasons.map(reason => <p key={reason} className="text-xs">{proposalReason(reason)}</p>)}
     {proposal?.groups.map(g => <div key={g.unit_ref} className="border-t pt-2 text-xs space-y-1">
@@ -83,6 +85,14 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
         {c.tariff_source && <p>Source : {String(c.tariff_source.source_document)} — ligne {String(c.tariff_source.id)}, niveau {String(c.tariff_source.evidence_level)}, effet {String(c.tariff_source.effective_date)}.</p>}
       </div>)}
       {!proposal.pad_candidates.some(c => c.unit_ref === g.unit_ref) && <p>Catégorie PAD de ce groupe à confirmer.</p>}
+      <label className="block">Choix PAD pour {g.unit_ref}
+        <select aria-label={`Choix PAD pour ${g.unit_ref}`} value={padChoices[g.unit_ref] ?? ""} disabled={disabled || pending}
+          onChange={e => setPadChoices(prev => ({ ...prev, [g.unit_ref]: e.target.value }))} className="block rounded border bg-background p-1">
+          <option value="">À confirmer — ne pas chiffrer ce poste</option>
+          {proposal.pad_candidates.filter(c => c.unit_ref === g.unit_ref).map(c => <option key={c.category} value={c.category}>{c.category} — retenir pour cette estimation</option>)}
+        </select>
+      </label>
+      <p>Le choix est une hypothèse opérateur conservée dans le scénario ; le tarif sera vérifié à nouveau au calcul.</p>
     </div>)}
     {proposal?.status === "proposed" && <Button size="sm" disabled={disabled || pending} onClick={() => void handleUseDraft()}>Reprendre cette proposition dans un brouillon</Button>}
   </section>;

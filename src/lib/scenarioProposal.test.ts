@@ -9,6 +9,23 @@ export function proposalFixture(): ScenarioProposal {
   return { ...result, source_fingerprint: "a".repeat(64), pad_candidates: [] };
 }
 describe("automatic scenario proposals", () => {
+  it("keeps proposals without any PAD choice on the existing v2 path", () => {
+    expect(proposalToDraft(proposalFixture(), {}).schemaVersion).toBe(2);
+    expect(proposalToDraft(proposalFixture(), { "lot-1": "" }).schemaVersion).toBe(2);
+  });
+  it("retains per-group reviewed categories in v3 without any amount, and roundtrips revision", async () => {
+    const p=proposalFixture();
+    p.pad_candidates=[{ unit_ref:"lot-1",category:"T02",qualification:"PROPOSAL_ONLY",justification:"Choix pour équipement",matching_aliases:["equipement"],rate:123,tariff_source:{id:"synthetic"} }];
+    const draft=proposalToDraft(p,{"lot-1":"T02"});
+    const built=buildScopeSnapshot(draft); expect(built.ok).toBe(true);
+    expect(built.snapshot?.schema_version).toBe(3);
+    expect((built.snapshot?.pad_choices as {category:string|null}[]).map(c=>c.category)).toEqual(["T02",null,null]);
+    expect(JSON.stringify(built.snapshot)).not.toMatch(/"rate"|"amount"|123/);
+    const {draftFromScenario}=await import("./quoteScenarios");
+    const roundtrip=draftFromScenario({title:draft.title,scope_snapshot:built.snapshot,status:"draft",blocked_reason:null});
+    expect(buildScopeSnapshot(roundtrip).snapshot).toEqual(built.snapshot);
+    expect(()=>proposalToDraft(p,{"lot-1":"T99"})).toThrow();
+  });
   it("produces a valid immutable v2 draft without monetary fields or promotion", async () => {
     // Runtime contract test across runtimes; the Edge module is typechecked by Deno,
     // not under the browser's different strictNullChecks configuration.
