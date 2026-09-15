@@ -1,3 +1,5 @@
+import { SCENARIO_CARGO_V2_KEYS, scenarioCargoV2Violation, scenarioCargoV1ValidationShape } from "../_shared/scenario-cargo.ts";
+
 /**
  * Phase P1-A2 — Domaine PUR de l'Edge Function manage-quote-scenario.
  *
@@ -667,7 +669,14 @@ function validatePlace(raw: unknown, path: string): Check<null> {
   return { ok: true, value: null };
 }
 
-function validateCargoUnit(raw: unknown, path: string): Check<string> {
+function validateCargoUnit(raw: unknown, path: string, version = 1): Check<string> {
+  if (version === 2) {
+    const extended = closedObject(raw, path, [...CARGO_UNIT_KEYS, ...SCENARIO_CARGO_V2_KEYS]);
+    if (!extended.ok) return extended;
+    const violation = scenarioCargoV2Violation(extended.value);
+    if (violation) return { ok: false, message: `${path}.${violation} invalide` };
+    return validateCargoUnit(scenarioCargoV1ValidationShape(extended.value), path, 1);
+  }
   const obj = closedObject(raw, path, CARGO_UNIT_KEYS);
   if (!obj.ok) return obj;
   const u = obj.value;
@@ -773,10 +782,10 @@ export function validateScopeSnapshot(
   if (!top.ok) return top;
   const s = top.value;
 
-  if (s.schema_version !== 1) {
+  if (s.schema_version !== 1 && s.schema_version !== 2) {
     return {
       ok: false,
-      message: "scope_snapshot.schema_version doit valoir 1",
+      message: "scope_snapshot.schema_version doit valoir 1 ou 2",
     };
   }
 
@@ -842,6 +851,7 @@ export function validateScopeSnapshot(
       const unit = validateCargoUnit(
         s.cargo_units[i],
         `scope_snapshot.cargo_units[${i}]`,
+        s.schema_version as number,
       );
       if (!unit.ok) return unit;
       if (seen.has(unit.value)) {

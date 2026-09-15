@@ -26,6 +26,9 @@ Expliquer tout écart local/GitHub avant d'agir. Si un lot local annoncé est ab
 - Préserver Auth, RLS, idempotence, intégrité des données, traçabilité.
 - Un test non exécuté vaut NOT_RUN, jamais PASS. Comparer à la baseline `origin/work` : dette identique = PASS_WITH_BASELINE.
 
+## Organisation durable des lots (GO utilisateur du 14 septembre 2026)
+Appliquer `docs/CTO_DEVELOPMENT_ROADMAP.md` §2.1 : lot cohérent avec critères explicites, exécutant unique, corrections/tests regroupés sous le GO du lot, contre-revue indépendante proportionnée au risque, reprise de revue limitée aux blocages et parties affectées, GO de publication distinct pouvant regrouper les actions nommées. Ne pas redemander un GO déjà applicable ni rouvrir cette méthode sans fait nouveau ou demande utilisateur. Les règles de sécurité, FROZEN et STOP restent obligatoires ; aucun avis d'IA ne remplace le GO utilisateur.
+
 ## STOP immédiat si
 plus de 3 fichiers hors GO · DB/RLS/Auth/Supabase/migration non autorisés · composant FROZEN · périmètre élargi · donnée client/secret destiné au commit · divergence Git inexpliquée.
 

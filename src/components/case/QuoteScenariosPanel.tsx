@@ -79,6 +79,8 @@ import {
   emptyCargoUnitDraft,
   emptyLinkDraft,
   emptyScenarioDraft,
+  emptyScenarioDraftV2,
+  upgradeScenarioDraft,
   formatOpenPoint,
   LINKABLE_ASSUMPTION_STATUSES,
   LOCATION_KIND_LABELS,
@@ -128,6 +130,7 @@ import {
   formatScenarioPricingAmount,
   latestScenarioPricingRuns,
   readScenarioPricingCodes,
+  scenarioPricingCodeMessage,
   readScenarioPricingEdgeData,
   readScenarioOutputEdgeData,
   SCENARIO_PRICING_QUALIFICATION_LABELS,
@@ -418,14 +421,14 @@ function CargoUnitFields({ unit, position, removable, onChange, onRemove }: Carg
             <Input
               value={unit.equipmentCode}
               onChange={(e) => set("equipmentCode", e.target.value)}
-              placeholder="eq-40hc"
+              placeholder="40hc (code de conteneur, en minuscules)"
               className="h-8 text-xs font-mono"
             />
           ) : null}
         </div>
 
         <TextField
-          label="Quantité"
+          label={unit.scenarioBasis !== undefined && unit.unitKind === "CONTAINER" ? "Nombre de conteneurs du lot (hypothèse)" : "Quantité"}
           value={unit.quantity}
           onChange={(v) => set("quantity", v)}
           placeholder="1"
@@ -439,7 +442,7 @@ function CargoUnitFields({ unit, position, removable, onChange, onRemove }: Carg
         />
 
         <TextField
-          label="Poids brut (kg, vide = inconnu)"
+          label={unit.scenarioBasis === undefined ? "Poids brut (kg, vide = inconnu)" : "Poids brut (kg, préciser la base ci-dessous en v2)"}
           value={unit.grossWeightKg}
           onChange={(v) => set("grossWeightKg", v)}
           placeholder="18000"
@@ -451,7 +454,7 @@ function CargoUnitFields({ unit, position, removable, onChange, onRemove }: Carg
           placeholder="18000"
         />
         <TextField
-          label="Volume (dm³, vide = inconnu)"
+          label="Volume total du lot (dm³, vide = inconnu)"
           value={unit.volumeDm3}
           onChange={(v) => set("volumeDm3", v)}
           placeholder="60000"
@@ -488,11 +491,26 @@ function CargoUnitFields({ unit, position, removable, onChange, onRemove }: Carg
           onChange={(v: AttachmentStatus) => set("requiredAttachmentStatus", v)}
         />
 
-        <SwitchField
+        {unit.scenarioBasis === undefined ? <SwitchField
           label="Marchandise dangereuse (contrainte connue)"
-          checked={unit.dangerousGoods}
+          checked={unit.dangerousGoods === true}
           onChange={(checked) => set("dangerousGoods", checked)}
-        />
+        /> : <>
+          <EnumField label="Danger du lot — hypothèse de scénario"
+            value={unit.dangerousGoods === null ? "unknown" : unit.dangerousGoods ? "yes" : "no"}
+            options={["unknown", "yes", "no"] as const}
+            labels={{ unknown: "Inconnu", yes: "Dangereux", no: "Non dangereux (hypothèse explicite)" }}
+            onChange={(v) => set("dangerousGoods", v === "unknown" ? null : v === "yes")} />
+          <EnumField label="Propriété des conteneurs" value={unit.ownership ?? "unknown"}
+            options={["unknown", "SOC", "COC"] as const} labels={{ unknown: "Inconnue", SOC: "SOC", COC: "COC" }}
+            onChange={(v) => set("ownership", v)} />
+          <EnumField label="Base du poids brut" value={unit.weightBasis ?? "unknown"}
+            options={["unknown", "per_unit", "total"] as const}
+            labels={{ unknown: "Inconnue", per_unit: "Par unité", total: "Total du lot" }} onChange={(v) => set("weightBasis", v)} />
+          <TextField label="Numéro ONU (vide = inconnu)" value={unit.unNumber ?? ""} onChange={(v) => set("unNumber", v)} placeholder="UN3536" />
+          <TextField label="Classe IMO (vide = dérivation ONU si possible)" value={unit.imoClass ?? ""} onChange={(v) => set("imoClass", v)} placeholder="9" />
+          <TextField label="Justification des hypothèses du lot (obligatoire pour calculer)" value={unit.scenarioBasis} onChange={(v) => set("scenarioBasis", v)} placeholder="Interprétation opérateur à confirmer ; source et limites" />
+        </>}
       </div>
     </div>
   );
@@ -722,6 +740,13 @@ function ScenarioForm({
           RoRo et ConRo sont des périmètres descriptifs légitimes : les décrire ici ne déclenche
           aucun calcul.
         </p>
+        {draft.schemaVersion === 2 && draft.transportMode !== "MARITIME" ? (
+          <p className="text-xs text-amber-800" role="status">
+            Le calcul par groupes v2 est limité au maritime conteneurisé. Pour une estimation
+            aérienne, utilisez « Nouveau scénario ». Ce brouillon et ses hypothèses restent
+            inchangés ; aucune conversion automatique n'est effectuée.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -734,8 +759,16 @@ function ScenarioForm({
       </div>
 
       <div className="space-y-2">
+        {draft.schemaVersion !== 2 && draft.transportMode === "MARITIME" ? (
+          <p className="text-xs text-muted-foreground">Pour recalculer un scénario à conteneurs, passer explicitement ce brouillon en v2 et vérifier les hypothèses par lot. Les résultats historiques restent conservés. Les anciennes références d'équipement non reconnues doivent être remplacées par un code de conteneur explicite (ex. 40hc), sans conversion automatique.</p>
+        ) : null}
+        {draft.schemaVersion === 2 ? (
+          <p className="text-xs text-muted-foreground">Propriété conservée sans ajustement tarifaire SOC/COC dans cette version ; frais dépendants à vérifier.</p>
+        ) : null}
         <div className="flex items-center justify-between gap-2">
           <SectionTitle>Lots ({draft.cargoUnits.length}/{MAX_CARGO_UNITS})</SectionTitle>
+          {draft.schemaVersion !== 2 && draft.transportMode === "MARITIME" ? <Button type="button" variant="outline" size="sm"
+            onClick={() => onChange(upgradeScenarioDraft(draft))}>Passer ce brouillon en v2 maritime (danger non renseigné à revoir)</Button> : null}
           <Button
             variant="outline"
             size="sm"
@@ -745,7 +778,7 @@ function ScenarioForm({
             onClick={() =>
               onChange({
                 ...draft,
-                cargoUnits: [...draft.cargoUnits, emptyCargoUnitDraft(draft.cargoUnits.length + 1)],
+                cargoUnits: [...draft.cargoUnits, emptyCargoUnitDraft(draft.cargoUnits.length + 1, draft.schemaVersion ?? 1)],
               })
             }
           >
@@ -1343,8 +1376,8 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     return { signature, idempotencyKey };
   };
 
-  const startCreate = () => {
-    setDraft(emptyScenarioDraft());
+  const startCreate = (cargoGroups = false) => {
+    setDraft(cargoGroups ? emptyScenarioDraftV2() : emptyScenarioDraft());
     setReviseTargetId(null);
     setFormMode("create");
   };
@@ -1524,15 +1557,22 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
             </p>
           </div>
           {formMode === "none" ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs shrink-0"
-              onClick={startCreate}
-            >
-              <Plus className="h-3 w-3 mr-1" />
-              Nouveau scénario
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs shrink-0"
+                onClick={() => startCreate()}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Nouveau scénario
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs shrink-0"
+                onClick={() => startCreate(true)}>
+                <Plus className="h-3 w-3 mr-1" />
+                Nouveau maritime par groupes
+              </Button>
+            </div>
           ) : null}
         </div>
       </CardHeader>
@@ -1805,8 +1845,8 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
                     return codes.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {codes.map((code) => (
-                          <Badge key={code} variant="outline" className="text-[10px] bg-white/70">
-                            {code}
+                          <Badge key={code} title={code} variant="outline" className="text-[10px] bg-white/70">
+                            {scenarioPricingCodeMessage(code)}
                           </Badge>
                         ))}
                       </div>

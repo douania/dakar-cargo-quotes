@@ -32,6 +32,7 @@ import {
 } from "../_shared/terminal-operation-mode.ts";
 import {
   buildEngineRequest,
+  buildScenarioCargoPricing,
   applyScenarioExplicitServiceRemovals,
   buildFingerprintInput,
   buildMissingServiceReserveLines,
@@ -331,8 +332,10 @@ async function handleRequest(req: Request): Promise<Response> {
     const scenarioSnapshot = asObject(scenarioResult.data.scope_snapshot);
     const openPoints = asArray(scenarioResult.data.open_points);
     const overlay = buildScenarioOverlay(factsSnapshot, assumptionsSnapshot);
-    const inputs = buildPricingInputs(overlay.facts);
-    const blockers = [...overlay.blockers];
+    const cargo = buildScenarioCargoPricing(buildPricingInputs(overlay.facts), scenarioSnapshot, factsSnapshot);
+    const { inputs, context: cargoContext, plan: cargoPlan } = cargo;
+    const blockers = [...overlay.blockers, ...cargo.blockers];
+    if (cargoPlan) overlay.assumptionKeys.add("scenario.cargo_units");
 
     if (["superseded", "promoted_to_final"].includes(scenarioResult.data.status)) {
       blockers.push("SCENARIO_NOT_LIVE");
@@ -425,6 +428,7 @@ async function handleRequest(req: Request): Promise<Response> {
       };
     });
     const reservations: Record<string, unknown>[] = [
+      ...(cargoPlan?.reservations ?? []),
       ...reserveLinks,
       ...openPointReservations,
     ];
@@ -445,6 +449,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (blockers.length === 0) {
       engineRequest = {
         ...buildEngineRequest(inputs, transportMode),
+        ...(cargoContext ? { scenarioCargoContext: cargoContext } : {}),
         includeCustomsClearance: effectiveServiceKeys.includes("CUSTOMS_DAKAR"),
         includeLocalTransport: effectiveServiceKeys.includes("TRUCKING"),
       };

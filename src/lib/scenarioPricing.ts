@@ -106,6 +106,24 @@ export function readScenarioPricingCodes(value: unknown): string[] {
   }).filter(Boolean)));
 }
 
+/** Keep persisted codes stable while making the required operator action explicit. */
+export function scenarioPricingCodeMessage(code: string): string {
+  switch (code) {
+    case "SCENARIO_CARGO_V2_REQUIRED":
+      return "Recalcul à conteneurs : créer une révision maritime v2 et vérifier les hypothèses par lot. Les résultats historiques restent conservés.";
+    case "SCENARIO_DG_FACTS_UNSCOPED":
+      return "Données de danger non rattachées aux lots : renseigner une révision maritime v2, sans modifier les faits client.";
+    case "SCENARIO_DG_FACTS_UNSCOPED_AIR":
+      return "Calcul aérien avec données de danger non pris en charge par ce parcours. Revue métier nécessaire ; le contrat v2 est réservé au maritime.";
+    case "SCENARIO_CONTAINERS_UNSCOPED_AIR":
+      return "Scénario aérien avec données de conteneurs : périmètre à revoir avant calcul. Aucune conversion de mode ni suppression automatique des faits client.";
+    case "SCENARIO_OWNERSHIP_NOT_PRICED":
+      return "Propriété conservée sans ajustement tarifaire SOC/COC dans cette version ; frais dépendants à vérifier.";
+    default:
+      return code;
+  }
+}
+
 export function countScenarioAssumptions(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }

@@ -14,6 +14,7 @@ import {
 } from "../_shared/local-transport-destination.ts";
 import { normalizeDpwDthcFamily, resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
 import { assertImoGoodsPlan, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
+import { assertScenarioCargoContext, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
 import {
   resolveDemurrageEquipment,
   resolveDemurragePendingProvenance,
@@ -371,6 +372,8 @@ async function resolveExchangeRate(
 // TYPES
 // =====================================================
 interface ContainerInfo {
+  unit_ref?: string;
+  coc_soc?: string;
   type: string;
   quantity: number;
   cocSoc?: 'COC' | 'SOC';
@@ -379,6 +382,7 @@ interface ContainerInfo {
 }
 
 interface QuotationRequest {
+  scenarioCargoContext?: ScenarioCargoContext;
   imoGoodsPlan?: ImoGoodsPricingPlan;
   // Paramètres de la demande
   originPort?: string;
@@ -1355,6 +1359,16 @@ export async function generateQuotationLines(
   const lines: QuotationLine[] = [];
   const warnings: string[] = [];
   const goodsPlan = request.imoGoodsPlan;
+  const scenarioPlan = request.scenarioCargoContext
+    ? assertScenarioCargoContext(request.scenarioCargoContext, request.containers || []) : null;
+  if (scenarioPlan && (goodsPlan || request.transportMode !== 'maritime' || request.dthcFamily ||
+    request.isIMO !== undefined || request.isHazmat !== undefined || request.imoClass !== undefined ||
+    request.weightTonnes !== undefined || request.weightPerContainerKg !== undefined ||
+    (request.cargoWeight !== undefined && request.cargoWeight !== scenarioPlan.cargoWeight))) {
+    throw new Error('SCENARIO_CARGO_CONTEXT_CONFLICT');
+  }
+  if (scenarioPlan) request = { ...request, cargoWeight: scenarioPlan.cargoWeight };
+  if (scenarioPlan) warnings.push('Simulation par groupes : hypothèses opérateur, pas de déclaration client. Montants indicatifs ; réserves DG propres à chaque lot.');
   if (goodsPlan) {
     assertImoGoodsPlan(goodsPlan, request.containers || []);
     const family = normalizeDpwDthcFamily(request.dthcFamily);
@@ -1456,7 +1470,10 @@ export async function generateQuotationLines(
   
   for (const [containerIndex, container] of containers.entries()) {
     const goods = goodsPlan?.rows.find(r => r.containerIndex === containerIndex);
-    const goodsNote = goods ? `Groupe ${goods.ordinal}, e-mail ${goods.sourceEmailId}, ${goods.unNumber ?? 'non dangereux déclaré'}${goods.imoClass ? `, classe ${goods.imoClass} dérivée BAM` : ''}.` : '';
+    const scenarioGoods = scenarioPlan?.rows.find(r => r.unitRef === container.unit_ref);
+    const goodsNote = scenarioGoods
+      ? `Scénario lot ${scenarioGoods.unitRef} — ${scenarioGoods.basis}. Danger : ${scenarioGoods.dangerous === null ? 'inconnu' : scenarioGoods.dangerous ? 'hypothèse DG' : 'hypothèse non DG'}. ${scenarioGoods.classification.message}`
+      : goods ? `Groupe ${goods.ordinal}, e-mail ${goods.sourceEmailId}, ${goods.unNumber ?? 'non dangereux déclaré'}${goods.imoClass ? `, classe ${goods.imoClass} dérivée BAM` : ''}.` : '';
     const is40 = container.type.toUpperCase().includes('40');
     const cargoType = is40 ? 'CONTENEUR_40' : 'CONTENEUR_20';
 
@@ -1464,14 +1481,16 @@ export async function generateQuotationLines(
     // cargo_type CONTENEUR_20/40 servait la ligne Transbordement à 75 000 FCFA.
     // La sélection passe par le même résolveur fail-closed que price-service-lines,
     // qui rend un montant DÉJÀ multiplié par les EVP — pas de getEVPMultiplier ici.
-    const dthc = resolveDpwDthcTariff(thcTariffs, {
+    const dthc = scenarioGoods?.dangerous === null
+      ? { status: 'TO_CONFIRM' as const, code: 'SCENARIO_DG_UNKNOWN', reason: 'SCENARIO_DG_UNKNOWN', message: 'Danger du lot inconnu ; aucun tarif ordinaire présumé.' }
+      : resolveDpwDthcTariff(thcTariffs, {
       scope: effectiveOperationType === 'IMPORT' ? 'import' : String(effectiveOperationType).toLowerCase(),
       containers: [{ type: container.type, quantity: container.quantity }],
       // A global description containing IMO must not reclassify a non-DG group.
-      cargoDescription: goods ? undefined : request.cargoDescription,
+      cargoDescription: goods || scenarioGoods ? undefined : request.cargoDescription,
       // DTHC-3 : famille opérateur prioritaire ; null => inférence inchangée (fail-closed)
       family: normalizeDpwDthcFamily(request.dthcFamily),
-      isDangerous: goods ? goods.dangerous : request.isIMO === true || request.isHazmat === true,
+      isDangerous: scenarioGoods ? scenarioGoods.dangerous === true : goods ? goods.dangerous : request.isIMO === true || request.isHazmat === true,
       asOfDate: new Date().toISOString().split('T')[0],
     });
 
@@ -1486,7 +1505,7 @@ export async function generateQuotationLines(
         unit: 'EVP',
         quantity: dthc.evpQuantity,
         containerType: container.type,
-        ...(goods ? { notes: goodsNote } : {}),
+        ...(goods || scenarioGoods ? { notes: goodsNote } : {}),
         source: {
           type: 'OFFICIAL',
           reference: dthc.tariff.source_document || 'DP World Dakar 2025',
@@ -1639,8 +1658,8 @@ export async function generateQuotationLines(
         cnt40,
         totalEVP,
         // A mixed shipment cannot establish a dossier-wide DG surcharge basis.
-        isIMO: goodsPlan ? goodsPlan.rows.every(r => r.dangerous) : request.isIMO === true,
-        isHazmat: goodsPlan ? goodsPlan.rows.every(r => r.dangerous) : request.isHazmat === true,
+        isIMO: scenarioPlan ? scenarioPlan.rows.every(r => r.dangerous === true) : goodsPlan ? goodsPlan.rows.every(r => r.dangerous) : request.isIMO === true,
+        isHazmat: scenarioPlan ? scenarioPlan.rows.every(r => r.dangerous === true) : goodsPlan ? goodsPlan.rows.every(r => r.dangerous) : request.isHazmat === true,
       });
 
       if (safety.status === 'TO_CONFIRM') {
@@ -1866,7 +1885,7 @@ export async function generateQuotationLines(
           containerType: container.type,
           clientCode: request.clientCode ?? null,
           asOfDate: localTransportAsOf,
-          cargoWeightPerContainerKg,
+          cargoWeightPerContainerKg: scenarioPlan ? scenarioPlan.rows.find(r => r.unitRef === container.unit_ref)?.weightPerContainerKg ?? null : cargoWeightPerContainerKg,
         });
 
         if (localTransport.status === 'RESOLVED') {
@@ -2084,7 +2103,12 @@ export async function generateQuotationLines(
       ? ` | ${holidayCount} jour(s) férié(s) PAD dans les 30j — franchise effective peut être réduite`
       : '';
     
-    if (franchiseData && franchiseData.length > 0) {
+    if (scenarioPlan) {
+      lines.push({ id: 'warehouse_franchise', bloc: 'operationnel', category: 'Magasinage',
+        description: 'Franchise magasinage par groupes — à confirmer', amount: null, currency: 'FCFA',
+        source: { type: 'TO_CONFIRM', reference: 'SCENARIO_GROUP_STORAGE_CONFIRMATION', confidence: 0 },
+        notes: 'Aucune franchise globale ne peut être attribuée aux groupes du scénario.', isEditable: true });
+    } else if (franchiseData && franchiseData.length > 0) {
       const franchise = franchiseData[0];
       lines.push({
         id: 'warehouse_franchise',

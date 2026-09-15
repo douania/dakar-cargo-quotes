@@ -1,3 +1,6 @@
+import { resolveScenarioCargo, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
+import { validateScopeSnapshot } from "../manage-quote-scenario/domain.ts";
+
 /**
  * P1-A4 — domaine pur du pricing isolé par scénario.
  *
@@ -316,6 +319,32 @@ export function buildPricingInputs(facts: PricingFactRow[]): PricingInputs {
     inputs.finalDestination = inputs.destinationPort ?? inputs.destinationAirport;
   }
   return inputs;
+}
+
+/** Versioned cargo overlay is isolated from the canonical facts and legacy snapshots. */
+export function buildScenarioCargoPricing(inputs: PricingInputs, snapshot: Record<string, unknown>, facts: PricingFactRow[]) {
+  const context: ScenarioCargoContext | null = snapshot.schema_version === 2
+    ? { schema_version: 2, cargo_units: Array.isArray(snapshot.cargo_units) ? snapshot.cargo_units : [] }
+    : null;
+  const plan = context ? resolveScenarioCargo(context) : null;
+  const blockers = validateScopeSnapshot(snapshot).ok ? [] : ["SCENARIO_SCOPE_INVALID"];
+  if (plan) {
+    blockers.push(...plan.blockers);
+    if (snapshot.transport_mode !== "MARITIME") blockers.push("SCENARIO_CARGO_MODE_UNSUPPORTED");
+    const constraints = snapshot.constraints as Record<string, unknown> | undefined;
+    if (constraints?.multi_destination === true || context!.cargo_units.some(u => u?.destination_ref != null)) {
+      blockers.push("SCENARIO_GROUP_DESTINATION_MAPPING_REQUIRED");
+    }
+  } else {
+    // Keep historical snapshots intact: recalculation requires an explicit revision.
+    if (inputs.containers?.length) blockers.push(snapshot.transport_mode === "AIR" ? "SCENARIO_CONTAINERS_UNSCOPED_AIR" : "SCENARIO_CARGO_V2_REQUIRED");
+    if (facts.some(f => ["cargo.dangerous_goods", "cargo.un_number", "cargo.imo_class"].includes(f.fact_key))) {
+      // AIR cannot migrate to the maritime v2 contract: do not suggest an impossible remedy.
+      blockers.push(snapshot.transport_mode === "AIR" ? "SCENARIO_DG_FACTS_UNSCOPED_AIR" : "SCENARIO_DG_FACTS_UNSCOPED");
+    }
+  }
+  return { context, plan, blockers, inputs: plan ? { ...inputs, containers: plan.containers,
+    cargoWeight: plan.cargoWeight, cargoVolume: plan.cargoVolume } : { ...inputs } };
 }
 
 export function buildEngineRequest(

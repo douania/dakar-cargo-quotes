@@ -4,11 +4,11 @@
 - Modèle/effort par défaut pour ce dépôt : Sonnet, effort high. Opus (effort high/xhigh) uniquement sur GO CTO pour DB/RLS/Auth/migration, pricing, sécurité ou blocage récurrent. Jamais `max` ni ultracode sans périmètre strict écrit.
 - Commencer chaque session par le préflight Git ci-dessus et la lecture ciblée de la roadmap (sections 1–2 + pack actif). Ne pas charger `docs/DEFERRED_BACKLOG.md` (1 700 lignes) sauf besoin explicite.
 - Travailler en lecture seule (Read/Grep/Glob) tant que le GO du lot n'autorise pas l'écriture ; quand le GO autorise l'écriture, appliquer et tester soi-même dans ce clone plutôt que produire un patch à recopier par une autre IA.
-- Découper tout lot > 3 fichiers en sous-lots pour éviter la saturation de sortie.
+- Appliquer la roadmap §2.1 : un lot cohérent sous un GO explicite ; au-delà de 3 fichiers déjà autorisés, découper les étapes techniques si utile sans créer de micro-GO ni de revues générales répétées. Fichier hors périmètre : STOP et arbitrage ciblé.
 - Ne pas lire `.env` ; ne jamais coller de clés dans un message ou un commit.
 
 ## Escalade automatique (mode autopilot planifié)
-En tâche planifiée (sans utilisateur présent) : vérifier `docs/CTO_GO_QUEUE.md` en premier et traiter toute entrée dont le statut est passé à `GO` depuis le dernier passage. Pour un lot déjà couvert par un GO explicite dans la roadmap, exécuter normalement (patch, tests, commit local sur `work`). Si le travail restant bute sur une stop condition ou nécessite un nouveau verdict CTO non encore donné : ne pas rester bloqué en attente d'une réponse synchrone — consigner une entrée `PENDING` dans `docs/CTO_GO_QUEUE.md` (format dans ce fichier), committer uniquement ce fichier (jamais le code concerné) avec un message dédié, puis passer au lot sûr suivant s'il y en a un, ou terminer proprement.
+En tâche planifiée (sans utilisateur présent) : vérifier `docs/CTO_GO_QUEUE.md` en premier et traiter toute entrée dont le statut est passé à `GO` depuis le dernier passage. Pour un lot déjà couvert par un GO explicite dans la roadmap, exécuter uniquement les actions autorisées : patch/tests sous GO de réalisation ; commit local sur `work` seulement si explicitement autorisé par le GO de publication (§2.1). Si le travail restant bute sur une stop condition ou nécessite un nouveau verdict CTO non encore donné : ne pas rester bloqué en attente d'une réponse synchrone — consigner une entrée `PENDING` dans `docs/CTO_GO_QUEUE.md` (format dans ce fichier), committer uniquement ce fichier (jamais le code concerné) avec un message dédié, puis passer au lot sûr suivant s'il y en a un, ou terminer proprement.
 
 Garde-fous supplémentaires propres au mode autopilot :
 - Ne jamais lever soi-même une stop condition : rester en lecture seule sur le sujet concerné tant que l'entrée correspondante n'est pas passée à `GO` dans la file.
@@ -19,6 +19,8 @@ Garde-fous supplémentaires propres au mode autopilot :
 ## Consultation directe Codex (canal miroir, à privilégier sur la file d'attente)
 
 Codex peut déjà invoquer le CLI `claude` en local (sous-processus non interactif, lecture seule, session Claude Code déjà authentifiée sur la machine de l'utilisateur) pour obtenir un contre-avis sans passer par l'utilisateur — confirmé directement par Codex le 2026-09-03. Le canal symétrique existe : toute session Claude Code disposant d'un accès à l'ordinateur de l'utilisateur (outils `computer_*`/`device_*`) peut consulter Codex en direct de la même façon, au lieu d'attendre une réponse asynchrone dans `docs/CTO_GO_QUEUE.md`. C'est le canal à privilégier chaque fois qu'il est disponible, y compris en session interactive normale — pas seulement en mode autopilot planifié.
+
+La consultation suit la roadmap §2.1 : une revue complète pour un lot sensible, puis vérification des seuls blocages et changements affectés ; pas de double revue systématique pour un lot simple. Un nouveau canal ou une nouvelle session ne justifie pas de recommencer les points acceptés. Une revue de clôture donne la liste des blocages précis avant publication, pas une nouvelle revue générale du plan.
 
 Procédure :
 1. Vérifier que l'app ChatGPT/Codex est accessible (accès outil `computer_*` déjà accordé, sinon le demander explicitement avec une raison précise).

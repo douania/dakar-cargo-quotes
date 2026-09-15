@@ -1,3 +1,5 @@
+import { scenarioCargoV2Violation } from "../../supabase/functions/_shared/scenario-cargo";
+
 /**
  * Phase P1-A2 — Contrat front des scénarios de périmètre.
  *
@@ -330,7 +332,12 @@ export interface CargoUnitDraft {
   classificationStatus: ClassificationStatus;
   /** Vide ⇒ lot non affecté à une destination. */
   destinationRef: string;
-  dangerousGoods: boolean;
+  dangerousGoods: boolean | null;
+  ownership?: "SOC" | "COC" | "unknown";
+  unNumber?: string;
+  imoClass?: string;
+  weightBasis?: "total" | "per_unit" | "unknown";
+  scenarioBasis?: string;
   requiredAttachmentStatus: AttachmentStatus;
 }
 
@@ -343,6 +350,7 @@ export interface ScenarioLinkDraft {
 }
 
 export interface ScenarioDraft {
+  schemaVersion?: 1 | 2;
   title: string;
   status: ScenarioWritableStatus;
   blockedReason: string;
@@ -398,7 +406,7 @@ export type BuildScenarioBodyResult =
 // Valeurs par défaut : valides et ANONYMES
 // ───────────────────────────────────────────────────────────────────────────
 
-export function emptyCargoUnitDraft(index: number): CargoUnitDraft {
+export function emptyCargoUnitDraft(index: number, version: 1 | 2 = 1): CargoUnitDraft {
   return {
     unitRef: `lot-${index}`,
     unitKind: "CONTAINER",
@@ -413,7 +421,8 @@ export function emptyCargoUnitDraft(index: number): CargoUnitDraft {
     temperatureSetpointCelsius: "",
     classificationStatus: "unknown",
     destinationRef: "",
-    dangerousGoods: false,
+    dangerousGoods: version === 2 ? null : false,
+    ...(version === 2 ? { ownership: "unknown" as const, unNumber: "", imoClass: "", weightBasis: "unknown" as const, scenarioBasis: "" } : {}),
     requiredAttachmentStatus: "not_required",
   };
 }
@@ -458,6 +467,19 @@ export function emptyScenarioDraft(): ScenarioDraft {
     constraintsTransitCountryRefs: "",
     links: [],
   };
+}
+
+/** Explicit new revision; a legacy false is not evidence of non-dangerous cargo. */
+export function upgradeScenarioDraft(draft: ScenarioDraft): ScenarioDraft {
+  if (draft.schemaVersion === 2) return draft;
+  return { ...draft, schemaVersion: 2, cargoUnits: draft.cargoUnits.map(unit => ({
+    ...unit, dangerousGoods: unit.dangerousGoods === true ? true : null,
+    ownership: "unknown", unNumber: "", imoClass: "", weightBasis: "unknown", scenarioBasis: "",
+  })) };
+}
+
+export function emptyScenarioDraftV2(): ScenarioDraft {
+  return upgradeScenarioDraft(emptyScenarioDraft());
 }
 
 export function emptyLinkDraft(): ScenarioLinkDraft {
@@ -593,7 +615,7 @@ function buildPlace(draft: PlaceDraft, field: string): Parsed<Record<string, unk
   return { ok: true, value: place };
 }
 
-function buildCargoUnit(draft: CargoUnitDraft, position: number): Parsed<Record<string, unknown>> {
+function buildCargoUnit(draft: CargoUnitDraft, position: number, version: 1 | 2): Parsed<Record<string, unknown>> {
   const label = `Lot ${position}`;
 
   const unitRef = parseRef(draft.unitRef, `${label} : référence`);
@@ -651,9 +673,21 @@ function buildCargoUnit(draft: CargoUnitDraft, position: number): Parsed<Record<
     destinationRef = parsed.value;
   }
 
+  const extra = version === 2 ? {
+    ownership: draft.ownership === "unknown" ? null : draft.ownership ?? null,
+    un_number: draft.unNumber?.trim().toUpperCase() || null,
+    imo_class: draft.imoClass?.trim() || null,
+    weight_basis: draft.weightBasis ?? "unknown",
+    scenario_basis: draft.scenarioBasis?.trim() ?? "",
+  } : {};
+  if (version === 2) {
+    const violation = scenarioCargoV2Violation({ ...extra, dangerous_goods: draft.dangerousGoods });
+    if (violation) return { ok: false, message: `${label} : ${violation} invalide ou contradictoire.` };
+  }
   return {
     ok: true,
     value: {
+      ...extra,
       unit_ref: unitRef.value,
       unit_kind: draft.unitKind,
       equipment_code: equipmentCode,
@@ -693,7 +727,7 @@ export function buildScopeSnapshot(draft: ScenarioDraft): BuildSnapshotResult {
   const cargoUnits: Record<string, unknown>[] = [];
   const seenRefs = new Set<string>();
   for (let i = 0; i < draft.cargoUnits.length; i++) {
-    const unit = buildCargoUnit(draft.cargoUnits[i], i + 1);
+    const unit = buildCargoUnit(draft.cargoUnits[i], i + 1, draft.schemaVersion ?? 1);
     if (!unit.ok) return { ok: false, message: unit.message };
     const ref = unit.value.unit_ref as string;
     if (seenRefs.has(ref)) {
@@ -747,7 +781,7 @@ export function buildScopeSnapshot(draft: ScenarioDraft): BuildSnapshotResult {
   if (!transitRefs.ok) return { ok: false, message: transitRefs.message };
 
   const snapshot: Record<string, unknown> = {
-    schema_version: 1,
+    schema_version: draft.schemaVersion ?? 1,
     transport_mode: draft.transportMode,
     movement_direction: draft.movementDirection,
     terminal_operation_mode:
@@ -1116,8 +1150,8 @@ function placeDraftFrom(raw: unknown, fallbackKind: LocationKind): PlaceDraft {
   };
 }
 
-function cargoUnitDraftFrom(raw: unknown, index: number): CargoUnitDraft {
-  if (!isPlainObject(raw)) return emptyCargoUnitDraft(index);
+function cargoUnitDraftFrom(raw: unknown, index: number, version: 1 | 2): CargoUnitDraft {
+  if (!isPlainObject(raw)) return emptyCargoUnitDraft(index, version);
   const equipmentCode = raw.equipment_code;
   return {
     unitRef: refText(raw.unit_ref) || `lot-${index}`,
@@ -1133,7 +1167,13 @@ function cargoUnitDraftFrom(raw: unknown, index: number): CargoUnitDraft {
     temperatureSetpointCelsius: intText(raw.temperature_setpoint_celsius),
     classificationStatus: enumOr(raw.classification_status, CLASSIFICATION_STATUSES, "unknown"),
     destinationRef: refText(raw.destination_ref),
-    dangerousGoods: raw.dangerous_goods === true,
+    dangerousGoods: version === 2 && raw.dangerous_goods === null ? null : raw.dangerous_goods === true,
+    ...(version === 2 ? {
+      ownership: enumOr(raw.ownership, ["SOC", "COC", "unknown"] as const, "unknown"),
+      unNumber: refText(raw.un_number), imoClass: refText(raw.imo_class),
+      weightBasis: enumOr(raw.weight_basis, ["total", "per_unit", "unknown"] as const, "unknown"),
+      scenarioBasis: typeof raw.scenario_basis === "string" ? raw.scenario_basis : "",
+    } : {}),
     requiredAttachmentStatus: enumOr(
       raw.required_attachment_status,
       ATTACHMENT_STATUSES,
@@ -1168,7 +1208,7 @@ export function draftFromScenario(
   const rawUnits = Array.isArray(snapshot.cargo_units) ? snapshot.cargo_units : [];
   const cargoUnits =
     rawUnits.length > 0
-      ? rawUnits.slice(0, MAX_CARGO_UNITS).map((u, i) => cargoUnitDraftFrom(u, i + 1))
+      ? rawUnits.slice(0, MAX_CARGO_UNITS).map((u, i) => cargoUnitDraftFrom(u, i + 1, snapshot.schema_version === 2 ? 2 : 1))
       : base.cargoUnits;
 
   const customs = isPlainObject(snapshot.customs) ? snapshot.customs : {};
@@ -1184,6 +1224,7 @@ export function draftFromScenario(
 
   return {
     ...base,
+    schemaVersion: snapshot.schema_version === 2 ? 2 : 1,
     title: scenario.title,
     status: enumOr(scenario.status, SCENARIO_WRITABLE_STATUSES, "draft"),
     blockedReason: scenario.blocked_reason ?? "",
@@ -1461,7 +1502,14 @@ export function projectCargoUnitFields(raw: unknown): ScopeFieldValue[] {
         ? "Non affectée"
         : refValue(u.destination_ref),
     },
-    { path: "dangerous_goods", label: "Marchandise dangereuse", value: boolText(u.dangerous_goods) },
+    { path: "dangerous_goods", label: "Marchandise dangereuse", value: u.dangerous_goods === null ? "Inconnu" : boolText(u.dangerous_goods) },
+    ...("scenario_basis" in u ? [
+      { path: "ownership", label: "Propriété", value: refValue(u.ownership) },
+      { path: "un_number", label: "Numéro ONU du scénario", value: refValue(u.un_number) },
+      { path: "imo_class", label: "Classe IMO saisie", value: refValue(u.imo_class) },
+      { path: "weight_basis", label: "Base du poids", value: refValue(u.weight_basis) },
+      { path: "scenario_basis", label: "Justification du scénario (non fait client)", value: refValue(u.scenario_basis) },
+    ] : []),
     {
       path: "required_attachment_status",
       label: "Pièce requise",

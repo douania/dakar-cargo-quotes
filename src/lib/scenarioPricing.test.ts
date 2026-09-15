@@ -3,6 +3,7 @@ import {
   formatScenarioPricingAmount,
   latestScenarioPricingRuns,
   readScenarioPricingCodes,
+  scenarioPricingCodeMessage,
   readScenarioPricingEdgeData,
   readScenarioOutputEdgeData,
   scenarioOutputMutationSignature,
@@ -35,6 +36,15 @@ function run(
 }
 
 describe("scenarioPricing P1-A4", () => {
+  it("explains legacy revision, AIR scope and ownership without hiding unknown codes", () => {
+    expect(scenarioPricingCodeMessage("SCENARIO_CARGO_V2_REQUIRED")).toContain("résultats historiques restent conservés");
+    expect(scenarioPricingCodeMessage("SCENARIO_DG_FACTS_UNSCOPED")).toContain("sans modifier les faits client");
+    expect(scenarioPricingCodeMessage("SCENARIO_DG_FACTS_UNSCOPED_AIR")).toContain("Revue métier nécessaire");
+    expect(scenarioPricingCodeMessage("SCENARIO_CONTAINERS_UNSCOPED_AIR")).toContain("données de conteneurs");
+    expect(scenarioPricingCodeMessage("SCENARIO_CONTAINERS_UNSCOPED_AIR")).not.toContain("révision maritime");
+    expect(scenarioPricingCodeMessage("SCENARIO_OWNERSHIP_NOT_PRICED")).toContain("sans ajustement tarifaire SOC/COC");
+    expect(scenarioPricingCodeMessage("FUTURE_CODE:lot-1")).toBe("FUTURE_CODE:lot-1");
+  });
   it("conserve le run de séquence la plus récente par scénario", () => {
     const latest = latestScenarioPricingRuns([
       run("scenario-a", 1, "superseded"),

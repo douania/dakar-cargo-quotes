@@ -48,6 +48,20 @@ Règles non négociables :
 - Lovable Cloud ne doit être interrogé ou modifié que dans le périmètre exact du GO CTO ;
 - les requêtes runtime de diagnostic doivent être en lecture seule sauf autorisation explicite contraire.
 
+### 2.1 Organisation des lots et contre-revues — décision utilisateur du 14 septembre 2026
+
+- Règle durable approuvée par l'utilisateur : travailler par lot cohérent, pas par succession de micro-GO ; ne pas redemander l'approbation de cette méthode à chaque reprise.
+- Au départ, fixer objectif utile à l'application entière, fichiers/composants autorisés et interdits, exécutant unique, critères de réussite, tests proportionnés, risques, rollback et actions nécessitant une autorisation distincte.
+- Un GO de réalisation couvre les corrections et tests nécessaires dans ce périmètre jusqu'à satisfaction des critères. Le découpage technique interne, le nombre de fichiers déjà autorisés et une reprise de session ne créent pas de nouveaux GO ; aucun élargissement implicite.
+- Une seule IA écrit ; l'autre reste en lecture seule. Une contre-revue indépendante complète est requise pour migrations/DB, Auth/RLS, sécurité, pricing/tarifs, intégrité/provenance des données ou rollback sensible ; pour un lot simple sans ces risques, auto-revue du diff et tests suffisent, sauf demande utilisateur.
+- La contre-revue regroupe les observations en une liste : BLOQUANT (preuve, risque, critère non satisfait, correction attendue) ou NON BLOQUANT (amélioration différable). Corriger ensemble les observations retenues dans le GO, puis revoir seulement les points bloquants et les parties affectées ; ne pas recommencer un audit général.
+- Ne rouvrir un point accepté que sur preuve nouvelle, régression ou changement de périmètre, en nommant précisément ce qui a changé. Un désaccord persistant entre IA donne un arbitrage utilisateur unique et argumenté, pas une boucle exploratoire. L'avis d'une IA n'est pas un GO utilisateur.
+- À la clôture, un seul bilan compact : critères atteints/restants, diff, tests PASS/FAIL/NOT_RUN, réserves et retour arrière. Un lot non vérifié reste PARTIAL/BLOCKED ; ne jamais limiter artificiellement les revues au prix d'un défaut critique ignoré.
+- Un GO de publication distinct peut regrouper commit, push sur work, migrations, déploiement privé et recette si chaque action et son périmètre y sont explicitement nommés. Aucune action non incluse, aucun envoi client implicite ; contrôler les résultats dans l'application après livraison.
+- Application immédiate au lot scénarios D/E/G + option B : Codex exécutant, Claude contre-relecteur ; prochaine revue de clôture sur les blocages précis avant publication. Ce GO d'organisation n'autorise ni nouvelle correction applicative, ni commit/push, ni écriture Cloud/déploiement.
+- Les règles FROZEN, sources tarifaires, sécurité et STOP restent applicables. Un nouveau risque bloquant ou une action hors GO impose un arbitrage ciblé, pas une remise en discussion de toute l'organisation.
+- Portée de cette mise en place : consignes locales AGENTS/CLAUDE et roadmap uniquement ; contrôle documentaire et diff-check, tests applicatifs NOT_RUN car aucun code modifié. Retour arrière : retirer seulement ces changements de gouvernance, préserver le lot applicatif antérieur ; aucun impact DB/Auth/RLS/runtime.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
@@ -350,7 +364,10 @@ Preuves après patch : 117 tests ciblés IMO PASS (dont 36 preflight), ESLint du
 GoTrans relu dans Cloud : identité client du fil NULL ; original décodé confirme ONU lié aux armoires, quantités de marchandises pour les groupes 1/2 et trois conteneurs pour le groupe 3. Ni allocation des groupes 1/2 ni déclaration DG/non-DG des groupes 2/3 confirmées. Recherche IMAP échouée (DNS) : absence de nouvelle réponse non démontrée.
 GO de livraison reçu le 14 septembre : commit/push du test et de la roadmap puis vérification Lovable, sans redéploiement moteur. Base dd5e2cf0 local/GitHub/Lovable confirmée ; Git direct indisponible, connecteur GitHub autorisé pour le fast-forward non forcé. 117 tests et contrôle Deno 49/5 rejoués PASS_WITH_BASELINE, lint du test PASS.
 IMAP rétabli : deux messages client et accusé SODATRA du 27 mai relus dans INBOX, sans confirmation supplémentaire d'allocation ou du statut DG des autres groupes. Aucun contenu client brut ajouté au dépôt. Obtenir packing list/allocation et déclaration par groupe, puis validation tracée de l'identité du fil.
-État à la préparation du commit : PASS local, vérification Lovable et recette positive GoTrans NOT_RUN ; aucun fait/gap/timeline/prix/brouillon/envoi/DB/Auth/RLS modifié. Rollback après livraison : revert du seul commit test/docs, sans redéploiement moteur.
+Livraison : work dd5e2cf0 → 0e2768ad, 2 fichiers +20/−4 ; blobs/arbre local et GitHub identiques, fast-forward non forcé via connecteur puis références locales alignées. [CI 34833331743](https://github.com/douania/dakar-cargo-quotes/actions/runs/34833331743) SUCCESS. Aucun code de production modifié, aucun redéploiement moteur.
+Lovable (message umsg_01m2fqbqcrevqb254db4zbq09e) : HEAD 0e2768ad et worktree propre sur branche interne d'édition ; contrôle de typage frais et journal confirment TS2339 disparu, exactement 2 TS2345 historiques restants. Deno 2.6.10 / TS 5.9.2 : 27 tests PASS, 9 FAIL pour deux intervalles non libérés chacun, aucun échec d'assertion rapporté. Origine liée à la version supposée, non prouvée ; ne pas désactiver les sanitizers ni masquer ces échecs. Local/CI utilisent Deno 2.9.5.
+IMAP : INBOX, Archive, quatre dossiers indésirables et deux dossiers envoyés interrogés ; seuls les trois échanges déjà relus ont été retrouvés. Aucune confirmation supplémentaire, aucun envoi ni changement de lecture. Données nécessaires à la recette positive toujours absentes des messages consultés.
+État final : PASS livraison et correction TS2339, PARTIAL qualité multi-environnement ; recette positive GoTrans NOT_RUN. Aucun fait/gap/timeline/prix/brouillon/envoi/DB/Auth/RLS modifié. Rollback : revert du seul commit test/docs, sans redéploiement moteur. Clôture locale non commitée (pas de commit docs-only).
 
 ## 4. Preuves de l'audit du 22 août 2026
 
@@ -920,6 +937,199 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Recette bloquée : un run `blocked` a affiché `Calcul bloqué`, `Non chiffrée` et `SANDBOX_REQUIRED_DATA_MISSING`. La création de sortie a été refusée par `SCENARIO_RUN_NOT_OUTPUTTABLE` ; aucune version, aucun PDF et aucun brouillon n'ont été créés pour ce cas.
 - Nettoyage final strict : suppression confirmée de l'unique PDF sandbox via l'interface Storage, puis transaction gardée supprimant exactement le brouillon, le document, les deux dossiers et leurs fils. Contrôle post-nettoyage : zéro résidu pour les identifiants sandbox dans Storage, dossiers, fils, hypothèses, scénarios, sélections, runs, sorties, lignes, documents et brouillons ; les **9 versions canoniques** préexistantes sont intactes et aucune version scénario ne reste.
 
+#### Extension scénarios cargo v2 — 14 septembre 2026 — PARTIAL intégration, correctifs de contre-revue PASS local, Cloud NOT_RUN
+
+- GO utilisateur explicite : contrat scénario versionné, migration locale, exception ciblée `quotation-engine`, tests ; puis correctif ciblé AIR/validation avec tests. Pas de tarifs, commit/push ni déploiement autorisés dans ce lot.
+- Base `work` local/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec`, HEAD inchangé ; ancienne note de clôture locale préservée.
+- Contrat v2 : danger tri-état, SOC/COC, ONU/classe, poids total/par unité/inconnu, justification opérateur par groupe. Toute donnée de groupe v2 est une hypothèse de simulation, jamais une déclaration client automatique.
+- UI corrigée : « Nouveau scénario » conserve le contrat général v1 (dont AIR) ; « Nouveau maritime par groupes » crée un v2. Révisions conservées, passage explicite v1→v2 proposé uniquement en maritime (ancien faux → inconnu) ; changement de mode v2 averti, jamais de rétroconversion ni d'effacement des hypothèses.
+- `run-scenario-pricing` consomme les groupes v2 dans des inputs transitoires ; un seul appel moteur, frais communs non dupliqués, poids par groupe, contradictions bloquées, DG inconnu/règles magasinage réservés ; tous les montants v2 exclus du total ferme.
+- Diff : `QuoteScenariosPanel.tsx`, `quoteScenarios.ts`, `manage-quote-scenario/domain.ts`, `run-scenario-pricing/{domain,index}.ts`, `quotation-engine/index.ts` ; nouveaux `_shared/scenario-cargo.ts`, tests Deno/Vitest, migration `20260914120000`, assertions SQL transactionnelles ; cette roadmap.
+- Tests après correctif : 375 Vitest PASS, dont 3 nouveaux tests du formulaire ; 144 Deno ciblés PASS, dont 2 nouveaux cas AIR/validation stricte ; suite Deno 1316 PASS / 1 FAIL Intake ligne 193 / 6 ignorés. Fichiers Intake/test identiques à `origin/work` : PASS_WITH_BASELINE, pas de correction hors GO.
+- `npm run ci` exécuté, arrêté sur ce seul échec Intake ; configuration 94 fonctions et typecheck app/node PASS. Gate Deno 49/5 et lint 737/16 inchangés ; build exécuté séparément PASS ; `git diff --check` PASS.
+- Première reprise Docker : migration appliquée puis rejouée sur PostgreSQL 17.10 isolé (`network=none`, aucun port, données en mémoire, sources en lecture seule) avec les validateurs/droits P1-A2 historiques ; aucun accès Cloud.
+- SQL PASS : ancien CHECK effectif après migration (OID conservé), ACL/propriétaire/corps des autres validateurs inchangés, snapshot/hash SHA-256/points ouverts v1 conservés, inconnu non converti en faux, champs manquants/contradictoires/interdits rejetés, rejeu et assertions transactionnelles réussis.
+- Correctif révélé par le test négatif : retrait des droits EXECUTE superflus du nouvel auxiliaire pour authenticated/service_role ; restriction explicite propre à v2, sans modification des ACL des validateurs v1 ni des rôles/policies Auth/RLS. Ne pas présenter les permissions v1/v2 comme identiques. Le test échouait avant ce correctif et passe après ; 142 Deno ciblés rejoués PASS.
+- Limites : calcul v2 maritime conteneurisé ; destinations par groupe et multi-`quote_request_lines` sans mapping restent bloqués, ainsi que les gardes valeur/PAD existants. Recalcul conteneurisé v1 exige une révision v2 ; historiques inchangés. Proposition automatique depuis emails/photos hors de ce lot.
+- Aucun fait client, tarif, Auth/politique RLS, pricing canonique, email ou runtime modifié. Réserves par groupe conservées par le lecteur de sorties existant, sans génération de document réel.
+- Contre-revue initiale FAIL : création AIR forcée v2 et `weight_basis=["per_unit"]` accepté par Edge/rejeté par SQL. Corrigés sous GO distinct : accès général v1 rétabli sans assouplir les gardes moteur ; base du poids exige une chaîne de l'enum, sans coercition. Tests UI/type JSON vérifiés en échec avant patch, puis PASS ; aucun changement supplémentaire de composant FROZEN.
+- Intégration locale PostgreSQL 17.6 : schémas techniques Auth/Storage initialisés, migrations du dépôt jusqu'au 20260910140000 puis migration v2 ; RPC réels création/sélection/pricing/sortie/rejeu, hash périmé, isolation inter-dossiers, lectures autorisées/écritures directes refusées PASS. Résultat tarifaire synthétique, aucun appel moteur Edge réel ; réserves/doubles totaux conservés et absence de faits/pricing canonique/email vérifiée.
+- Reconstruction complète FAIL sur le garde-fou `20260910180000_dthc4_f1_relevage_official_rate.sql:233` (2 lignes RELEVAGE hors DPW/TRANSIT), fichier identique à `origin/work` : obstacle baseline distinct du lot, pas de correction tarifaire ni validation intégrale revendiquée. Edge/Lovable/recette métier NOT_RUN.
+- SQL de la revue précédente PASS, fixtures annulées (0 utilisateur/0 dossier), conteneur supprimé ; SQL non rejoué au correctif, migration inchangée. Diff du correctif : panneau, `_shared/scenario-cargo.ts` et son test, nouveau `case/__tests__/QuoteScenariosPanel.test.tsx`, roadmap ; HEAD `0e2768ad` inchangé. Suite : lever l'obstacle de reconstruction SQL séparément avant GO Git/Cloud ; aucun commit/push/déploiement. Rollback local : annuler ces seuls changements en préservant le lot v2 antérieur ; aucun état Cloud à restaurer.
+
+#### Réconciliation locale du fournisseur RELEVAGE — 14 septembre 2026 — PASS ciblé / reconstruction PARTIAL
+
+- GO explicite : migration corrective locale + tests, sans application Cloud, commit/push ni déploiement ; `work` local/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec`, HEAD inchangé, lot scénario antérieur préservé.
+- Diff exact du sous-lot : nouveaux `supabase/migrations/20260910170000_reconcile_relevage_provider.sql`, `supabase/tests/reconcile_relevage_provider.sql` ; cette roadmap uniquement. Aucun composant FROZEN ni migration historique modifié.
+- Migration rédigée le 14/09, ordonnée avant F1 : exige les deux lignes seed RELEVAGE/TRANSIT 20/40 et leur identité/provenance/montants/unités exacts ; `DP_WORLD` → `DPW` uniquement, avec `updated_at` via trigger existant. Aucun montant, niveau de preuve, taux, rôle, policy ou fait client modifié par ce correctif.
+- Verrou de table, garde cardinalité/doublons/collision, empreintes JSON complètes hors provider/horodatage des deux cibles, intégrité complète des autres lignes. Absence de candidat legacy = no-op sans UPDATE, y compris après F1b ; application Cloud et traitement de sa version antérieure au ledger nécessitent un GO/préflight distinct.
+- PostgreSQL 17.6 isolé, réseau désactivé, aucun port, sources montées read-only, données éphémères : test reproduit le refus F1 initial puis PASS normalisation/rejeu, 15 refus atomiques sur variantes invalides, table vide no-op, lignes hors cible inchangées. F1/F1b historiques enchaînés PASS ; état final 36 560 / 73 120 / 82 260, rejeu du correctif après F1b sans aucune mutation.
+- Rejeu applicatif depuis une base neuve après initialisation technique Auth/Storage (19 migrations Storage) : 229 migrations du dépôt réussies, dont le correctif et F1 ; arrêt sur `20260911090000_dthc4_d1_retire_non_canonical_thc_rows.sql` (5 lignes canoniques THC actives au lieu de 11). Les cinq présentes sont IMPORT ; EXPORT/TRANSIT et les cinq cibles legacy à retirer sont absentes. Fichier D1 identique à `origin/work`, aucun contournement ni insertion tarifaire.
+- Reconstruction complète FAIL sur cette autre dette baseline ; migration scénario v2 et recette Lovable NOT_RUN dans ce rejeu. `git diff --check` PASS ; CI applicative non rejouée pour ce sous-lot SQL (résultats du correctif AIR ci-dessus conservés).
+- Fixtures SQL annulées (0 table publique dans la base de tests), conteneur éphémère supprimé après contrôle d'identité ; aucun état utilisateur/Cloud à restaurer. Rollback local : retirer seulement ces deux nouveaux fichiers et cette note, sans toucher au lot scénario antérieur.
+- Suite : diagnostic/réconciliation distincte de la grille historique attendue par D1 avant publication ; ne pas abaisser son garde-fou ni inventer les lignes manquantes. Aucun GO Cloud/Git acquis.
+
+#### Réconciliation locale des lignes THC historiques — 14 septembre 2026 — PASS local / Cloud NOT_RUN
+
+- GO utilisateur : réconciliation locale et tests, sans écriture Cloud, modification des montants, commit/push ni déploiement ; demande de contre-revue dans le chat Claude « Audit application et direction produit ».
+- Base `work` local/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec`, HEAD inchangé ; lots scénario v2 et RELEVAGE antérieurs préservés.
+- Diff exact du sous-lot : nouveaux `supabase/migrations/20260911080000_reconcile_dpw_thc_replay_rows.sql`, `supabase/tests/reconcile_dpw_thc_replay_rows.sql` ; cette note uniquement. Aucune migration historique ni composant FROZEN modifié.
+- Diagnostic préalable read-only : Cloud contient 11 THC canoniques actives et 13 historiques inactives ; le rejeu Git ne créait que 5 IMPORT. Six canoniques EXPORT/TRANSIT et cinq cibles historiques de D1 manquaient ; valeurs rapprochées des migrations D1/provenance et des lignes Cloud, sans nouvelle décision de barème.
+- Migration rédigée le 14/09, ordonnée avant D1 : insère seulement les cibles absentes avec leurs attributs exacts ; cinq historiques insérées inactives. Aucun UPDATE/DELETE ; verrou, refus des doublons/écarts, contrôle post-insertion et empreinte complète des lignes existantes. Rejeu exact = no-op.
+- PostgreSQL 17.6 isolé sans réseau ni ports, sources read-only et données éphémères : échec D1 initial reproduit, 11 insertions exactes, 13 cas négatifs atomiques (dont altération par trigger), rejeu avant/après provenance PASS. Tests RELEVAGE antérieurs rejoués : 15 cas négatifs et chaîne F1/F1b PASS.
+- Reconstruction neuve après initialisation technique Auth/Storage (19 migrations Storage) : **234/234 migrations du dépôt PASS**, incluant les deux réconciliations, F1/D1/F1b/provenance et scénario v2 ; les blocages historiques décrits ci-dessus sont levés localement.
+- Sur cette base complète : assertions SQL v2 et RPC réels création/sélection/persistance pricing/sortie/rejeu/isolation/droits PASS, résultat tarifaire synthétique, aucun moteur Edge réel. Rejeu THC final = 0 insertion ; 0 utilisateur/0 dossier après rollback des fixtures.
+- CI applicative NOT_RUN pour ce sous-lot SQL ; résultats et dette Intake du lot AIR ci-dessus inchangés. `git diff --check` PASS. Aucun rôle/policy Auth/RLS ni fait client/runtime Cloud modifié ; les migrations historiques du dépôt sont rejouées uniquement en local.
+- Risque publication : le ledger Cloud consulté ne comporte aucune version >= `20260910000000`, alors que certains effets sont présents ; cela ne prouve pas leur absence d'exécution. Réconciliation du ledger/application Cloud nécessite préflight et GO distincts ; aucun repair/blind push autorisé.
+- Conteneur de test supprimé après vérification d'identité ; seules bases synthétiques éphémères effacées. Rollback : retirer les deux nouveaux fichiers et cette note, sans toucher aux lots précédents ; aucune restauration Cloud.
+- Suite : contre-revue Claude du bilan (non encore envoyé/approuvé à cette clôture), puis préflight publication séparé ; recette Edge/Lovable et métier NOT_RUN. Un avis sur bilan seul ne vaut pas revue du diff local non publié.
+
+#### Contre-revue Claude et preuve THC état Cloud — 14 septembre 2026 — PASS test local / publication NO-GO
+
+- GO : fournir les diffs à Claude et compléter le test local état Cloud ; aucun commit/push ni écriture Cloud. Base `work` `0e2768ad71f2d55e199af177705e0550cd857dec` inchangée, alignement distant revérifié après interruption réseau.
+- Claude, chat « Audit application et direction produit » : cohérence de la base publiée approuvée ; NO-GO local conditionné à la lecture des diffs, au préflight ledger sans rejeu aveugle et à la preuve de no-op sur l'état THC Cloud.
+- Diff de ce sous-lot : extension de `supabase/tests/reconcile_dpw_thc_replay_rows.sql` et cette note uniquement ; migrations et code v2 inchangés, travaux antérieurs préservés.
+- Nouveau SELECT Cloud : 24 THC DPW, 11 actives/13 inactives ; les 14 attributs métier sont reproduits exactement en fixture, UUID/horodatages synthétiques. Aucun dossier, secret ni identifiant Cloud exporté ; ce n'est pas un clone complet de la base.
+- PostgreSQL 17.6 isolé (aucun réseau/port, sources read-only) : deux exécutions de la réconciliation puis D1/provenance PASS, zéro INSERT/UPDATE/DELETE tenté prouvé par trigger de refus ; empreinte JSON de toutes les colonnes et 24 lignes inchangée. Les 13 tests négatifs antérieurs repassent.
+- Fixtures annulées puis conteneur supprimé ; aucune donnée utilisateur effacée. `git diff --check` PASS ; CI et reconstruction 234 migrations non rejouées ici (preuves précédentes conservées), recette Edge/Lovable v2 NOT_RUN.
+- Vérifications read-only de contre-revue : ledger Cloud 198 entrées, dernière version 20260902120000 ; 16 versions Git août–septembre absentes. F1 ne doit pas être rejouée après F1b ; seuls les effets prouvés pourront justifier un marquage sous GO distinct. Aucun marquage effectué.
+- Test Intake : échec de recherche littérale LF sur source CRLF Windows confirmé, recherche réussie après normalisation en mémoire seulement ; aucun fichier normalisé/modifié ni CI verte locale revendiquée.
+- Dossier de revue préparé hors dépôt : diffs suivis contre HEAD, contenu intégral des nouveaux fichiers, manifestes SHA-256 ; aucune publication Git. Transmission/avis code à confirmer dans le chat, aucune approbation de publication déduite.
+- Rollback : retirer uniquement l'extension du test et cette note ; aucune restauration Cloud. Suite : verdict de code Claude puis préflight ledger séparé ; jamais de replay global de migrations Cloud.
+
+#### Correctifs après contre-revue Claude — 14 septembre 2026 — PASS ciblé / publication NO-GO
+
+- GO utilisateur : corrections ciblées/tests locaux et préparation de nouvelle contre-revue ; aucun commit/push, SQL/ledger Cloud, tarif ou déploiement. Base `work` locale/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec`, HEAD inchangé ; lot précédent présent et préservé.
+- Claude a reçu les 17 fichiers complets/diffs : GO code des deux réconciliations, avis conditionnel sur v2. Son attribution des 9 échecs Deno 2.6.10 au nouveau test scénario est inexacte : la preuve §3.24 concerne le preflight IMO publié. Diagnostic 2.6.10 non rejoué ici, aucun sanitizer désactivé.
+- Recalcul à conteneurs v1 toujours soumis à révision explicite v2 ; anciens résultats/faits intacts. Codes DG maritime/aérien distingués, messages opérateur et aide de révision explicites ; aucune invitation à convertir AIR en v2 maritime. Pas de nouvelle prise en charge DG aérien.
+- SOC/COC reste une hypothèse requise et tracée : réserve persistée et avertissement UI « sans ajustement tarifaire SOC/COC » ; aucune exonération/majoration ajoutée. Fallback de lot v2 malformé corrigé : danger inconnu et champs v2 conservés. Mention inexacte d'alignement ACL v1/v2 corrigée ci-dessus, SQL inchangé.
+- Diff de ce sous-lot (11 fichiers) : `QuoteScenariosPanel.tsx` et son test ; `quoteScenarios.ts`, `scenarioCargoV2.test.ts`, `scenarioPricing.ts` et son test ; `run-scenario-pricing/domain.ts`, nouveau `handler_test.ts` ; `_shared/scenario-cargo.ts` et son test ; cette roadmap. Aucun nouveau patch du moteur FROZEN, d'Auth/RLS ou de migration.
+- Tests reproduits en échec avant correction : fallback frontend, distinction DG AIR/maritime et réserve SOC/COC ; PASS après. Test réel du handler : 16 cas PASS via transport HTTP mémoire fermé, aucun socket/JWT réel/Cloud, RPC et réponse moteur simulées (pas une nouvelle preuve de concurrence SQL ni de tarif réel).
+- Handler vérifié : accès JWT puis visibilité sous utilisateur avant service-role ; groupes et hypothèse liée vers un seul appel moteur par invocation ; résultat isolé, faits originaux conservés, total ferme v2 nul, frais commun non dupliqué, réserves persistées ; refus, hash périmé, lecture/moteur/RPC en échec, identité/fingerprint de rejeu.
+- 378 Vitest PASS ; Deno final 1334 PASS / 1 FAIL Intake :193 / 6 ignorés. Source Intake et son test identiques à `origin/work`, fragilité LF/CRLF déjà diagnostiquée : PASS_WITH_BASELINE, pas de CI verte revendiquée. Gate types Deno 49/5 et lint 737/16 inchangés, typecheck frontend/config 94 PASS, build PASS, lint ciblé et diff-check PASS.
+- `npm run ci` exécuté : arrêté sur Intake ; lint/build exécutés séparément. Un TS2502 introduit dans le nouveau test a été corrigé, baseline non relevée. Après ajout du seizième cas, suite Deno et gate de types rejouées ; SQL/234 migrations et recette Lovable NOT_RUN ce tour, six fichiers SQL byte-inchangés.
+- Suite : transmettre le dossier de code actualisé pour contre-revue indépendante, puis préflight ledger sous GO distinct ; ne pas rejouer F1 après F1b. Aucun avis de publication acquis. Rollback : annuler seulement ce sous-lot local, conserver les 17 fichiers antérieurs ; aucune restauration Cloud.
+
+#### D1 AIR et préparation préflight ledger — 14 septembre 2026 — PASS local / PARTIAL publication
+
+- GO utilisateur : D1/tests et préparation read-only du plan pour contre-revue Claude ; aucun commit/push, marquage ledger, application SQL ou déploiement. `work`, HEAD local/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé (GitHub confirmé via connecteur, DNS Git direct indisponible).
+- D1 : AIR v1 avec `cargo.containers` reçoit `SCENARIO_CONTAINERS_UNSCOPED_AIR`, message sans remède maritime ; blocage conservé, aucune conversion de mode/suppression de faits ni appel moteur. Maritime inchangé.
+- Diff propre à ce sous-lot : `run-scenario-pricing/domain.ts`, `src/lib/scenarioPricing.ts` et son test, `run-scenario-pricing/handler_test.ts`, cette note. Les quinze autres fichiers du lot de vingt restent SHA-256 inchangés, dont moteur et six SQL.
+- Rouge puis vert : assertion du message et deux tests du vrai handler avec/sans DG, transport mémoire fermé. 378 Vitest PASS ; 46 Deno ciblés PASS (18 handler + 28 cargo) ; types frontend, ESLint ciblé et diff-check PASS ; types Deno 49/5 inchangés PASS_WITH_BASELINE. CI complète/SQL/recette Lovable NOT_RUN ce sous-lot.
+- Préflight SELECT uniquement : ledger 198 entrées ; 234 fichiers locaux, 30 versions identiques. Empreinte SQL normalisée LF/fin de texte : 200 fichiers correspondent à 195 entrées Cloud, dont 172 sous identifiant différent ; ce n'est pas une preuve byte-identique ni d'effet actuel. Ne pas rouvrir automatiquement la réconciliation historique clôturée §3.1.
+- Les 16 versions publiées récentes absentes du ledger ne sont pas autorisées au marquage : statuts ciblés, reprise honoraires, 25 règles IMO, 11 THC actives/provenance et 3 relevages transit finaux vérifiés partiellement ; définitions/ACL/RLS et rapprochements métier exhaustifs restent à compléter. F1 remplacée par F1b, jamais à rejouer.
+- C8 explicite : `20260825170000` doit précéder `20260911080000` ; version et empreinte SQL normalisée du prérequis concordent avec le ledger. Le runner « seulement trois nouvelles » n'est pas démontré par la comparaison brute des versions : exiger liste exacte/méthode Lovable bornée, aucun rejeu global.
+- Plan détaillé et preuves préparés hors dépôt pour Claude ; contre-revue du plan en attente de transmission/avis. Aucun GO publication déduit du GO CODE précédent. Backup/PITR et restauration non vérifiés ; GO Cloud précis requis après clôture des contrôles.
+- Rollback : retirer uniquement D1/tests et cette note, préserver le lot antérieur ; aucune restauration DB/Auth/RLS/runtime nécessaire. Suite : contre-revue du plan, puis contrôles manquants avant toute nouvelle demande d'écriture Cloud.
+
+#### Préparation locale D/E/G après avis Claude — 14 septembre 2026 — PASS local / publication PARTIAL
+
+- GO utilisateur : manifeste historique, trois préflights, rollback et tests locaux ; aucun SQL Cloud (même SELECT), commit/push, déploiement, tarif ou modification de doctrine permanente. `work`, HEAD local/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé ; accès Git direct indisponible, connecteur GitHub concordant.
+- Dossier hors dépôt `preparation-locale` : manifeste des 16 historiques et 3 nouvelles (version/name/statements exacts UTF-8/SHA-256), preuve historique par lignes de HEAD séparée des effets actuels, préflights SELECT, rollback gardé, générateur/fixtures/tests et consignes de revue. Aucune décision de marquage autorisée.
+- Point B non levé : `20260822140700` est documentée comme reconstruction LOCALE d'une quarantaine Cloud observée, pas exécution Cloud du fichier ; ne pas inventer cette preuve. Quinze autres livraisons/exécutions documentées, dont IMO par noms de lots ; identifiants d'appels Lovable non fournis, effets exhaustifs encore PARTIAL/NOT_RUN.
+- Préflights : absence legacy RELEVAGE ; 11 THC uniques/attributs exacts + 24 lignes + C8/empreinte SQL ; v1/catalogue complet/CHECK/auxiliaire absent. Conditions no-op à reprendre sous verrou lors d'une éventuelle application ; aucun runner global Cloud ni reprise de l'ancienne réconciliation.
+- Rollback v2 local : accusé de revue/OID attendu, verrou ACCESS EXCLUSIVE, zéro scénario v2, corps attendus ; restauration v1/commentaire et DROP auxiliaire RESTRICT, jamais CASCADE ni suppression ledger. Snapshot Cloud réel obligatoire avant une future application ; le modèle local ne le remplace pas.
+- PostgreSQL 17.10 jetable, réseau none, aucun port, sources read-only : trois préflights positifs + six refus ; deux passes no-op avec trigger anti-écriture/empreinte ; assertions v2 ; cinq refus atomiques du rollback puis restauration exacte OID/ACL/propriétaire/corps/commentaire des 11 validateurs et insertion v1 PASS. Table scénario minimale avec vrai CHECK, pas recette RPC/RLS complète.
+- Tests existants rejoués : RELEVAGE 15 refus/chaîne F1-F1b/no-op PASS ; THC 13 refus/chaîne D1-provenance/fixture 24 lignes sans tentative d'écriture PASS. Contrôle manifeste/UTF-8 sans BOM/génération reproductible PASS. CI frontend/Deno/build, reconstruction 234 migrations, concurrence multi-connexion et recette Lovable NOT_RUN ce lot.
+- Vigilance transaction : v2 possède son BEGIN/COMMIT ; future inscription ledger des trois nouvelles seulement après succès et avant commit dans la même enveloppe validée. Un INSERT après son COMMIT ne serait pas atomique. Aucun SQL de marquage opérationnel produit tant que les preuves restent partielles.
+- Seule cette note change dans le dépôt ; 19 autres fichiers du lot conservés. Rollback du sous-lot : retirer ses artefacts locaux et cette note, sans restauration Cloud. Suite : contre-revue du dossier D/E/G, arbitrage de la preuve de quarantaine, puis contrôles frais et GO d'écriture distinct.
+
+#### Gardes D/E/G, contrôles Cloud et option B préparée — 14 septembre 2026 — PASS local / publication PARTIAL
+
+- GO utilisateur : correctifs/tests locaux, contrôles Cloud READ ONLY et préparation option B ; aucune écriture Cloud, commit/push, publication ni doctrine permanente. `work`, HEAD `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé, GitHub confirmé via connecteur.
+- Hors dépôt : scan des appelants résiduels `pg_proc.prosrc` dans préflight v2/rollback, OID attendu seul exclu, RESTRICT conservé ; rouge reproduit puis vert. Limite : références assemblées dynamiquement non garanties par cette recherche textuelle.
+- PostgreSQL 17.10 isolé : trois préflights, six refus données/prérequis, double no-op, assertions scénario v2 ; six refus rollback et restauration exacte des validateurs PASS. Aucun correctif applicatif/migration du dépôt dans ce sous-lot ; 19 fichiers antérieurs préservés.
+- SELECT Lovable frais : trois préflights ok, appelants résiduels absents ; ledger 198 métadonnées ; EMPTY_RETURN 5/5 rejetés, PORT_DAKAR_HANDLING 2/2 ; 4 tables RLS, 17 policies, 5 triggers activés, 7 fonctions et code réservé IMO présents.
+- Comparaison corps : cinq identiques après normalisation CRLF/trim ; un diff commentaires/lignes blanches, un diff accents du message d'erreur uniquement. Ni identité byte à byte des sept corps ni preuve d'exécution intégrale des migrations revendiquée.
+- E0 : deux étapes observées xid 27469, même transaction et read_only=on via paramètre transaction-local ; pas une preuve Cloud d'annulation d'écriture sur erreur.
+- Option B `20260822140700` : 25 cibles exactes/inactives, 35 demurrage dont 26 actives, version absente ; aucun trigger de statement/règle tarifaire ni trigger utilisateur/règle ledger. L'exécution HISTORIQUE reste non prouvée.
+- Brouillon externe : accusé, verrous/empreintes, état cible strict sous verrou, SQL original UTF-8, comparaison no-op puis INSERT ledger nu exact avant COMMIT ; préparation uniquement, aucune application Cloud.
+- Tests option B sur fixture synthétique : zéro UPDATE de ligne, 198→199 entrées locales dont texte source exact ; dix refus et atomicité PASS. Générateurs déterministes/contrôle Q3 PASS ; CI, 234 migrations, concurrence multi-connexion et recette Lovable NOT_RUN ce sous-lot.
+- Suite : contre-revue Claude du dossier actualisé, sauvegarde fraîche ledger COMPLET/catalogue v1 puis éventuel GO Cloud borné. Verrous bloquants/timeout à valider ; garde E0 ne remplace pas cette revue. Aucun runner global Cloud ni rejeu F1/IMO-rules.
+- Seule cette note change dans le dépôt. Rollback : retirer ses artefacts/note seulement, préserver le lot antérieur ; aucune restauration DB/Auth/RLS/runtime nécessaire.
+
+#### Clôture ciblée Claude : E0-ter et variante option B — 14 septembre 2026 — PASS local / publication PARTIAL
+
+- GO existant poursuivi : préparation/correctifs/tests locaux et contrôles Cloud READ ONLY ; avis Claude conditionnel, jamais assimilé à une autorisation d'écriture. `work`, HEAD `0e2768ad71f2d55e199af177705e0550cd857dec` local/GitHub alignés par ls-remote, inchangés.
+- E0-ter PASS : requête 93 193 octets, littéral 92 914 octets, accents/commentaires et 5 CRLF ; MD5 local/Cloud `4918f0af893260c3be1ffd7bcbc9d068`, read_only=on. Fidélité de cet appel SELECT démontrée, pas preuve de tout DDL ni de l'origine des divergences historiques.
+- Option B externe : ledger ACCESS EXCLUSIVE, trois tables tarifaires SHARE ROW EXCLUSIVE ; dix refus, zéro UPDATE ligne/inscription SQL exacte et assertions pg_locks PASS en PostgreSQL 17.10 isolé. Génération déterministe PASS ; concurrence multi-connexion NOT_RUN, non bloquante selon Claude.
+- Ordre borné : option B avant toute autre inscription D/E (pin 198), puis E après recontrôle des prérequis ; base E avant trois Edge. Tout changement préalable ledger impose de nouveaux pins approuvés. Date UTC/accusé/zéro ligne à tracer dans CTO_GO_QUEUE seulement lors de l'exécution réelle.
+- Ledger complet exporté hors dépôt : 198 entrées/10 tranches, 1 270 542 octets SQL ; version/name/cardinalité/taille/MD5 vérifiés, métadonnées identiques avant/après. Catalogue v1 frais sauvegardé, préflight ok. Export non atomique par tranches, pas snapshot complet DB/PITR ; restauration non vérifiée.
+- Manifeste : H2-d2 `20260909170000` et IMO storage `20260910140000` exclus du marquage pour corps divergents. Pas de preuve d'exécution exacte Git ; convergence éventuelle sous GO distinct, ensemble dans l'ordre et même transaction, jamais H2-d2 seul.
+- Liste D séparée : 10 candidates no-op sous gardes/tests/GO, 2 DDL policies/triggers, 2 jamais rejouables (F1/IMO-RULES-1), 2 divergentes. Toutes NOT_AUTHORIZED ; aucun rejeu général proposé.
+- Restent : capacité de restauration/risque accepté, revue limitée aux modifications de verrou/séquence et enveloppes E, puis GO utilisateur précis. Préparation et exports ne sont pas une publication ; CI/recette Lovable NOT_RUN ce tour.
+- Dans le dépôt, seule cette note change ; 19 fichiers applicatifs et consignes de gouvernance préservés. Aucun commit/push, DB/Auth/RLS/tarif/fait/runtime modifié. Rollback du sous-lot : retirer seulement ses artefacts/note ; aucune restauration Cloud.
+
+#### Écarts textuels H2-d2 / IMO storage acceptés — 15 septembre 2026 — PASS décision / publication PARTIAL
+
+- GO utilisateur : conserver les deux fonctions Cloud telles quelles, abandonner leur convergence purement textuelle et poursuivre le lot scénarios sans bloquer sur ces écarts. Décision close, ne pas redemander cet arbitrage sans preuve nouvelle.
+- Portée exacte : commentaires/lignes blanches de `fee_line_code_is_reserved(text)` et accents du message d'erreur de `fee_lines_reject_reserved_code()`, comparés le 14 septembre. Aucune autre différence acceptée ; modification automatique ou inévitable par Lovable non démontrée.
+- Versions `20260909170000` et `20260910140000` exclues du marquage historique avec le texte Git ; aucun rejeu/convergence requis pour le lot actuel, aucun changement de source Git pour fabriquer une concordance. L'écart reste documenté.
+- Les pins, contrôles de logique/tarifs/Auth/RLS et rollback des nouvelles fonctions restent obligatoires. Ce GO n'autorise aucun commit/push, marquage ledger, SQL Cloud, déploiement ou envoi client.
+- Préflight : `work`, HEAD local/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé, lot local attendu présent. Arbitrages métier anciens de la file non élargis par cette décision.
+- Diff : cette note et annotations de décision des annexes externes ; code/migrations et consignes antérieures préservés. Génération du manifeste et diff-check contrôlés ; tests applicatifs/recette/Cloud NOT_RUN ce tour, aucune modification DB/Auth/RLS/runtime.
+- Suite : terminer les prérequis réels de livraison (restauration/risque accepté et enveloppes finales), puis GO de publication borné. Rollback de cette décision documentaire : retirer uniquement cette note/annotations ; aucune restauration Cloud nécessaire.
+
+#### Enveloppes finales et restauration — 15 septembre 2026 — PASS local / publication PARTIAL
+
+- GO utilisateur : préparation locale de livraison et contrôles de restauration en lecture seule ; aucun GO de commit/push, SQL Cloud ou déploiement déduit.
+- `work`, HEAD local/GitHub/Lovable `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé ; 19 fichiers applicatifs et consignes précédentes préservés. Diff du tour : cette note et annexes externes uniquement.
+- Annexes `preparation-locale/execution-E{1,2,3}-DRAFT.sql` générées : B puis E1/E2/E3, pins ledger, préflight sous locks, no-op tarifaire, SQL + INSERT ledger atomiques et contrôles après exécution ; aucun runner global ni marquage D historique.
+- E3 préserve OID/ACL/owner/config/contraintes et lignes scénarios ; SQL original conservé dans `statements`, retrait des seuls BEGIN/COMMIT externes pour exécution englobée. Rollback v1 conditionné à zéro ligne v2 et retour Edge coordonné, ledger conservé.
+- Tests frais PostgreSQL isolé : 22 refus attendus E + 3 succès + retour v1 PASS ; suites antérieures de préparation/option B PASS après correction des chemins de montage du harnais jetable ; génération des six annexes vérifiée.
+- Cloud SELECT 15/09 09:18 UTC : 198 entrées exactes, E1/E2 no-op prêts, catalogue v1 exact ; préflight B frais conforme. Texte E3 113902 octets, MD5 local/Cloud `c65ba55dbc8b91d80d9f574cfae6c3f8` par SELECT littéral, aucune preuve DDL inférée.
+- Restauration complète/PITR non établis ; bouton Export project data vérifié dans Lovable, non activé. L'export crée une copie Cloud avec lien email ; son téléchargement, intégrité et restauration locale restent NOT_RUN, hors code Edge/Storage/secrets selon documentation officielle.
+- Preuves hors dépôt : `C:/Users/DELL/AppData/Local/Temp/dcq-claude-review-20260914-cloud24/preparation-locale/CLOTURE-LIVRAISON-20260915.txt`, manifeste E et résultats. Tests sur fixtures ciblées, pas un rejeu Cloud intégral ; CI applicative/recette Lovable NOT_RUN ce tour.
+- Suite : GO ciblé pour export puis validation locale, contre-revue de clôture limitée aux enveloppes/retour arrière, puis GO de publication nommé. Écarts textuels acceptés inchangés et non bloquants. Aucun impact DB/Auth/RLS/tarifs/faits/runtime ; retrait des seules nouvelles annexes/note pour annuler cette préparation.
+
+#### Export et essai de restauration — 15 septembre 2026 — PASS local / livraison PARTIAL
+
+- GO utilisateur : export Lovable, téléchargement et essai local uniquement, sans migration Cloud/publication. Compétence computer-use utilisée pour l'export autorisé ; aucun message envoyé à Claude ni au client.
+- Export Cloud privé `database_export_15_09_26/dakotation-pro_260915.backup`, créé le 15/09 à 09:27:54 UTC, téléchargé dans `C:/Users/DELL/Downloads/dakotation-pro_260915.backup` : 23784269 octets, SHA256 `083d722e534132f47e6bd3bfab9e2f5aa82ae6165bb7f21ee3db61a802d07603`. Archive sensible, hors Git, ne pas joindre aux contre-revues.
+- Archive custom zstd, 2310 entrées, pg_dump 18.6 depuis PostgreSQL 17.6. Restauration complète `pg_restore --exit-on-error --single-transaction`, sans suppression des propriétaires/ACL, terminée code 0 sur `supabase/postgres:17.6.1.136`, sans réseau/ports et données tmpfs.
+- Prérequis locaux après deux refus atomiques : utiliser `supabase_admin`, créer uniquement les rôles NOLOGIN manquants `supabase_realtime_admin`, `sandbox_exec`, `sandbox_exec_snjewofqxfsdmaszapux`. Aucun rôle/identifiant Cloud modifié ; les attributs globaux et accès réels ne sont pas reproduits par ces rôles locaux.
+- Comparaison locale/Cloud fraîche : 15 champs concordants dont 132 tables publiques/2 vues, 130 tables RLS, 228 politiques (empreinte identique), 198 entrées ledger (empreinte identique), 219 tarifs portuaires (empreinte identique), 73 dossiers/1409 faits/171 runs/9 versions/0 scénario, 20 fonctions scénario (corps/ACL/owner/config/security_definer).
+- L'écart initial d'affichage des politiques provenait de `search_path` local incluant auth : aucune modification des politiques ; comparaison identique après alignement de la session sur public,extensions.
+- Preuves : annexes externes `preparation-locale/export-restore-verify.sql` et `export-restore-results-20260915.json`. Tous les objets de l'archive restaurés, comparaison ciblée uniquement ; comportement applicatif, authentification réelle, restauration Cloud/PITR et fichiers Storage/code Edge non démontrés.
+- Préflight : `work`, HEAD local/Lovable `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé, lot local présent ; accès GitHub direct indisponible ce tour, dernier alignement confirmé antérieurement. Code applicatif/migrations/consignes inchangés ; seule cette note et deux annexes de contrôle ajoutées.
+- Impact Cloud autorisé : création de l'export privé et notification annoncée par Lovable ; aucun SQL métier, tarif, fait, Auth/RLS, commit/push ou déploiement modifié. CI/recette applicative et B/E NOT_RUN ce tour. Conteneur de restauration supprimé après contrôles ; archive privée conservée.
+- Suite : retour local désormais prouvé ; contre-revue de clôture limitée aux nouvelles enveloppes et à cette preuve, puis GO de livraison regroupé et nommé. Aucun nouveau chantier de sauvegarde générale ni réouverture des écarts textuels acceptés. Restauration Cloud effective non autorisée/non testée.
+
+#### B1 — contrôle ACL E3 et répétition locale — 15 septembre 2026 — PASS local / revue PARTIAL
+
+- GO utilisateur : correctif du contrôle E3, tests reproduisant Lovable et rejeu B→E1→E2→E3 sur restauration privée ; aucune écriture Cloud, commit/push ou publication.
+- `work`, HEAD local/GitHub `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé. Hors dépôt : générateur E, enveloppe E3, tests et manifeste actualisés ; B/E1/E2, rollback et sources métier inchangés.
+- Garde E3 : propriétaire identique au helper v1 épinglé ; PUBLIC/anon/authenticated/service_role interdits ; autres entrées ACL limitées aux mêmes bénéficiaire, accordeur, privilège et délégation déjà présents sur v1. Aucun GRANT ajouté à la migration.
+- Fixture PostgreSQL 17.6 : 29 refus attendus avec atomicité, trois succès E et retour v1 PASS, dont sept nouvelles protections ACL. Génération reproductible PASS.
+- Archive privée restaurée intégralement en local isolé, puis B/E1/E2 PASS : ledger 198→199→200→201 ; ancien E3 refusé sur E_HELPER_ACL_POSTCHECK, annulation vérifiée ; E3 corrigé PASS →202 ; rollback v1 PASS, historique conservé.
+- Empreintes des 163 tables public/auth/storage (66 499 lignes) inchangées après chaque étape et retour ; catalogue v1 rétabli, droits helper v2 limités à postgres et au rôle sandbox déjà présent sur v1.
+- Adaptations LOCALES explicites : database OWNER postgres pour pg_database_owner ; OID objets/rôles et ordre catalogue/CHECK issus de la restauration, égalité sémantique préalable. Aucun pin Cloud rafraîchi automatiquement. Harnais corrigé après refus sur ordre des CHECK, interpolation JS et propriétaire DB local.
+- E3 SHA256 `ae83d07083f604111b636e1ebdbcdcc29b70a2f73da16cd2e1aeabdbe1450565` ; ancien test de transport Cloud ne couvre pas ces nouveaux octets. Convention CRLF source B conservée, chaîne ledger inchangée.
+- Preuves externes : `preparation-locale/b1-rehearsal-results.json`, `rehearse-b1.mjs` et dossier de contre-revue B1. Conteneur temporaire supprimé, sauvegarde privée conservée ; aucune donnée client jointe à la revue.
+- Suite : contre-revue limitée à B1 et aux preuves affectées, puis GO de livraison regroupé nommé. CI applicative, recette Lovable, publication et avis Claude sur ce correctif NOT_RUN. Rollback local : reprendre les annexes précédentes ; aucun retour Cloud requis.
+
+#### GO livraison privée — 15 septembre 2026, 10:21 UTC — BLOCKED avant écriture
+
+- Contre-revue Claude reçue : B1 LEVÉ, pas de correction supplémentaire ; transport E3 frais et préflights restent requis avant écriture.
+- GO utilisateur explicite : quatre enveloppes SQL B→E1→E2→E3, commit/push work, Edge quotation-engine (FROZEN)→run-scenario-pricing→manage-quote-scenario, vérification des sources, recette privée sans envoi et entrée CTO ; arrêt au premier échec. Aucun scénario v2 pendant la fenêtre de synchronisation.
+- Arrêt au préflight : connexion directe github.com:443 impossible pour git ls-remote (21 secondes). HEAD local `0e2768ad71f2d55e199af177705e0550cd857dec` inchangé ; alignement GitHub frais UNKNOWN, pas de divergence démontrée.
+- Lovable get_project/get_database_status READ ONLY : même SHA, privé/non publié, prêt, base activée. Aucun query_database, accusé, migration, commit/push ou déploiement effectué ; tests/transport/préflights DB/recette NOT_RUN ce tour.
+- Diff du tour : cette note et l'entrée CTO_GO_QUEUE uniquement ; lot antérieur préservé. Aucun impact DB/Auth/RLS/tarifs/faits/runtime ; aucun rollback Cloud requis.
+- Reprise : rétablir l'accès GitHub puis contrôles frais sous le GO déjà donné, sans nouvelle boucle de contre-revue à périmètre inchangé. Retour SQL toujours limité à zéro ligne v2, historique conservé ; après données v2, correction en avant.
+
+#### Livraison scénarios — 15 septembre 2026, 10:29 UTC — SQL PASS / Edge et recette NOT_RUN
+
+- GO de livraison repris après rétablissement GitHub : HEAD local/GitHub/Lovable `0e2768ad71f2d55e199af177705e0550cd857dec`, 19 fichiers applicatifs identiques à la contre-revue ; B1 LEVÉ par Claude.
+- Contrôles locaux : 94 configurations, typecheck frontend, 378 tests frontend et build PASS ; types Deno 49, lint 737/16 inchangés. Deno 2.9.5 fourni via cache npm/DENO_BIN local après absence initiale du PATH, aucune modification du dépôt pour ce problème d'environnement.
+- Tests Deno : 1336 PASS, 1 FAIL, 6 ignorés. Seul échec SIFB Intake ligne 193 (recherche LF dans checkout CRLF), reproduit sur checkout baseline origin/work, fichiers inchangés : PASS_WITH_BASELINE, pas CI intégralement verte. Aucun correctif hors lot ni test ignoré ajouté.
+- Transport E3 SELECT frais : 114746 octets, MD5 `493f6b48383f722e13072f82794ae70d`, identique au local. Deux préflights frais PASS à 10:28 UTC, ledger 198 et catalogue épinglé conformes.
+- B→E1→E2→E3 réellement exécutées séparément via query_database, chacune atomique, avec accusés `REVIEWED_OPTION_B_EXECUTION_NOT_HISTORICAL_PROOF` puis `REVIEWED_SCENARIO_E_20260915`. Vérifications de persistance ledger 199→200→201→202 entre 10:28 et 10:29 UTC.
+- Sources ledger MD5 : B b2f2029470209f3e5625101974f6e73b ; E1 ff415c5d2c6de69d0e9ee44c7236e8c1 ; E2 c4913825b152b0aff3f4b4d3ed9f2298 ; E3 deed0b385ed07c9253c076745e5f0b75. Aucun marquage historique D ni runner global.
+- Zéro changement de données tarifaires vérifié par gardes no-op et empreintes ; 1409 faits inchangés (MD5 9b93a7acc7d70de1852df770db4dbb41), port_tariffs baeaca4d2f8771030736bb0a15c4148b. Aucun scénario v2 ; scope OID 197950 conservé, helper v2 OID 199196, ACL postgres+sandbox uniquement.
+- Preuves détaillées externes : preparation-locale/delivery-cloud-results-20260915.json. Sauvegarde privée exclue du dépôt et des revues. Trois migrations locales de réconciliation/scénario comprises dans le commit du lot, source métier inchangée depuis revue.
+- Suite autorisée : commit/push work, quotation-engine→run-scenario-pricing→manage-quote-scenario avec contrôles à chaque étape, recette privée sans envoi. Pas de création v2 pendant la fenêtre frontend/Edge.
+- Retour : Edge coordonné puis rollback SQL seulement à zéro ligne v2 ; ledger conservé et nouveau numéro pour relivraison. Aucun rollback exécuté dans le Cloud.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
@@ -1374,7 +1584,7 @@ Pour tout patch :
 9. examiner le diff et l'absence de fichiers générés ;
 10. vérifier sécurité, idempotence, RLS, provenance et non-régression ;
 11. présenter le verdict avant tout commit ou push ;
-12. demander un GO CTO séparé pour commit, push, PR, migration ou runtime.
+12. obtenir le GO CTO de publication distinct de la réalisation ; il peut regrouper commit, push, PR, migration et runtime explicitement listés (§2.1), sans redemander une autorisation déjà donnée et toujours applicable.
 
 Un build vert ne remplace pas les tests métier. Un test local vert ne prouve pas l'état Lovable. Une preuve Lovable ne prouve pas que Git peut reconstruire le même état.
 
@@ -1399,7 +1609,7 @@ STOP et demander arbitrage CTO si :
 
 La nouvelle session doit commencer par :
 
-1. lire ce document intégralement ;
+1. lire les sections 1 et 2 intégralement, puis la section du pack actif et les règles pertinentes ;
 2. lire les instructions `AGENTS.md` applicables ;
 3. vérifier localement :
    - remote Git ;
@@ -1412,11 +1622,11 @@ La nouvelle session doit commencer par :
 7. marquer comme obsolète toute donnée de cette feuille de route contredite par une preuve plus récente ;
 8. sélectionner un seul pack non terminé ;
 9. produire le périmètre, les fichiers autorisés, les tests et les conditions de STOP ;
-10. attendre le GO CTO correspondant avant tout patch.
+10. vérifier le GO CTO du lot : reprendre le périmètre déjà autorisé s'il reste applicable ; demander seulement l'autorisation manquante ou l'arbitrage d'un nouveau blocage (§2.1).
 
 Prompt de reprise minimal :
 
-> Lire intégralement `docs/CTO_DEVELOPMENT_ROADMAP.md`, vérifier le dépôt `douania/dakar-cargo-quotes` sur la branche `work`, comparer `HEAD`, `origin/work` et l'état Lovable pertinent, puis produire uniquement le diagnostic de reprise du premier pack non terminé. Aucun patch, commit, push ou changement runtime sans nouveau GO CTO.
+> Lire `docs/CTO_GO_QUEUE.md`, puis les sections 1–2 de `docs/CTO_DEVELOPMENT_ROADMAP.md` et le pack actif ; vérifier le dépôt `douania/dakar-cargo-quotes` sur `work`, comparer `HEAD`, `origin/work` et l'état Lovable pertinent. Reprendre le lot sous son GO existant après préflight conforme ; sinon présenter le seul arbitrage manquant. Aucun patch, commit, push ou changement runtime sans GO correspondant ; pas de nouveau GO demandé pour une action déjà autorisée et inchangée.
 
 ## 12. Règle de mise à jour de cette feuille de route
 
