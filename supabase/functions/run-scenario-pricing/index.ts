@@ -26,13 +26,10 @@ import {
 } from "../_shared/service-scope.ts";
 import { resolvePadScopeBlocker } from "../_shared/pad-scope-blocker.ts";
 import {
-  readTerminalOperationMode,
-  resolveTerminalOperationBlockers,
-  terminalOperationBlockerMessage,
-} from "../_shared/terminal-operation-mode.ts";
-import {
   buildEngineRequest,
   buildScenarioCargoPricing,
+  resolveScenarioContainerTerminal,
+  applyScenarioContainerTerminalLines,
   applyScenarioExplicitServiceRemovals,
   buildFingerprintInput,
   buildMissingServiceReserveLines,
@@ -369,18 +366,9 @@ async function handleRequest(req: Request): Promise<Response> {
       : [];
     const explicitlyRemovedServiceKeys = resolveExplicitlyRemovedServiceKeys(overrides);
 
-    const scenarioTerminalMode = typeof scenarioSnapshot.terminal_operation_mode === "string"
-      ? scenarioSnapshot.terminal_operation_mode.trim().toUpperCase()
-      : null;
-    const effectiveTerminalMode = readTerminalOperationMode(overlay.facts);
-    if (scenarioTerminalMode !== effectiveTerminalMode) {
-      blockers.push("SCENARIO_TERMINAL_SCOPE_MISMATCH");
-    }
-    const terminalBlockers = resolveTerminalOperationBlockers({
-      facts: overlay.facts,
-      effectiveServiceKeys,
-    });
-    blockers.push(...terminalBlockers);
+    const terminalPolicy = resolveScenarioContainerTerminal(scenarioSnapshot, overlay.facts, effectiveServiceKeys);
+    blockers.push(...terminalPolicy.blockers);
+    if (terminalPolicy.eligible) overlay.assumptionKeys.add("scenario.container_thc_policy");
 
     const padBlocker = resolvePadScopeBlocker({
       facts: overlay.facts,
@@ -428,6 +416,7 @@ async function handleRequest(req: Request): Promise<Response> {
       };
     });
     const reservations: Record<string, unknown>[] = [
+      ...terminalPolicy.reservations,
       ...(cargoPlan?.reservations ?? []),
       ...reserveLinks,
       ...openPointReservations,
@@ -475,7 +464,7 @@ async function handleRequest(req: Request): Promise<Response> {
             status = "failed";
           } else {
             const scopeFiltered = applyScenarioExplicitServiceRemovals(
-              engineResponse.lines as ScenarioTariffLine[],
+              applyScenarioContainerTerminalLines(engineResponse.lines as ScenarioTariffLine[], terminalPolicy),
               explicitlyRemovedServiceKeys,
             );
             tariffLines = scopeFiltered.keptLines;

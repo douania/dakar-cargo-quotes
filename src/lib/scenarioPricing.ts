@@ -119,6 +119,12 @@ export function scenarioPricingCodeMessage(code: string): string {
       return "Scénario aérien avec données de conteneurs : périmètre à revoir avant calcul. Aucune conversion de mode ni suppression automatique des faits client.";
     case "SCENARIO_OWNERSHIP_NOT_PRICED":
       return "Propriété conservée sans ajustement tarifaire SOC/COC dans cette version ; frais dépendants à vérifier.";
+    case "SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT":
+      return "Manutention conteneurs : barème homologué retenu indépendamment de l’opérateur, sans déduire le mode terminal.";
+    case "SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM":
+      return "Frais annexes terminal et magasinage à confirmer : non chiffrés, et non considérés comme gratuits.";
+    case "SCENARIO_TERMINAL_FACT_INVALID":
+      return "Mode terminal renseigné mais non reconnu : vérifier cette information avant calcul.";
     default:
       return code;
   }

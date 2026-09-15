@@ -1,5 +1,6 @@
 import { resolveScenarioCargo, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
 import { validateScopeSnapshot } from "../_shared/quote-scenario-domain.ts";
+import { readTerminalOperationMode, resolveTerminalOperationBlockers } from "../_shared/terminal-operation-mode.ts";
 
 /**
  * P1-A4 — domaine pur du pricing isolé par scénario.
@@ -380,6 +381,68 @@ export interface ScenarioTariffLine extends Record<string, unknown> {
   category?: unknown;
   description?: unknown;
   source?: unknown;
+}
+
+/** GO CTO 2026-09-15: the homologated container THC does not declare an operator.
+ * Scenario-only, no canonical fact/terminal/transport mode is synthesized.
+ * Invalid or contradictory declarations remain errors, not missing information.
+ */
+export function resolveScenarioContainerTerminal(
+  snapshot: Record<string, unknown>, facts: PricingFactRow[], serviceKeys: string[],
+) {
+  const scenarioMode = typeof snapshot.terminal_operation_mode === "string"
+    ? snapshot.terminal_operation_mode.trim().toUpperCase() : null;
+  const factMode = readTerminalOperationMode(facts);
+  const units = Array.isArray(snapshot.cargo_units) ? snapshot.cargo_units : [];
+  const inputs = buildPricingInputs(facts);
+  const dakarPort = [inputs.originPort, inputs.destinationPort].some(port =>
+    ["dakar", "dakar port", "port de dakar", "sndkr", "sn dkr"].includes(normalizeText(port)));
+  const eligible = snapshot.schema_version === 2 && snapshot.transport_mode === "MARITIME" &&
+    ["IMPORT", "TRANSIT"].includes(String(snapshot.movement_direction)) &&
+    dakarPort &&
+    units.length > 0 && units.every(u => isPlainObject(u) && u.unit_kind === "CONTAINER") &&
+    serviceKeys.includes("DTHC");
+  const blockers: string[] = [];
+  if (!eligible) {
+    if (scenarioMode !== factMode) blockers.push("SCENARIO_TERMINAL_SCOPE_MISMATCH");
+    blockers.push(...resolveTerminalOperationBlockers({ facts, effectiveServiceKeys: serviceKeys }));
+  } else {
+    if (facts.some(f => f.fact_key === "routing.terminal_operation_mode") && factMode === null) {
+      blockers.push("SCENARIO_TERMINAL_FACT_INVALID");
+    }
+    if (scenarioMode && factMode && scenarioMode !== factMode) blockers.push("SCENARIO_TERMINAL_SCOPE_MISMATCH");
+  }
+  const annexUncertain = eligible && (scenarioMode ?? factMode) !== "LOLO";
+  const reservations: Record<string, unknown>[] = eligible ? [{
+    code: "SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT", source: "scenario_terminal_policy_v1",
+    message: "Manutention conteneurs : barème homologué validé, sans déduction de l’opérateur ni du mode LoLo. Les indications terminal existantes sont conservées.",
+  }, ...(annexUncertain ? [{
+    code: "SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM", source: "scenario_terminal_policy_v1",
+    message: "Frais annexes de terminal et magasinage à confirmer séparément ; aucun montant nul ne signifie gratuité.",
+  }] : [])] : [];
+  return { eligible, annexUncertain, blockers, reservations };
+}
+
+/** Keep the known THC amount/source; never transfer a DPW ancillary rate to an
+ * unspecified or different terminal. Raw engine response remains diagnostic only.
+ */
+export function applyScenarioContainerTerminalLines(
+  lines: ScenarioTariffLine[], policy: ReturnType<typeof resolveScenarioContainerTerminal>,
+): ScenarioTariffLine[] {
+  if (!policy.eligible) return lines;
+  return lines.map(line => {
+    const category = normalizeText(line.category);
+    const thc = String(line.id ?? "").startsWith("thc_") && category === "terminal dpw";
+    if (thc) return { ...line, category: "DTHC" };
+    const ancillary = ["terminal dpw", "terminal", "magasinage"].includes(category);
+    if (!policy.annexUncertain || !ancillary) return line;
+    return { ...line, amount: null, unit_price: null, unitPrice: null, rate: null,
+      category: category === "terminal dpw" ? "Frais annexes terminal" : line.category,
+      description: "Frais annexes terminal / magasinage — à confirmer",
+      notes: "Terminal non confirmé pour ce barème annexe ; montant et conditions non retenus dans l’estimation.",
+      source: { type: "TO_CONFIRM", reference: "SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM", confidence: 0 },
+    };
+  });
 }
 
 export interface ScenarioTotals {

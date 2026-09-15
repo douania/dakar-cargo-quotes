@@ -45,6 +45,12 @@ describe("scenarioPricing P1-A4", () => {
     expect(scenarioPricingCodeMessage("SCENARIO_OWNERSHIP_NOT_PRICED")).toContain("sans ajustement tarifaire SOC/COC");
     expect(scenarioPricingCodeMessage("FUTURE_CODE:lot-1")).toBe("FUTURE_CODE:lot-1");
   });
+  it("explique la base THC et les annexes non chiffrées sans masquer un fait terminal invalide", () => {
+    expect(scenarioPricingCodeMessage("SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT")).toContain("indépendamment de l’opérateur");
+    expect(scenarioPricingCodeMessage("SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT")).toContain("sans déduire le mode terminal");
+    expect(scenarioPricingCodeMessage("SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM")).toContain("non chiffrés, et non considérés comme gratuits");
+    expect(scenarioPricingCodeMessage("SCENARIO_TERMINAL_FACT_INVALID")).toContain("vérifier cette information avant calcul");
+  });
   it("conserve le run de séquence la plus récente par scénario", () => {
     const latest = latestScenarioPricingRuns([
       run("scenario-a", 1, "superseded"),

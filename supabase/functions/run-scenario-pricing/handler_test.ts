@@ -5,6 +5,7 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handleRequest } from "./index.ts";
 import { validateScopeSnapshot } from "../manage-quote-scenario/domain.ts";
+import { applyScenarioContainerTerminalLines, resolveScenarioContainerTerminal, type PricingFactRow } from "./domain.ts";
 
 type Json = Record<string, unknown>;
 const CASE = "11111111-1111-4111-8111-111111111111";
@@ -32,7 +33,7 @@ function fixture(air = false) {
   const snapshot: Json = { schema_version: air ? 1 : 2, transport_mode: air ? "AIR" : "MARITIME",
     movement_direction: "IMPORT", terminal_operation_mode: air ? null : "LOLO", cargo_units: cargoUnits };
   assert(validateScopeSnapshot(snapshot).ok);
-  const facts: Json[] = [
+  const facts: PricingFactRow[] = [
     { fact_key: "service.package", value_text: air ? "AIR_IMPORT_DAP" : "DAP_PROJECT_IMPORT" },
     { fact_key: "routing.incoterm", value_text: "DAP" },
     { fact_key: "routing.destination_city", value_text: "Dakar" },
@@ -60,6 +61,7 @@ interface Options {
   engineFailure?: "http" | "json";
   rpcConflict?: boolean;
   linkedAssumption?: boolean;
+  terminalLines?: boolean;
   mutate?: (state: ReturnType<typeof fixture>) => void;
 }
 
@@ -111,6 +113,11 @@ async function withTransport(options: Options, check: (h: {
           { id: "alpha-fee", unit_ref: "alpha", category: "DTHC", amount: 100, source: { type: "OFFICIAL" } },
           { id: "beta-fee", unit_ref: "beta", category: "TRUCKING", amount: 200, source: { type: "OFFICIAL" } },
           { id: "common-fee", category: "AGENCY", amount: 50, source: { type: "OFFICIAL" } },
+          ...(options.terminalLines ? [
+            { id: "thc_20hq_3", category: "Terminal (DPW)", description: "THC IMPORT 20HQ", amount: 465000, source: { type: "OFFICIAL", reference: "Synthetic homologated tariff" } },
+            { id: "relevage_20hq_4", category: "Terminal (DPW)", description: "Relevage", amount: 123, source: { type: "OFFICIAL" } },
+            { id: "warehouse_franchise", category: "Magasinage", description: "Franchise 10 jours", amount: 0, source: { type: "OFFICIAL" } },
+          ] : []),
         ] });
       }
       if (path === "/rest/v1/rpc/record_quote_scenario_pricing_run" && req.method === "POST") {
@@ -321,4 +328,97 @@ Deno.test("scenario actual handler: RPC idempotency conflict is returned, never 
     assertEquals((result.body.error as Json).code, "CONFLICT_INVALID_STATE");
     assertEquals(h.rpcBodies.length, 1);
   });
+});
+
+function dakarContainerScope(state: ReturnType<typeof fixture>, mode: string | null = null) {
+  state.snapshot.terminal_operation_mode = mode;
+  state.facts = state.facts.filter(f => f.fact_key !== "routing.terminal_operation_mode");
+  state.facts.push({ id: "synthetic-dakar", fact_key: "routing.origin_port", value_text: "Dakar Port" });
+}
+
+for (const mode of [null, "RORO", "CONRO"]) {
+  Deno.test(`scenario container THC: operator-independent ${mode}, annexes null not zero`, async () => {
+    await withTransport({ terminalLines: true, mutate: s => dakarContainerScope(s, mode) }, async h => {
+      assertEquals((await h.invoke()).response.status, 200);
+      assertEquals(h.engineBodies.length, 1);
+      const result = h.rpcBodies[0].p_result as Json;
+      assertEquals(result.blockers, []);
+      assertEquals(result.qualification, "partial");
+      assertEquals(result.indicative_total_ht, 465350);
+      assertEquals(result.firm_total_ht, 0);
+      const lines = result.tariff_lines as Json[];
+      const thc = lines.find(l => l.id === "thc_20hq_3")!;
+      assertEquals([thc.amount, thc.category, (thc.source as Json).reference], [465000, "DTHC", "Synthetic homologated tariff"]);
+      for (const id of ["relevage_20hq_4", "warehouse_franchise"]) {
+        const line = lines.find(l => l.id === id)!;
+        assertEquals(line.amount, null);
+        assertEquals((line.source as Json).type, "TO_CONFIRM");
+      }
+      assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT"));
+      assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM"));
+      assertEquals((result.scenario_snapshot as Json).terminal_operation_mode, mode);
+      assert(!(result.facts_snapshot as Json[]).some(f => f.fact_key === "routing.terminal_operation_mode"));
+      assert(!("terminalOperationMode" in (h.engineBodies[0].params as Json)));
+    });
+  });
+}
+
+Deno.test("scenario container THC: replay preserves policy reserves and fingerprint", async () => {
+  await withTransport({ terminalLines: true, mutate: s => dakarContainerScope(s) }, async h => {
+    await h.invoke();
+    const replay = await h.invoke();
+    assertEquals((replay.body.data as Json).idempotent_replay, true);
+    assertEquals(h.rpcBodies[0].p_request_fingerprint, h.rpcBodies[1].p_request_fingerprint);
+    const first = h.rpcBodies[0].p_result as Json;
+    const second = h.rpcBodies[1].p_result as Json;
+    assertEquals(first.reservations, second.reservations);
+    assertEquals(first.tariff_lines, second.tariff_lines);
+    assertEquals(first.indicative_total_ht, second.indicative_total_ht);
+  });
+});
+
+for (const [name, mutate, code] of [
+  ["contradiction", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s, "RORO"); s.facts.push({ id: "synthetic-mode", fact_key: "routing.terminal_operation_mode", value_text: "LOLO" }); }, "SCENARIO_TERMINAL_SCOPE_MISMATCH"],
+  ["invalid declaration", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts.push({ id: "synthetic-mode", fact_key: "routing.terminal_operation_mode", value_text: "INVALID" }); }, "SCENARIO_TERMINAL_FACT_INVALID"],
+  ["PAD still required", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts = s.facts.filter(f => !f.fact_key.startsWith("cargo.pad_")); }, "PAD_CATEGORY_REQUIRED"],
+  ["value still required", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts = s.facts.filter(f => f.fact_key !== "cargo.value"); }, "CARGO_VALUE_REQUIRED_FOR_SCENARIO_ENGINE"],
+  ["foreign port", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts.find(f => f.fact_key === "routing.origin_port")!.value_text = "Abidjan"; }, "TERMINAL_OPERATION_MODE_REQUIRED"],
+] as const) {
+  Deno.test(`scenario container THC: ${name} remains blocked`, async () => {
+    await withTransport({ mutate }, async h => {
+      const { body } = await h.invoke();
+      assert((body.data as Json).blockers instanceof Array);
+      assert(((body.data as Json).blockers as string[]).includes(code));
+      assertEquals(h.engineBodies.length, 0);
+    });
+  });
+}
+
+Deno.test("scenario container THC: boundaries, explicit terminal, stable no-mutation adapter", () => {
+  const s = fixture();
+  dakarContainerScope(s);
+  const policy = () => resolveScenarioContainerTerminal(s.snapshot, s.facts, ["DTHC"]);
+  assert(policy().eligible);
+  s.facts[ s.facts.length - 1 ].fact_key = "routing.destination_port";
+  assert(policy().eligible);
+  for (const key of ["schema_version", "transport_mode", "movement_direction", "cargo_units"]) {
+    const original = s.snapshot[key];
+    s.snapshot[key] = ({ schema_version: 1, transport_mode: "AIR", movement_direction: "EXPORT", cargo_units: [group("package", { unit_kind: "PACKAGE" })] } as Json)[key];
+    assertEquals(policy().eligible, false, key);
+    s.snapshot[key] = original;
+  }
+  assertEquals(resolveScenarioContainerTerminal(s.snapshot, s.facts, ["TRUCKING"]).eligible, false);
+  // HEAD 24b108e already required exact equality outside this new Dakar policy.
+  const unchangedAir = { ...s.snapshot, transport_mode: "AIR", terminal_operation_mode: "LOLO" };
+  assertEquals(resolveScenarioContainerTerminal(unchangedAir, s.facts, []).blockers, ["SCENARIO_TERMINAL_SCOPE_MISMATCH"]);
+  s.facts.push({ id: "synthetic-mode", fact_key: "routing.terminal_operation_mode", value_text: "LOLO" });
+  assertEquals(policy().annexUncertain, false);
+  assertEquals(policy().blockers, []);
+  const lines = [{ id: "warehouse_franchise", category: "Magasinage", amount: 0 }];
+  assertEquals(applyScenarioContainerTerminalLines(lines, policy()), lines);
+  s.facts = s.facts.filter(f => f.fact_key !== "routing.terminal_operation_mode");
+  const adapted = applyScenarioContainerTerminalLines(lines, policy());
+  assertEquals(lines[0].amount, 0);
+  assertEquals(adapted[0].amount, null);
+  assertEquals(applyScenarioContainerTerminalLines(adapted, policy()), adapted);
 });
