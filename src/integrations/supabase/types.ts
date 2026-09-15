@@ -8276,6 +8276,10 @@ export type Database = {
         Args: { p_fact_key: string; p_value: Json; p_value_type: string }
         Returns: string
       }
+      quote_scenario_cargo_unit_v2_violation: {
+        Args: { p_path: string; p_unit: Json }
+        Returns: string
+      }
       quote_scenario_cargo_unit_violation: {
         Args: { p_path: string; p_unit: Json }
         Returns: string
