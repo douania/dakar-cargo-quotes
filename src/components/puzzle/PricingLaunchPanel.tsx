@@ -52,6 +52,8 @@ type PricingPrecheck = {
 
 interface PricingLaunchPanelProps {
   estimateResult?: ReactNode;
+  estimateAvailable?: boolean;
+  onReview?: () => void;
   caseId: string;
   onComplete?: () => void;
   blockedByIntent?: string;
@@ -62,7 +64,7 @@ interface PricingLaunchPanelProps {
   isEstimating?: boolean;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false, onEstimate, isEstimating = false, estimateResult }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false, onEstimate, isEstimating = false, estimateResult, estimateAvailable = false, onReview }: PricingLaunchPanelProps) {
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -148,7 +150,11 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       onComplete?.();
       
     } catch (err: any) {
-      console.error('[PricingLaunchPanel] Error:', err);
+      if (onEstimate && err?.message === 'IMO goods scope requires clarification') {
+        console.warn('[PricingLaunchPanel] Confirmed quote requires IMO review');
+      } else {
+        console.error('[PricingLaunchPanel] Error:', err);
+      }
       
       const message = String(err?.message || '');
 
@@ -176,7 +182,11 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         setError(message);
       }
       
-      toast.error(message || 'Erreur lors du lancement du pricing');
+      if (onEstimate && message === 'IMO goods scope requires clarification') {
+        toast.warning('Devis confirmé non disponible : rattachement des marchandises dangereuses à vérifier. L’estimation reste distincte.');
+      } else {
+        toast.error(message || 'Erreur lors du lancement du pricing');
+      }
       onComplete?.();
     } finally {
       setIsLoading(false);
@@ -221,14 +231,14 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
 
   return (
     <>
-      <Card className="border-warning/50 bg-warning/10">
+      <Card className={onEstimate ? "border-primary/30" : "border-warning/50 bg-warning/10"}>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-warning-foreground" />
-            <CardTitle className="text-base">{onEstimate ? 'Estimation et devis confirmé' : isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}</CardTitle>
+            <CardTitle className="text-base">{onEstimate ? 'Estimation du dossier' : isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}</CardTitle>
           </div>
           <CardDescription>
-          {onEstimate ? 'Relancez l’estimation ci-dessous. Le devis confirmé reste un parcours distinct, soumis à ses propres contrôles.' : isRerun
+          {onEstimate ? 'Un montant indicatif, les postes restant à compléter et vos hypothèses de travail.' : isRerun
               ? 'Un pricing a déjà été calculé. Vous pouvez relancer le calcul avec les données mises à jour.'
               : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
           </CardDescription>
@@ -245,6 +255,26 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             </Alert>
           )}
 
+          {!onEstimate && error && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {estimateResult}
+          {onEstimate && (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={onEstimate} disabled={isLoading || isEstimating || !!blockedByIntent} className="gap-2">
+                <Calculator className="h-4 w-4" />
+                {isEstimating ? "Estimation en cours…" : estimateAvailable ? "Actualiser l’estimation" : "Préparer l’estimation"}
+              </Button>
+              {onReview && <Button variant="outline" onClick={onReview} disabled={isLoading || isEstimating}>Vérifier les groupes et choix PAD</Button>}
+              <p className="w-full text-xs text-muted-foreground">Sans scénario sélectionné, ce bouton propose les groupes depuis les e-mails. Aucun fait confirmé ni tarif n’est modifié.</p>
+            </div>
+          )}
+          <details open={onEstimate ? undefined : true} className={onEstimate ? "rounded border p-3" : ""}>
+            <summary className={onEstimate ? "cursor-pointer font-medium text-sm" : "hidden"}>Étape distincte — devis confirmé</summary>
+            {onEstimate && <p className="my-2 text-sm text-muted-foreground">Les contrôles ci-dessous concernent uniquement le devis confirmé, pas l’estimation ci-dessus.</p>}
           {pricingPrechecks.length > 0 && (
             <Alert className="border-orange-300 bg-orange-50 dark:bg-orange-950/30">
               <AlertTriangle className="h-4 w-4 text-orange-600" />
@@ -266,27 +296,6 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               Le calcul peut prendre plusieurs secondes.
             </AlertDescription>
           </Alert>
-          
-          {!onEstimate && error && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          
-          {onEstimate && (
-            <div className="space-y-2">
-              <Button onClick={onEstimate} disabled={isLoading || isEstimating || !!blockedByIntent} className="w-full gap-2">
-                <Calculator className="h-4 w-4" />
-                {isEstimating ? "Estimation en cours…" : "Estimer avec le scénario sélectionné"}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                  Estimation provisoire par groupe, distincte du devis confirmé. Les postes non chiffrés restent à confirmer ; les hypothèses ne modifient pas les faits client.
-                  Sans scénario sélectionné, une proposition de groupes est d’abord demandée depuis les e-mails.
-              </p>
-            </div>
-          )}
-          {estimateResult}
           {onEstimate && error && <Alert variant="destructive" aria-label="Blocage du devis confirmé"><AlertDescription>
             Devis confirmé uniquement : {error === 'IMO goods scope requires clarification' ? 'Le rattachement des marchandises dangereuses aux groupes n’est pas établi dans les faits du dossier.' : error}
             {' '}Ce refus ne décrit pas le résultat de l’estimation par scénario ci-dessus.
@@ -331,6 +340,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               )}
             </Button>
           )}
+          </details>
         </CardContent>
       </Card>
 

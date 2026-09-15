@@ -110,6 +110,16 @@ export function readScenarioPricingCodes(value: unknown): string[] {
 /** Keep persisted codes stable while making the required operator action explicit. */
 export function scenarioPricingCodeMessage(code: string): string {
   switch (code) {
+    case "SCENARIO_CARGO_GROUP_ASSUMPTION":
+      return "La répartition de la marchandise entre les groupes est une hypothèse à vérifier.";
+    case "SCENARIO_CARGO_ASSUMPTIONS":
+      return "Le calcul utilise les hypothèses de quantité, de poids et d’équipement du scénario.";
+    case "SCENARIO_DG_UNKNOWN":
+      return "Le caractère dangereux de certains groupes reste à préciser ; les postes concernés restent en réserve.";
+    case "OPEN_POINT":
+      return "Des informations restent à compléter dans ce scénario.";
+    case "RATE_PENDING_CONFIRMATION":
+      return "Certains tarifs restent à confirmer et ne sont pas inclus dans le sous-total.";
     case "SCENARIO_DAP_SERVICES_ONLY":
       return "Estimation des prestations DAP : droits et taxes douaniers et calcul CAF exclus, sans valeur marchandise fictive. Le montant affiché est un sous-total des postes chiffrés.";
     case "SCENARIO_PAD_PENDING":

@@ -126,9 +126,34 @@ function formatContainersValue(value: unknown): string | null {
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
-  const scenarioPanel = React.useRef<HTMLDivElement>(null);
+  const scenarioPanel = React.useRef<HTMLDetailsElement>(null);
+  const openScenarioReview = () => {
+    if (!scenarioPanel.current) return;
+    scenarioPanel.current.open = true;
+    scenarioPanel.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const [isScenarioEstimating, setIsScenarioEstimating] = React.useState(false);
   const [selectedEstimate, setSelectedEstimate] = React.useState<SelectedScenarioEstimate | null>(null);
+  React.useEffect(() => {
+    let printState: { element: HTMLDetailsElement; open: boolean }[] = [];
+    const restore = () => {
+      printState.forEach(({ element, open }) => { element.open = open; });
+      printState = [];
+    };
+    const expandForPrint = () => {
+      if (printState.length) return;
+      printState = Array.from(document.querySelectorAll<HTMLDetailsElement>('.case-print-root details'))
+        .map(element => ({ element, open: element.open }));
+      printState.forEach(({ element }) => { element.open = true; });
+    };
+    window.addEventListener('beforeprint', expandForPrint);
+    window.addEventListener('afterprint', restore);
+    return () => {
+      restore();
+      window.removeEventListener('beforeprint', expandForPrint);
+      window.removeEventListener('afterprint', restore);
+    };
+  }, [caseId]);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
@@ -1095,7 +1120,7 @@ export default function CaseView() {
     <MainLayout>
       <div className="container mx-auto py-8 px-4 max-w-5xl case-print-root" data-print-date={new Date().toLocaleDateString('fr-FR')}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
           <div>
             <Button variant="ghost" onClick={() => navigate("/intake")} className="mb-2 print:hidden">
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -1109,13 +1134,13 @@ export default function CaseView() {
               <p className="text-muted-foreground">Client : {clientName}</p>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2 print:hidden">
               <Printer className="h-4 w-4" />
               Imprimer PDF
             </Button>
             <Badge className={TASK_STATUS_COLORS[caseData.status.toLowerCase()] || "bg-muted text-muted-foreground"}>
-              {STATUS_LABELS[caseData.status] || caseData.status}
+              État du devis confirmé : {STATUS_LABELS[caseData.status] || caseData.status}
             </Badge>
             {caseData.request_type && (
               <Badge variant="outline">Mode transport détecté : {caseData.request_type}</Badge>
@@ -1155,6 +1180,135 @@ export default function CaseView() {
           </div>
         </div>
 
+        {/* Pricing Launch Panel — visible for pricing-eligible statuses
+            Lot 4.1: also visible upstream when canProvisionalDdp === true,
+            so the amber CTA can appear even in NEED_INFO/FACTS_PARTIAL. */}
+        {(() => {
+          // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
+          // P4: Skip global prechecks for multi-lot — run-pricing resolves per-line
+          // Lot 4.1: hoisted out of the gate so canProvisionalDdp can drive rendering
+          const prechecks: PricingPrecheck[] = [];
+
+          if (!isMultiLot) {
+            const getFact = (key: string) => facts.find((f: any) => f.fact_key === key && f.is_current);
+
+            const pkg = String(getFact("service.package")?.value_text ?? "").trim().toUpperCase();
+            const incoterm = String(getFact("routing.incoterm")?.value_text ?? "").trim().toUpperCase();
+            const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incoterm === "DDP";
+
+            if (!pkg) {
+              prechecks.push({
+                code: "SERVICE_PACKAGE_REQUIRED",
+                key: "service.package",
+                label: "Package de services requis avant pricing"
+              });
+            }
+
+            if (scopeWantsDuties) {
+              const rawHs = String(getFact("cargo.hs_code")?.value_text ?? "");
+              const hsCandidates = rawHs.split(/[;,]/).map(c => c.trim().replace(/\D/g, "")).filter(Boolean);
+              const firstValid10 = hsCandidates.find(c => c.length === 10);
+              const hsDigits = firstValid10 || rawHs.replace(/\D/g, "");
+              if (!hsDigits || hsDigits.length !== 10) {
+                prechecks.push({ code: "HS_CODE_REQUIRED", key: "cargo.hs_code", label: "Code HS 10 chiffres requis avant pricing" });
+              }
+
+              const hasExemption = !!String(getFact("regulatory.exemption_title")?.value_text ?? "").trim();
+              const hasRegime = !!String(getFact("customs.regime_code")?.value_text ?? "").trim();
+              if (hasExemption && !hasRegime) {
+                prechecks.push({ code: "REGIME_REQUIRED_FOR_EXEMPTION", key: "customs.regime_code", label: "Régime douanier requis : exonération détectée" });
+              }
+
+              const resolveFactRaw = (f: any) => {
+                if (!f) return undefined;
+                return f.value_json ?? f.value_number ?? f.value_text;
+              };
+              const resolveFreightCost = (f: any): number | undefined => {
+                const raw = resolveFactRaw(f);
+                if (raw == null) return undefined;
+                const n = Number(String(raw).trim().replace(/\s/g, "").replace(/,/g, "."));
+                return Number.isFinite(n) && n > 0 ? n : undefined;
+              };
+              const resolveCargoValue = (f: any): number | undefined => {
+                const raw = resolveFactRaw(f);
+                if (raw == null) return undefined;
+                const n = Number(raw);
+                return Number.isFinite(n) && n > 0 ? n : undefined;
+              };
+
+              const isFobType = ["FOB", "FCA", "FAS", "EXW"].includes(incoterm);
+              if (isFobType) {
+                if (!resolveFreightCost(getFact("cargo.freight_cost"))) {
+                  prechecks.push({ code: "FREIGHT_REQUIRED_FOR_FOB", key: "cargo.freight_cost", label: "Montant fret requis pour incoterm FOB/FCA/FAS/EXW" });
+                }
+              }
+
+              if (!resolveCargoValue(getFact("cargo.value"))) {
+                prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Valeur marchandise requise avant pricing" });
+              }
+            }
+          }
+
+          // Lot 4: canProvisionalDdp — true only if CARGO_VALUE_REQUIRED is the sole blocker
+          // prechecks is empty for multi-lot, so canProvisionalDdp will be false (correct)
+          const canProvisionalDdp = prechecks.length > 0
+            && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
+
+          // Reprise manuelle autorisée après versionnement, jamais après envoi/clôture.
+          // L'exception DDP provisoire ne contourne pas ces verrous de statut.
+          // blockedByIntent reste géré à l'intérieur du panneau (CTA provisoire masqué si guard actif).
+          const showPricingPanel = shouldShowPricingPanel(caseData.status, canProvisionalDdp);
+
+          if (!showPricingPanel) return selectedEstimate?.caseId === caseId
+            ? <div className="mb-6"><ScenarioEstimateResult estimate={selectedEstimate} onReview={openScenarioReview} /></div>
+            : null;
+
+          return (
+            <div className="mb-6" id="section-pricing">
+              <PricingLaunchPanel
+                caseId={caseId!}
+                estimateAvailable={selectedEstimate?.caseId === caseId && !!selectedEstimate.run}
+                onReview={openScenarioReview}
+                isEstimating={isScenarioEstimating}
+                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} onReview={openScenarioReview} /> : null}
+                onEstimate={() => {
+                  if (!scenarioPricingAction.current) { toast.warning("Scénarios indisponibles : réessayez après leur chargement."); return; }
+                  if (!selectedEstimate || selectedEstimate.caseId !== caseId) openScenarioReview();
+                  scenarioPricingAction.current.estimateSelected();
+                }}
+                onComplete={handlePricingComplete}
+                isRerun={isPricingRerun(caseData.status)}
+                blockedByIntent={(() => {
+                  const intentEvents = events
+                    .filter((e: any) => e.event_type === "thread_intent_v1")
+                    .sort((a: any, b: any) =>
+                      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    );
+                  const ie = intentEvents[0];
+                  if (!ie) return undefined;
+                  const iObj = (ie?.event_data as any)?.intent ?? null;
+                  const pricingGate = iObj?.pricing_gate ?? (ie?.event_data as any)?.pricing_gate;
+                  if (pricingGate === false) {
+                    return iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? "blocked";
+                  }
+                  return undefined;
+                })()}
+                pricingPrechecks={prechecks}
+                canProvisionalDdp={canProvisionalDdp}
+              />
+              {/* PRICING-GUARD: Communication warnings — queried locally */}
+              <details className="mt-2 rounded border p-3"><summary className="cursor-pointer text-sm">Collecte partenaires et contrôles du devis confirmé</summary>
+                <PartnerCollectionReadinessCard caseId={caseId!} />
+                <PricingReadinessCard caseId={caseId!} />
+                <PricingCommWarnings caseId={caseId!} />
+              </details>
+            </div>
+          );
+        })()}
+
+        <details className="mb-4 rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Données du dossier et contrôles avant devis confirmé</summary>
+          <p className="my-3 text-sm text-muted-foreground">Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus.</p>
         {/* Info bar */}
         <Card className="mb-6">
           <CardContent className="py-4 flex items-center justify-between">
@@ -1176,7 +1330,7 @@ export default function CaseView() {
                   <p className="text-sm font-semibold">{displayedGapsCount}</p>
                   {blockingGaps.length > 0 && (
                     <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                      {blockingGaps.length} bloquant{blockingGaps.length > 1 ? 's' : ''}
+                      {blockingGaps.length} à résoudre avant devis confirmé
                     </Badge>
                   )}
                 </div>
@@ -1751,7 +1905,7 @@ export default function CaseView() {
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
                     <p className="font-semibold mb-2">
-                      {blockingGaps.length} gap{blockingGaps.length > 1 ? 's' : ''} bloquant{blockingGaps.length > 1 ? 's' : ''}
+                      {blockingGaps.length} point{blockingGaps.length > 1 ? 's' : ''} à résoudre avant devis confirmé
                     </p>
                     <ul className="space-y-3">
                       {blockingGaps.map((g: any) => renderGapRow(g, true, "text-red-800"))}
@@ -1848,9 +2002,18 @@ export default function CaseView() {
         {/* P1-C2-B: revue de la demande consolidée, sans projection ni pricing. */}
         {caseId && <FinalRequestStatePanel caseId={caseId} />}
 
-        {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
-        {caseId && <div ref={scenarioPanel}><QuoteScenariosPanel key={caseId} caseId={caseId} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} /></div>}
+        </details>
 
+        {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
+        {caseId && <details ref={scenarioPanel} className="mb-4 rounded-lg border p-4" id="section-scenarios">
+          <summary className="cursor-pointer font-medium">Groupes, choix PAD et scénarios alternatifs</summary>
+          <p className="my-3 text-sm text-muted-foreground">Vérifiez les propositions et leurs sources avant de les retenir. Aucun fait client n’est modifié automatiquement.</p>
+          <QuoteScenariosPanel key={caseId} caseId={caseId} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} />
+        </details>}
+
+        <details className="mb-4 rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Coordination, demandes et préparation du devis confirmé</summary>
+          <p className="my-3 text-sm text-muted-foreground">Les blocages ci-dessous concernent le parcours du dossier confirmé ; l’estimation conserve ses propres réserves.</p>
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
 
@@ -2006,125 +2169,10 @@ export default function CaseView() {
           </Card>
         )}
 
-        {/* Pricing Launch Panel — visible for pricing-eligible statuses
-            Lot 4.1: also visible upstream when canProvisionalDdp === true,
-            so the amber CTA can appear even in NEED_INFO/FACTS_PARTIAL. */}
-        {(() => {
-          // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
-          // P4: Skip global prechecks for multi-lot — run-pricing resolves per-line
-          // Lot 4.1: hoisted out of the gate so canProvisionalDdp can drive rendering
-          const prechecks: PricingPrecheck[] = [];
 
-          if (!isMultiLot) {
-            const getFact = (key: string) => facts.find((f: any) => f.fact_key === key && f.is_current);
-
-            const pkg = String(getFact("service.package")?.value_text ?? "").trim().toUpperCase();
-            const incoterm = String(getFact("routing.incoterm")?.value_text ?? "").trim().toUpperCase();
-            const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incoterm === "DDP";
-
-            if (!pkg) {
-              prechecks.push({
-                code: "SERVICE_PACKAGE_REQUIRED",
-                key: "service.package",
-                label: "Package de services requis avant pricing"
-              });
-            }
-
-            if (scopeWantsDuties) {
-              const rawHs = String(getFact("cargo.hs_code")?.value_text ?? "");
-              const hsCandidates = rawHs.split(/[;,]/).map(c => c.trim().replace(/\D/g, "")).filter(Boolean);
-              const firstValid10 = hsCandidates.find(c => c.length === 10);
-              const hsDigits = firstValid10 || rawHs.replace(/\D/g, "");
-              if (!hsDigits || hsDigits.length !== 10) {
-                prechecks.push({ code: "HS_CODE_REQUIRED", key: "cargo.hs_code", label: "Code HS 10 chiffres requis avant pricing" });
-              }
-
-              const hasExemption = !!String(getFact("regulatory.exemption_title")?.value_text ?? "").trim();
-              const hasRegime = !!String(getFact("customs.regime_code")?.value_text ?? "").trim();
-              if (hasExemption && !hasRegime) {
-                prechecks.push({ code: "REGIME_REQUIRED_FOR_EXEMPTION", key: "customs.regime_code", label: "Régime douanier requis : exonération détectée" });
-              }
-
-              const resolveFactRaw = (f: any) => {
-                if (!f) return undefined;
-                return f.value_json ?? f.value_number ?? f.value_text;
-              };
-              const resolveFreightCost = (f: any): number | undefined => {
-                const raw = resolveFactRaw(f);
-                if (raw == null) return undefined;
-                const n = Number(String(raw).trim().replace(/\s/g, "").replace(/,/g, "."));
-                return Number.isFinite(n) && n > 0 ? n : undefined;
-              };
-              const resolveCargoValue = (f: any): number | undefined => {
-                const raw = resolveFactRaw(f);
-                if (raw == null) return undefined;
-                const n = Number(raw);
-                return Number.isFinite(n) && n > 0 ? n : undefined;
-              };
-
-              const isFobType = ["FOB", "FCA", "FAS", "EXW"].includes(incoterm);
-              if (isFobType) {
-                if (!resolveFreightCost(getFact("cargo.freight_cost"))) {
-                  prechecks.push({ code: "FREIGHT_REQUIRED_FOR_FOB", key: "cargo.freight_cost", label: "Montant fret requis pour incoterm FOB/FCA/FAS/EXW" });
-                }
-              }
-
-              if (!resolveCargoValue(getFact("cargo.value"))) {
-                prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Valeur marchandise requise avant pricing" });
-              }
-            }
-          }
-
-          // Lot 4: canProvisionalDdp — true only if CARGO_VALUE_REQUIRED is the sole blocker
-          // prechecks is empty for multi-lot, so canProvisionalDdp will be false (correct)
-          const canProvisionalDdp = prechecks.length > 0
-            && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
-
-          // Reprise manuelle autorisée après versionnement, jamais après envoi/clôture.
-          // L'exception DDP provisoire ne contourne pas ces verrous de statut.
-          // blockedByIntent reste géré à l'intérieur du panneau (CTA provisoire masqué si guard actif).
-          const showPricingPanel = shouldShowPricingPanel(caseData.status, canProvisionalDdp);
-
-          if (!showPricingPanel) return null;
-
-          return (
-            <div className="mb-6" id="section-pricing">
-              <PartnerCollectionReadinessCard caseId={caseId!} />
-              <PricingReadinessCard caseId={caseId!} />
-              <PricingLaunchPanel
-                caseId={caseId!}
-                isEstimating={isScenarioEstimating}
-                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} /> : null}
-                onEstimate={() => {
-                  if (!scenarioPricingAction.current) { toast.warning("Scénarios indisponibles : réessayez après leur chargement."); return; }
-                  scenarioPricingAction.current.estimateSelected();
-                }}
-                onComplete={handlePricingComplete}
-                isRerun={isPricingRerun(caseData.status)}
-                blockedByIntent={(() => {
-                  const intentEvents = events
-                    .filter((e: any) => e.event_type === "thread_intent_v1")
-                    .sort((a: any, b: any) =>
-                      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    );
-                  const ie = intentEvents[0];
-                  if (!ie) return undefined;
-                  const iObj = (ie?.event_data as any)?.intent ?? null;
-                  const pricingGate = iObj?.pricing_gate ?? (ie?.event_data as any)?.pricing_gate;
-                  if (pricingGate === false) {
-                    return iObj?.intent_type ?? (ie?.event_data as any)?.intent_type ?? "blocked";
-                  }
-                  return undefined;
-                })()}
-                pricingPrechecks={prechecks}
-                canProvisionalDdp={canProvisionalDdp}
-              />
-              {/* PRICING-GUARD: Communication warnings — queried locally */}
-              <PricingCommWarnings caseId={caseId!} />
-            </div>
-          );
-        })()}
-
+        </details>
+        <details className="mb-4 rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Devis confirmé : classification, résultats et documents</summary>
         {/* M9b: Output pipeline stepper — read-only progression indicator */}
         {isPipelineVisible && (() => {
           const steps = [
@@ -2298,6 +2346,9 @@ export default function CaseView() {
 
 
 
+        </details>
+        <details className="mb-4 rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Sources, faits et historique</summary>
         {/* Tabs */}
         <Tabs defaultValue="facts" className="space-y-4">
           <TabsList className="grid w-full grid-cols-3">
@@ -2617,6 +2668,7 @@ export default function CaseView() {
             </Card>
           </TabsContent>
         </Tabs>
+        </details>
       </div>
     </MainLayout>
   );

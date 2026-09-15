@@ -8,7 +8,7 @@ import { PricingLaunchPanel } from '../PricingLaunchPanel';
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: { from: vi.fn(), functions: { invoke: vi.fn() } },
 }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 import { supabase } from '@/integrations/supabase/client';
 
@@ -78,15 +78,32 @@ afterEach(() => {
 });
 
 describe('versioned-case manual pricing and latest-run recovery', () => {
+  it('prioritizes a recorded estimate, keeps firm controls collapsed, and reviews without mutation', async () => {
+    const estimate = vi.fn(), review = vi.fn();
+    const user = userEvent.setup();
+    const { container } = renderPanel({ onEstimate: estimate, onReview: review, estimateAvailable: true, estimateResult: <p>Montant indicatif courant</p> });
+    const confirmed = screen.getByText('Étape distincte — devis confirmé').closest('details')!;
+    expect(confirmed.open).toBe(false);
+    expect(screen.getByText('Montant indicatif courant').closest('details')).toBeNull();
+    expect(container.querySelector('details button')).toHaveTextContent('Calculer le devis confirmé');
+    await user.click(screen.getByRole('button', { name: 'Vérifier les groupes et choix PAD' }));
+    expect(review).toHaveBeenCalledTimes(1);
+    expect(estimate).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Actualiser l’estimation' }));
+    expect(estimate).toHaveBeenCalledTimes(1);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
   it('scopes a canonical error separately from an available scenario result',async()=>{
     vi.spyOn(console,'error').mockImplementation(()=>undefined);
     invokeMock.mockResolvedValue({data:null,error:new Error('IMO goods scope requires clarification')});
     const user=userEvent.setup(); renderPanel({onEstimate:vi.fn(),estimateResult:<p>Résultat scénario courant</p>});
+    expect(screen.getByText('Étape distincte — devis confirmé').closest('details')).not.toHaveAttribute('open');
+    await user.click(screen.getByText('Étape distincte — devis confirmé'));
     await user.click(screen.getByRole('button',{name:'Calculer le devis confirmé'}));
     await user.click(await screen.findByRole('button',{name:'Confirmer'}));
     expect(await screen.findByLabelText('Blocage du devis confirmé')).toHaveTextContent('ne décrit pas le résultat de l’estimation');
     expect(screen.getByText('Résultat scénario courant')).toBeInTheDocument();
-    expect(screen.getByRole('button',{name:'Estimer avec le scénario sélectionné'})).toBeEnabled();
+    expect(screen.getByRole('button',{name:'Préparer l’estimation'})).toBeEnabled();
   });
   it('shows an in-flight estimate and prevents launching either pricing path concurrently', () => {
     renderPanel({ onEstimate: vi.fn(), isEstimating: true, canProvisionalDdp: true });
@@ -101,7 +118,7 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
     renderPanel({ onEstimate: estimate, pricingPrechecks: [{ code: 'CARGO_VALUE_REQUIRED', key: 'cargo.value', label: 'Valeur requise pour devis confirmé' }] });
     expect(estimate).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Calculer le devis confirmé' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Estimer avec le scénario sélectionné' }));
+    await user.click(screen.getByRole('button', { name: 'Préparer l’estimation' }));
     expect(estimate).toHaveBeenCalledTimes(1);
     expect(invokeMock).not.toHaveBeenCalled();
   });
@@ -109,7 +126,7 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
   it('does not bypass the commercial intent guard through estimation', async () => {
     const estimate = vi.fn();
     renderPanel({ onEstimate: estimate, blockedByIntent: 'opportunity_check' });
-    expect(screen.getByRole('button', { name: 'Estimer avec le scénario sélectionné' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Préparer l’estimation' })).toBeDisabled();
     expect(estimate).not.toHaveBeenCalled();
   });
 
