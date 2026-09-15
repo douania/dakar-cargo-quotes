@@ -24,6 +24,20 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-15 10:39 UTC] GO — Livraison privée scénarios PARTIAL ; arrêt au contrôle des sources runtime
+
+**Origine** : session interactive, GO utilisateur explicite après contre-revue Claude B1 LEVÉ.
+**Périmètre autorisé** : transport E3 et deux préflights SELECT ; quatre enveloppes B→E1→E2→E3 avec accusés ; commit/push work ; Edge quotation-engine (exception FROZEN), run-scenario-pricing, manage-quote-scenario dans cet ordre ; contrôles des sources, recette privée sans envoi, traçabilité de livraison. Arrêt au premier échec.
+**Git rétabli** : préflight aligné 0e2768ad ; commit applicatif 450913bd40994d59ac5864243d2e5227f2b55d7a poussé sur work (22 fichiers, +2103/-53). Lovable a ensuite ajouté quatre lignes de types générés dans src/integrations/supabase/types.ts, et aucun changement sous supabase/ : écart vérifié, conservé, fast-forward local vers 1f5bc6a3c4fce3ed3b9c9a18405732ecf8c2cd7f, sans blocage artificiel.
+**SQL réellement exécuté** : transport frais E3 114746 octets / MD5 493f6b48383f722e13072f82794ae70d et deux préflights PASS. B→E1→E2→E3 via query_database, accusé B REVIEWED_OPTION_B_EXECUTION_NOT_HISTORICAL_PROOF puis accusé E REVIEWED_SCENARIO_E_20260915 ; persistance contrôlée 199→200→201→202 entre 10:28 et 10:29 UTC. Sources ledger MD5 B b2f2029470209f3e5625101974f6e73b / E1 ff415c5d2c6de69d0e9ee44c7236e8c1 / E2 c4913825b152b0aff3f4b4d3ed9f2298 / E3 deed0b385ed07c9253c076745e5f0b75.
+**Intégrité** : empreintes tarifaires et 1409 faits inchangés après SQL ; ACL helper v2 postgres+sandbox uniquement, OID scope 197950 conservé. SELECT final 10:39:16 UTC : ledger 202, zéro scénario total/v2, 1409 faits. Une première requête finale utilisant à tort la colonne scope a été refusée sans écriture ; reprise avec scope_snapshot réussie.
+**Tests** : 378 frontend PASS ; Deno 1336 PASS / 1 FAIL / 6 ignorés. Échec statique SIFB CRLF reproduit sur baseline inchangée : PASS_WITH_BASELINE, pas CI verte. Typecheck frontend/build/configurations PASS ; dette types Deno 49 et lint 737/16 identique.
+**Edge 1/3** : quotation-engine déployée seule, succès rapporté par Lovable (message umsg_01m2ja1cmperss84qvjb6nwr57), sources Git supabase/ identiques au commit applicatif ; OPTIONS 200, POST sans auth 401. Interface Cloud : Active. Code du bundle runtime / empreinte / version non accessibles par le connecteur ni dans la vue Cloud consultée : NOT_VERIFIED, ne pas confondre avec identité Git. run-scenario-pricing et manage-quote-scenario NOT_RUN ; sonde métier authentifiée et recette NOT_RUN.
+**Suite / risque** : ne créer aucun scénario v2 pendant cette fenêtre frontend/Edge incomplète. Obtenir la preuve runtime manquante ou faire arbitrer explicitement la preuve de remplacement (sources Git identiques + succès de déploiement + sondes authentifiées) avant les deux autres Edge et la recette. Pas de modification tarif/fait/Auth/RLS, pas d'envoi ni publication publique. Retour SQL uniquement après contrôle zéro v2, ledger conservé ; aucun rollback exécuté.
+**Preuves** : preparation-locale/delivery-cloud-results-20260915.json hors dépôt, archive privée non transmise ; roadmap détaillée. Cette entrée fait l'objet d'un commit documentaire dédié conformément à la convention.
+
+---
+
 ## [2026-09-11 17:30 UTC] ✅ TRAITÉ — T6 + T1 livrés ; point de reprise de la session du 11 septembre
 
 **Origine** : session interactive
