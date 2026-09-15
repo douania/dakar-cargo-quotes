@@ -78,6 +78,31 @@ afterEach(() => {
 });
 
 describe('versioned-case manual pricing and latest-run recovery', () => {
+  it('shows an in-flight estimate and prevents launching either pricing path concurrently', () => {
+    renderPanel({ onEstimate: vi.fn(), isEstimating: true, canProvisionalDdp: true });
+    expect(screen.getByRole('button', { name: 'Estimation en cours…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Calculer le devis confirmé' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Générer un devis provisoire/ })).toBeDisabled();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+  it('offers the isolated estimate despite firm value prechecks, never calls canonical pricing', async () => {
+    const estimate = vi.fn();
+    const user = userEvent.setup();
+    renderPanel({ onEstimate: estimate, pricingPrechecks: [{ code: 'CARGO_VALUE_REQUIRED', key: 'cargo.value', label: 'Valeur requise pour devis confirmé' }] });
+    expect(estimate).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Calculer le devis confirmé' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Estimer avec le scénario sélectionné' }));
+    expect(estimate).toHaveBeenCalledTimes(1);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('does not bypass the commercial intent guard through estimation', async () => {
+    const estimate = vi.fn();
+    renderPanel({ onEstimate: estimate, blockedByIntent: 'opportunity_check' });
+    expect(screen.getByRole('button', { name: 'Estimer avec le scénario sélectionné' })).toBeDisabled();
+    expect(estimate).not.toHaveBeenCalled();
+  });
+
   it('does not run on mount or opening/cancelling the confirmation', async () => {
     const user = userEvent.setup();
     renderPanel();

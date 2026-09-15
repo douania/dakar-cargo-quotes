@@ -168,9 +168,9 @@ Deno.test("scenario v2: version, tri-state and rationale are fingerprinted; all 
 
 const prior = Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE");
 Deno.env.set("QUOTATION_ENGINE_DISABLE_SERVE", "1");
-const { generateQuotationLines } = await import("../quotation-engine/index.ts");
+const { generateQuotationLines, handleRequest: handleEngineRequest } = await import("../quotation-engine/index.ts");
 if (prior === undefined) Deno.env.delete("QUOTATION_ENGINE_DISABLE_SERVE"); else Deno.env.set("QUOTATION_ENGINE_DISABLE_SERVE", prior);
-function fakeDb() {
+function fakeDb(extraTables: Record<string, Record<string, unknown>[]> = {}) {
   const reads: string[] = [];
   const base = { provider: "DPW", category: "THC", operation_type: "IMPORT", unit: "EVP", source_document: DPW_DTHC_SOURCE_DOCUMENT, effective_date: "2025-01-01", expiry_date: null, is_active: true, evidence_level: "official" };
   const tables: Record<string, Record<string, unknown>[]> = {
@@ -186,6 +186,7 @@ function fakeDb() {
       client_code: null, source_document: OFFICIAL_LOCAL_TRANSPORT_SOURCE_DOCUMENT, provider: null,
     })),
   };
+  Object.assign(tables, extraTables);
   return { reads, from(table: string) {
     reads.push(table); let rows = [...(tables[table] ?? [])]; let single = false;
     const query = { select() { return query; }, eq(k: string, v: unknown) { rows = rows.filter(r => r[k] === v); return query; },
@@ -198,6 +199,119 @@ function fakeDb() {
 }
 function request(c = context()) { return { finalDestination: "Dakar", transportMode: "maritime" as const, incoterm: "DAP", cargoType: "FCL", cargoValue: 100000,
   cargoDescription: "Global IMO must not contaminate other groups", containers: resolveScenarioCargo(c).containers, scenarioCargoContext: c }; }
+
+Deno.test("scenario DAP services: absent value never triggers CAF, FX or customs, tariff lines unchanged", async () => {
+  const db = fakeDb();
+  const input = { ...request(), scenarioPricingMode: "DAP_SERVICES_ONLY" as const, cargoValue: undefined,
+    cargoCurrency: "USD", hsCode: "850440", regimeCode: "SYNTHETIC", freightAmount: 100, freightCurrency: "USD" };
+  const before = JSON.stringify(input);
+  const result = await generateQuotationLines(db, input);
+  assertEquals(result.cargoValueFCFA, null);
+  assertEquals(result.dutyBreakdown, []);
+  assert(!result.lines.some(l => l.id.startsWith("duties_")));
+  for (const table of ["exchange_rates", "customs_regimes", "tax_rates", "hs_codes"]) assert(!db.reads.includes(table), table);
+  const baseline = await generateQuotationLines(fakeDb(), request());
+  assertEquals(result.lines, baseline.lines.filter(l => !l.id.startsWith("duties_")));
+  assertEquals(JSON.stringify(input), before);
+  assertEquals(result.lines.filter(l => l.id.startsWith("thc_")).map(l => l.amount), [930000, 682000, null]);
+});
+
+Deno.test("scenario DAP services: invalid opt-ins and contradictory groups fail before DB", async () => {
+  for (const changes of [
+    { incoterm: "DDP" }, { incoterm: "CIF" }, { transportMode: "aerien" as const },
+    { scenarioCargoContext: undefined }, { containers: [] }, { isIMO: true },
+  ]) {
+    const db = fakeDb();
+    await assertRejects(() => generateQuotationLines(db, { ...request(), scenarioPricingMode: "DAP_SERVICES_ONLY", ...changes }));
+    assertEquals(db.reads, []);
+  }
+});
+
+Deno.test("scenario DAP services: known value and HS still exclude customs intentionally, not a zero-value workaround", async () => {
+  const tariffs = { hs_codes: [{ code: "850440", code_normalized: "850440", dd: 10 }] };
+  const input = { ...request(), hsCode: "850440" };
+  const before = JSON.stringify(input);
+  const legacy = await generateQuotationLines(fakeDb(tariffs), input);
+  assert(legacy.lines.some(l => l.id.startsWith("duties_") && Number(l.amount) > 0));
+  const estimate = await generateQuotationLines(fakeDb(tariffs), { ...input, scenarioPricingMode: "DAP_SERVICES_ONLY" });
+  assertEquals(estimate.cargoValueFCFA, null);
+  assertEquals(estimate.lines, legacy.lines.filter(l => !l.id.startsWith("duties_")));
+  assert(estimate.warnings.some(w => w.includes("droits et taxes douaniers et calcul CAF exclus")));
+  assertEquals(JSON.stringify(input), before);
+});
+
+Deno.test("scenario DAP services: actual facts-to-DTO-to-engine seam accepts absent value without global cargo fallback", async () => {
+  const facts = [
+    { id: "incoterm", fact_key: "routing.incoterm", value_text: "DAP" },
+    { id: "destination", fact_key: "routing.destination_city", value_text: "Dakar" },
+  ];
+  const cargo = buildScenarioCargoPricing(buildPricingInputs(facts), snapshot(), facts);
+  assertEquals(cargo.blockers, []);
+  const payload = JSON.parse(JSON.stringify({ ...buildEngineRequest(cargo.inputs, "MARITIME"),
+    scenarioCargoContext: cargo.context, scenarioPricingMode: "DAP_SERVICES_ONLY" }));
+  assertEquals(payload.transportMode, "maritime");
+  assert(!("cargoValue" in payload));
+  const result = await generateQuotationLines(fakeDb(), payload);
+  assertEquals(result.cargoValueFCFA, null);
+  assertEquals(result.lines.filter(l => l.id.startsWith("thc_")).map(l => l.amount), [930000, 682000, null]);
+});
+
+Deno.test("scenario DAP services: actual authenticated HTTP generate and validate, no Cloud or 1 FCFA fallback", async () => {
+  const savedFetch = globalThis.fetch;
+  const keys = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"];
+  const savedEnv = keys.map(k => Deno.env.get(k));
+  const unexpected: string[] = [];
+  const reads: string[] = [];
+  const allowed = new Set(["delivery_zones", "tariff_category_rules", "port_tariffs", "carrier_billing_templates",
+    "operational_costs_senegal", "warehouse_franchise", "holidays_pad", "incoterms_reference", "learned_knowledge", "local_transport_rates"]);
+  const reply = (body: unknown) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+  try {
+    Deno.env.set(keys[0], "https://engine-synthetic.invalid");
+    Deno.env.set(keys[1], "synthetic-anon");
+    Deno.env.set(keys[2], "synthetic-service");
+    globalThis.fetch = (async (input, init) => {
+      const req = new Request(input, init); const url = new URL(req.url);
+      if (url.origin === "https://engine-synthetic.invalid" && req.method === "GET") {
+        if (url.pathname === "/auth/v1/user") {
+          assertEquals(req.headers.get("Authorization"), "Bearer synthetic-user");
+          return reply({ id: "33333333-3333-4333-8333-333333333333", aud: "authenticated" });
+        }
+        const table = url.pathname.replace("/rest/v1/", "");
+        if (allowed.has(table)) { reads.push(table); return reply(req.headers.get("Accept")?.includes("vnd.pgrst.object") ? null : []); }
+      }
+      unexpected.push(`${req.method} ${url}`);
+      throw new Error("Unexpected call refused");
+    }) as typeof fetch;
+    const params = { ...request(), cargoValue: undefined, cargoCurrency: "USD", hsCode: "850440", regimeCode: "SYNTHETIC",
+      freightAmount: 100, freightCurrency: "USD", scenarioPricingMode: "DAP_SERVICES_ONLY" };
+    const invoke = (action: string, auth = true) => handleEngineRequest(new Request("https://engine-synthetic.invalid", {
+      method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { Authorization: "Bearer synthetic-user" } : {}) },
+      body: JSON.stringify({ action, params }),
+    }));
+    assertEquals((await invoke("generate", false)).status, 401);
+    assertEquals(reads, []);
+    const response = await invoke("generate");
+    const body = await response.json();
+    assertEquals(response.status, 200);
+    assertEquals(body.success, true);
+    assertEquals(body.metadata.caf, null);
+    assertEquals(body.metadata.estimate_mode, "DAP_SERVICES_ONLY");
+    assertEquals(body.metadata.totals_scope, "PRICED_SERVICES_ONLY");
+    assertEquals(body.metadata.duties_excluded, true);
+    assertEquals(body.totals.ddp, null);
+    assertEquals(body.duty_breakdown, []);
+    assertEquals(body.historical_suggestions, []);
+    assert(!body.lines.some((l: { id: string }) => l.id.startsWith("duties_")));
+    assert(!JSON.stringify(body.warnings).includes("approximatifs"));
+    assert(!JSON.stringify(body).includes("1 FCFA"));
+    const valid = await (await invoke("validate_request")).json();
+    assertEquals(valid.isValid, true);
+    assertEquals(unexpected, []);
+  } finally {
+    globalThis.fetch = savedFetch;
+    keys.forEach((key, i) => savedEnv[i] === undefined ? Deno.env.delete(key) : Deno.env.set(key, savedEnv[i]!));
+  }
+});
 Deno.test("scenario v2 actual engine: DG/dry/unknown independent, one common fee, no global DG/storage", async () => {
   const db = fakeDb(); const result = await generateQuotationLines(db, request());
   const thc = result.lines.filter(l => l.id.startsWith("thc_"));

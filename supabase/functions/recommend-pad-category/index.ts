@@ -14,6 +14,7 @@ import { requireUser } from "../_shared/auth.ts";
 import { corsHeaders, handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { handleScenarioProposal } from "./scenario-proposal.ts";
 
 const VALID_PAD_CATEGORIES = [
   "T01", "T02", "T03", "T04", "T05", "T06", "T07",
@@ -28,7 +29,7 @@ interface AIRecommendation {
   matching_aliases?: string[];
 }
 
-Deno.serve(async (req) => {
+export async function handleRequest(req: Request): Promise<Response> {
   const corsResp = handleCors(req);
   if (corsResp) return corsResp;
 
@@ -37,7 +38,11 @@ Deno.serve(async (req) => {
   if (auth instanceof Response) return auth;
 
   try {
-    const { goods_description, context_hints } = await req.json();
+    const body = await req.json();
+    if (body?.action === "propose_scenario" || body?.action === "verify_scenario_source") {
+      return await handleScenarioProposal(body, req.headers.get("Authorization")!);
+    }
+    const { goods_description, context_hints } = body;
 
     if (!goods_description || typeof goods_description !== "string" || goods_description.trim().length < 3) {
       return errorResponse("goods_description is required (min 3 chars)", 400);
@@ -227,4 +232,5 @@ Retourne un JSON avec cette structure exacte :
     console.error("recommend-pad-category error:", e);
     return errorResponse((e as Error).message || "Internal error", 500);
   }
-});
+}
+if (Deno.env.get("RECOMMEND_PAD_DISABLE_SERVE") !== "1") Deno.serve(handleRequest);

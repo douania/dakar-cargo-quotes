@@ -382,6 +382,8 @@ interface ContainerInfo {
 }
 
 interface QuotationRequest {
+  // Opt-in réservé au calcul isolé v2 ; aucune relaxation du devis canonique.
+  scenarioPricingMode?: 'DAP_SERVICES_ONLY';
   scenarioCargoContext?: ScenarioCargoContext;
   imoGoodsPlan?: ImoGoodsPricingPlan;
   // Paramètres de la demande
@@ -398,7 +400,7 @@ interface QuotationRequest {
   dthcFamily?: string | null;
   // TRUCKING-22T : poids marchandise par conteneur en kg (fact cargo.weight_per_container_kg), passe-plat de run-pricing
   weightPerContainerKg?: number | null;
-  cargoValue: number;
+  cargoValue?: number;
   cargoCurrency?: string;
   cargoWeight?: number; // en tonnes
   
@@ -1352,12 +1354,24 @@ async function matchHistoricalTariff(
 // MAIN QUOTATION LINE GENERATION
 // =====================================================
 
+function isScenarioServicesOnly(request: QuotationRequest): boolean {
+  if (request.scenarioPricingMode === undefined) return false;
+  if (request.scenarioPricingMode !== 'DAP_SERVICES_ONLY' ||
+    String(request.incoterm).trim().toUpperCase() !== 'DAP' ||
+    request.transportMode !== 'maritime' || !request.scenarioCargoContext) {
+    throw new Error('SCENARIO_PRICING_MODE_INVALID');
+  }
+  assertScenarioCargoContext(request.scenarioCargoContext, request.containers || []);
+  return true;
+}
+
 export async function generateQuotationLines(
   supabase: any,
   request: QuotationRequest
-): Promise<{ lines: QuotationLine[]; warnings: string[]; dutyBreakdown: any[]; cargoValueFCFA: number }> {
+): Promise<{ lines: QuotationLine[]; warnings: string[]; dutyBreakdown: any[]; cargoValueFCFA: number | null }> {
   const lines: QuotationLine[] = [];
   const warnings: string[] = [];
+  const servicesOnly = isScenarioServicesOnly(request);
   const goodsPlan = request.imoGoodsPlan;
   const scenarioPlan = request.scenarioCargoContext
     ? assertScenarioCargoContext(request.scenarioCargoContext, request.containers || []) : null;
@@ -1369,6 +1383,7 @@ export async function generateQuotationLines(
   }
   if (scenarioPlan) request = { ...request, cargoWeight: scenarioPlan.cargoWeight };
   if (scenarioPlan) warnings.push('Simulation par groupes : hypothèses opérateur, pas de déclaration client. Montants indicatifs ; réserves DG propres à chaque lot.');
+  if (servicesOnly) warnings.push('Estimation des prestations DAP uniquement : droits et taxes douaniers et calcul CAF exclus. Les postes non chiffrés ne sont pas gratuits.');
   if (goodsPlan) {
     assertImoGoodsPlan(goodsPlan, request.containers || []);
     const family = normalizeDpwDthcFamily(request.dthcFamily);
@@ -2280,17 +2295,17 @@ export async function generateQuotationLines(
   // =====================================================
   // Duty breakdown array — note de détail par article
   const dutyBreakdown: any[] = [];
-  let cargoValueFCFA: number = 0;
+  let cargoValueFCFA: number | null = servicesOnly ? null : 0;
 
-  if (!isTransit) {
+  if (!isTransit && !servicesOnly) {
     // Conversion devise sécurisée (EUR uniquement — parité fixe BCEAO)
     const rawCurrency = (request.cargoCurrency || 'XOF').toUpperCase();
 
     if (rawCurrency === 'XOF' || rawCurrency === 'FCFA' || rawCurrency === 'CFA') {
-      cargoValueFCFA = request.cargoValue;
+      cargoValueFCFA = request.cargoValue!;
     } else {
       const rate = await resolveExchangeRate(supabase, rawCurrency);
-      cargoValueFCFA = request.cargoValue * rate;
+      cargoValueFCFA = request.cargoValue! * rate;
     }
 
     // P0 CAF strict: conversion fret réel en FCFA (si fourni)
@@ -2607,7 +2622,7 @@ export async function generateQuotationLines(
 // =====================================================
 // HANDLER PRINCIPAL
 // =====================================================
-if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (req) => {
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -2628,6 +2643,7 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
         const request = params as QuotationRequest;
         const originalIncoterm = String(request.incoterm ?? '').trim().toUpperCase();
         const normalizedIncoterm = normalizeIncoterm(request.incoterm) ?? 'CIF';
+        const servicesOnly = isScenarioServicesOnly(request);
         // Lot 1.2: preuve de réception clientCode (passe-plat, non consommé en Lot 1.2)
         console.log(`[LOT1.2][quotation-engine] received clientCode=${JSON.stringify(request.clientCode)}`);
         const earlyWarnings: string[] = [];
@@ -2640,7 +2656,7 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
           );
         }
         
-        if (!request.cargoValue || request.cargoValue <= 0) {
+        if (!servicesOnly && (!request.cargoValue || request.cargoValue <= 0)) {
           const isDDP = normalizedIncoterm === "DDP";
           request.cargoValue = 1;
           if (isDDP) {
@@ -2660,7 +2676,7 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
         const correlationId = getCorrelationId(req);
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
         const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        const historicalSuggestions = await fetchHistoricalSuggestions(
+        const historicalSuggestions = servicesOnly ? [] : await fetchHistoricalSuggestions(
           supabaseUrl, serviceKey, request, correlationId, supabase
         );
 
@@ -2676,11 +2692,11 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
           terminal: lines.filter(l => l.bloc === 'terminal' && l.amount).reduce((s, l) => s + (l.amount || 0), 0),
           local_transport_debours_ttc: localTransportDeboursTtc,
           dap: 0,
-          ddp: 0
+          ddp: servicesOnly ? null : 0
         };
         
         totals.dap = totals.operationnel + totals.honoraires + totals.border + totals.terminal + totals.local_transport_debours_ttc;
-        totals.ddp = totals.dap + totals.debours;
+        totals.ddp = servicesOnly ? null : totals.dap + totals.debours;
         
         // Métadonnées — use DB-backed rules for consistency
         const dbIncotermsMeta = await loadIncotermsFromDB(supabase);
@@ -2691,7 +2707,7 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
         // P0 CAF strict: recalcul freightFCFA pour metadata (resolution DB centralisee)
         let freightFCFA: number | undefined = undefined;
-        if (request.freightAmount && request.freightAmount > 0) {
+        if (!servicesOnly && request.freightAmount && request.freightAmount > 0) {
           const freightCur = String(request.freightCurrency ?? 'XOF').trim().toUpperCase();
           if (freightCur === 'XOF' || freightCur === 'FCFA' || freightCur === 'CFA') {
             freightFCFA = request.freightAmount;
@@ -2700,15 +2716,15 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
             freightFCFA = request.freightAmount * rate;
           }
         }
-        const caf = calculateCAF({
+        const caf = servicesOnly ? null : calculateCAF({
           incoterm: normalizedIncoterm,
-          invoiceValue: cargoValueFCFA || request.cargoValue,
+          invoiceValue: cargoValueFCFA || request.cargoValue!,
           freightAmount: freightFCFA,
         });
         
         // P0 fix: recalcul regimeName pour metadata via requête ciblée (pas de dépendance à generateQuotationLines)
         let regimeMeta: { name: string | null } | null = null;
-        if (request.regimeCode) {
+        if (!servicesOnly && request.regimeCode) {
           const { data: regime } = await supabase
             .from("customs_regimes")
             .select("code,name")
@@ -2739,15 +2755,16 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
               country: transitCountry || undefined
             },
             exceptional,
-            caf: {
+            ...(servicesOnly ? { estimate_mode: 'DAP_SERVICES_ONLY', totals_scope: 'PRICED_SERVICES_ONLY', duties_excluded: true } : {}),
+            caf: caf ? {
               value: caf.cafValue,
               method: caf.method
-            },
+            } : null,
             isTransit: transitCountry !== null,
             transitCountry: transitCountry || undefined,
-            regime_applied: request.regimeCode || null,
+            regime_applied: servicesOnly ? null : request.regimeCode || null,
             regime_name: regimeMeta?.name || null,
-            regime_unknown: regimeMeta === null && !!request.regimeCode,
+            regime_unknown: !servicesOnly && regimeMeta === null && !!request.regimeCode,
           },
           warnings,
           historical_suggestions: historicalSuggestions,
@@ -2784,7 +2801,7 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
         const issues: string[] = [];
         
         if (!request.finalDestination) issues.push('Destination finale manquante');
-        if (!request.cargoValue || request.cargoValue <= 0) issues.push('Valeur marchandise invalide');
+        if (!isScenarioServicesOnly(request as QuotationRequest) && (!request.cargoValue || request.cargoValue <= 0)) issues.push('Valeur marchandise invalide');
         if (!request.incoterm) issues.push('Incoterm non spécifié');
         if (!request.transportMode) issues.push('Mode de transport non spécifié');
         
@@ -2824,4 +2841,5 @@ if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(async (re
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
-});
+}
+if (Deno.env.get("QUOTATION_ENGINE_DISABLE_SERVE") !== "1") Deno.serve(handleRequest);

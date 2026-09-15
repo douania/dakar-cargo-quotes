@@ -109,6 +109,12 @@ export function readScenarioPricingCodes(value: unknown): string[] {
 /** Keep persisted codes stable while making the required operator action explicit. */
 export function scenarioPricingCodeMessage(code: string): string {
   switch (code) {
+    case "SCENARIO_DAP_SERVICES_ONLY":
+      return "Estimation des prestations DAP : droits et taxes douaniers et calcul CAF exclus, sans valeur marchandise fictive. Le montant affiché est un sous-total des postes chiffrés.";
+    case "SCENARIO_PAD_PENDING":
+      return "Droit de passage PAD à déterminer : poste non chiffré, exclu du sous-total et non considéré comme gratuit.";
+    case "QUOTATION_ENGINE_MODE_NOT_ACKNOWLEDGED":
+      return "Le moteur ne confirme pas le mode estimation DAP. Aucun montant retenu ; vérifier la concordance des versions déployées.";
     case "SCENARIO_CARGO_V2_REQUIRED":
       return "Recalcul à conteneurs : créer une révision maritime v2 et vérifier les hypothèses par lot. Les résultats historiques restent conservés.";
     case "SCENARIO_DG_FACTS_UNSCOPED":

@@ -57,9 +57,11 @@ interface PricingLaunchPanelProps {
   pricingPrechecks?: PricingPrecheck[];
   isRerun?: boolean;
   canProvisionalDdp?: boolean;
+  onEstimate?: () => void;
+  isEstimating?: boolean;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false, onEstimate, isEstimating = false }: PricingLaunchPanelProps) {
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -246,7 +248,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             <Alert className="border-orange-300 bg-orange-50 dark:bg-orange-950/30">
               <AlertTriangle className="h-4 w-4 text-orange-600" />
               <AlertDescription>
-                <p className="font-medium text-sm mb-1">Préchecks pricing — données manquantes</p>
+                <p className="font-medium text-sm mb-1">Préchecks du devis confirmé — données manquantes</p>
                 <ul className="list-disc list-inside text-sm space-y-1">
                   {pricingPrechecks.map(b => <li key={b.code}>{b.label}</li>)}
                 </ul>
@@ -271,11 +273,23 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             </Alert>
           )}
           
+          {onEstimate && (
+            <div className="space-y-2">
+              <Button onClick={onEstimate} disabled={isLoading || isEstimating || !!blockedByIntent} className="w-full gap-2">
+                <Calculator className="h-4 w-4" />
+                {isEstimating ? "Estimation en cours…" : "Estimer avec le scénario sélectionné"}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                  Estimation provisoire par groupe, distincte du devis confirmé. Les postes non chiffrés restent à confirmer ; les hypothèses ne modifient pas les faits client.
+                  Sans scénario sélectionné, une proposition de groupes est d’abord demandée depuis les e-mails.
+              </p>
+            </div>
+          )}
           <Button
             onClick={() => setConfirmOpen(true)}
-            disabled={isLoading || !!blockedByIntent || pricingPrechecks.length > 0}
+            disabled={isLoading || isEstimating || !!blockedByIntent || pricingPrechecks.length > 0}
             className="w-full gap-2"
-            variant="default"
+            variant={onEstimate ? "outline" : "default"}
           >
             {isLoading ? (
               <>
@@ -285,7 +299,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             ) : (
               <>
                 <Calculator className="h-4 w-4" />
-                {isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}
+                {onEstimate ? 'Calculer le devis confirmé' : isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}
               </>
             )}
           </Button>
@@ -294,7 +308,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
           {canProvisionalDdp && !blockedByIntent && (
             <Button
               onClick={() => setProvisionalConfirmOpen(true)}
-              disabled={isLoading}
+              disabled={isLoading || isEstimating}
               className="w-full gap-2 border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
               variant="outline"
             >

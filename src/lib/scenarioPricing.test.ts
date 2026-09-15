@@ -12,6 +12,12 @@ import {
   type ScenarioPricingRunSummary,
 } from "./scenarioPricing";
 
+it("explique le sous-total DAP et les réserves sans assimiler PAD à zéro", () => {
+  expect(scenarioPricingCodeMessage("SCENARIO_DAP_SERVICES_ONLY")).toContain("sous-total");
+  expect(scenarioPricingCodeMessage("SCENARIO_PAD_PENDING")).toContain("non considéré comme gratuit");
+  expect(scenarioPricingCodeMessage("QUOTATION_ENGINE_MODE_NOT_ACKNOWLEDGED")).toContain("Aucun montant retenu");
+});
+
 function run(
   scenarioId: string,
   sequence: number,

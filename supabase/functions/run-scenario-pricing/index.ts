@@ -370,17 +370,24 @@ async function handleRequest(req: Request): Promise<Response> {
     blockers.push(...terminalPolicy.blockers);
     if (terminalPolicy.eligible) overlay.assumptionKeys.add("scenario.container_thc_policy");
 
+    // GO estimation partielle : contrat v2 validé uniquement. Un package DDP
+    // ne devient jamais DAP du seul fait de l'incoterm du dossier.
+    const servicesOnly = cargoPlan !== null && cargoContext !== null && transportMode === "MARITIME" &&
+      String(inputs.incoterm ?? "").trim().toUpperCase() === "DAP" &&
+      !packageKey.split("_").includes("DDP");
+
     const padBlocker = resolvePadScopeBlocker({
       facts: overlay.facts,
       servicePackage: packageKey,
       effectiveServiceKeys,
       incoterm: inputs.incoterm ?? "",
     });
-    if (padBlocker) blockers.push(...padBlocker.pricing_blockers);
+    if (padBlocker) blockers.push(...padBlocker.pricing_blockers.filter(code =>
+      !servicesOnly || code !== "PAD_CATEGORY_REQUIRED"));
 
     if (!inputs.finalDestination) blockers.push("FINAL_DESTINATION_REQUIRED");
     if (!inputs.incoterm) blockers.push("INCOTERM_REQUIRED");
-    if (!inputs.cargoValue || inputs.cargoValue <= 0) {
+    if (!servicesOnly && (!inputs.cargoValue || inputs.cargoValue <= 0)) {
       blockers.push("CARGO_VALUE_REQUIRED_FOR_SCENARIO_ENGINE");
     }
     if (!(inputs.containers?.length) && !(inputs.cargoWeight && inputs.cargoWeight > 0)) {
@@ -416,6 +423,14 @@ async function handleRequest(req: Request): Promise<Response> {
       };
     });
     const reservations: Record<string, unknown>[] = [
+      ...(servicesOnly ? [{
+        code: "SCENARIO_DAP_SERVICES_ONLY", source: "scenario_services_policy_v1",
+        message: "Estimation des prestations DAP uniquement. Droits et taxes douaniers et calcul CAF exclus ; aucune valeur marchandise de remplacement.",
+      }] : []),
+      ...(servicesOnly && padBlocker ? [{
+        code: "SCENARIO_PAD_PENDING", source: "scenario_services_policy_v1",
+        message: "Droit de passage PAD non chiffré : catégorie et tarif applicables à déterminer. Ce poste n’est pas gratuit et n’est pas inclus dans le sous-total.",
+      }] : []),
       ...terminalPolicy.reservations,
       ...(cargoPlan?.reservations ?? []),
       ...reserveLinks,
@@ -439,6 +454,7 @@ async function handleRequest(req: Request): Promise<Response> {
       engineRequest = {
         ...buildEngineRequest(inputs, transportMode),
         ...(cargoContext ? { scenarioCargoContext: cargoContext } : {}),
+        ...(servicesOnly ? { scenarioPricingMode: "DAP_SERVICES_ONLY" } : {}),
         includeCustomsClearance: effectiveServiceKeys.includes("CUSTOMS_DAKAR"),
         includeLocalTransport: effectiveServiceKeys.includes("TRUCKING"),
       };
@@ -461,6 +477,12 @@ async function handleRequest(req: Request): Promise<Response> {
           engineResponse = asObject(parsed);
           if (engineResponse.success !== true || !Array.isArray(engineResponse.lines)) {
             blockers.push("QUOTATION_ENGINE_INVALID_RESPONSE");
+            status = "failed";
+          } else if (servicesOnly && (asObject(engineResponse.metadata).estimate_mode !== "DAP_SERVICES_ONLY" ||
+            asObject(engineResponse.metadata).duties_excluded !== true ||
+            asObject(engineResponse.metadata).caf !== null)) {
+            // Refuser un moteur ancien qui ignorerait le mode et utiliserait 1 FCFA.
+            blockers.push("QUOTATION_ENGINE_MODE_NOT_ACKNOWLEDGED");
             status = "failed";
           } else {
             const scopeFiltered = applyScenarioExplicitServiceRemovals(

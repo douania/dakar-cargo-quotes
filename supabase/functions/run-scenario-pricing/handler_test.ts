@@ -62,6 +62,7 @@ interface Options {
   rpcConflict?: boolean;
   linkedAssumption?: boolean;
   terminalLines?: boolean;
+  legacyEngine?: boolean;
   mutate?: (state: ReturnType<typeof fixture>) => void;
 }
 
@@ -109,7 +110,9 @@ async function withTransport(options: Options, check: (h: {
         engineBodies.push(await req.json());
         if (options.engineFailure === "http") return reply({ error: "Synthetic failure" }, 503);
         if (options.engineFailure === "json") return reply({ success: true, lines: "invalid" });
-        return reply({ success: true, lines: [
+        return reply({ success: true, ...(options.legacyEngine ? {} : { metadata: {
+          estimate_mode: "DAP_SERVICES_ONLY", duties_excluded: true, caf: null,
+        } }), lines: [
           { id: "alpha-fee", unit_ref: "alpha", category: "DTHC", amount: 100, source: { type: "OFFICIAL" } },
           { id: "beta-fee", unit_ref: "beta", category: "TRUCKING", amount: 200, source: { type: "OFFICIAL" } },
           { id: "common-fee", category: "AGENCY", amount: 50, source: { type: "OFFICIAL" } },
@@ -380,8 +383,6 @@ Deno.test("scenario container THC: replay preserves policy reserves and fingerpr
 for (const [name, mutate, code] of [
   ["contradiction", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s, "RORO"); s.facts.push({ id: "synthetic-mode", fact_key: "routing.terminal_operation_mode", value_text: "LOLO" }); }, "SCENARIO_TERMINAL_SCOPE_MISMATCH"],
   ["invalid declaration", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts.push({ id: "synthetic-mode", fact_key: "routing.terminal_operation_mode", value_text: "INVALID" }); }, "SCENARIO_TERMINAL_FACT_INVALID"],
-  ["PAD still required", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts = s.facts.filter(f => !f.fact_key.startsWith("cargo.pad_")); }, "PAD_CATEGORY_REQUIRED"],
-  ["value still required", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts = s.facts.filter(f => f.fact_key !== "cargo.value"); }, "CARGO_VALUE_REQUIRED_FOR_SCENARIO_ENGINE"],
   ["foreign port", (s: ReturnType<typeof fixture>) => { dakarContainerScope(s); s.facts.find(f => f.fact_key === "routing.origin_port")!.value_text = "Abidjan"; }, "TERMINAL_OPERATION_MODE_REQUIRED"],
 ] as const) {
   Deno.test(`scenario container THC: ${name} remains blocked`, async () => {
@@ -421,4 +422,84 @@ Deno.test("scenario container THC: boundaries, explicit terminal, stable no-muta
   assertEquals(lines[0].amount, 0);
   assertEquals(adapted[0].amount, null);
   assertEquals(applyScenarioContainerTerminalLines(adapted, policy()), adapted);
+});
+
+for (const missing of ["pad", "value", "both"]) {
+  Deno.test(`scenario DAP partial: missing ${missing} reserves only unpriced services and preserves replay`, async () => {
+    await withTransport({ mutate: s => {
+      dakarContainerScope(s);
+      s.facts = s.facts.filter(f => !(missing !== "value" && f.fact_key.startsWith("cargo.pad_")) &&
+        !(missing !== "pad" && f.fact_key === "cargo.value"));
+    } }, async h => {
+      await h.invoke();
+      const result = h.rpcBodies[0].p_result as Json;
+      assertEquals(result.blockers, []);
+      assertEquals(result.status, "success");
+      assertEquals(result.qualification, "partial");
+      assertEquals(result.indicative_total_ht, 350);
+      assertEquals(result.firm_total_ht, 0);
+      const params = h.engineBodies[0].params as Json;
+      assertEquals(params.scenarioPricingMode, "DAP_SERVICES_ONLY");
+      if (missing !== "pad") assert(!("cargoValue" in params));
+      const pad = (result.tariff_lines as Json[]).filter(l => l.category === "PAD_DROIT_PASSAGE");
+      assertEquals(pad.length, 1);
+      assertEquals(pad[0].amount, null);
+      assertEquals((pad[0].source as Json).type, "TO_CONFIRM");
+      assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_DAP_SERVICES_ONLY"));
+      if (missing !== "value") assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_PAD_PENDING"));
+      await h.invoke();
+      assertEquals(h.rpcBodies[0].p_request_fingerprint, h.rpcBodies[1].p_request_fingerprint);
+      const replay = h.rpcBodies[1].p_result as Json;
+      for (const key of ["reservations", "tariff_lines", "indicative_total_ht", "engine_request", "facts_snapshot"])
+        assertEquals(result[key], replay[key]);
+    });
+  });
+}
+
+for (const [name, options] of [
+  ["AIR", { air: true }],
+  ["incoterm DDP", { mutate: (s: ReturnType<typeof fixture>) => { s.facts.find(f => f.fact_key === "routing.incoterm")!.value_text = "DDP"; } }],
+  ["package DDP prefix despite DAP", { mutate: (s: ReturnType<typeof fixture>) => { s.facts.find(f => f.fact_key === "service.package")!.value_text = "DDP_PROJECT_IMPORT"; } }],
+  ["package DDP suffix despite DAP", { mutate: (s: ReturnType<typeof fixture>) => { s.facts.find(f => f.fact_key === "service.package")!.value_text = "AIR_IMPORT_DDP"; } }],
+] as const) {
+  Deno.test(`scenario services: ${name} still requires value and does not opt in`, async () => {
+    await withTransport({ ...options, mutate: s => {
+      if ("mutate" in options) options.mutate(s);
+      s.facts = s.facts.filter(f => f.fact_key !== "cargo.value" && !f.fact_key.startsWith("cargo.pad_"));
+    } }, async h => {
+      await h.invoke();
+      const result = h.rpcBodies[0].p_result as Json;
+      assertEquals(result.status, "blocked");
+      assert((result.blockers as string[]).includes("CARGO_VALUE_REQUIRED_FOR_SCENARIO_ENGINE"));
+      if (name === "package DDP prefix despite DAP") assert((result.blockers as string[]).includes("PAD_CATEGORY_REQUIRED"));
+      assertEquals(h.engineBodies, []);
+    });
+  });
+}
+
+Deno.test("scenario services: engine without mode acknowledgment never contributes amounts", async () => {
+  await withTransport({ legacyEngine: true }, async h => {
+    await h.invoke();
+    const result = h.rpcBodies[0].p_result as Json;
+    assertEquals(result.status, "failed");
+    assertEquals(result.blockers, ["QUOTATION_ENGINE_MODE_NOT_ACKNOWLEDGED"]);
+    assertEquals(result.tariff_lines, []);
+    assertEquals(result.indicative_total_ht, null);
+  });
+});
+
+Deno.test("scenario DAP services: transit retains the validated grouped path with no artificial valuation", async () => {
+  await withTransport({ mutate: s => {
+    s.snapshot.movement_direction = "TRANSIT";
+    s.facts.find(f => f.fact_key === "service.package")!.value_text = "TRANSIT_REGIONAL_VIA_DAKAR";
+    s.facts = s.facts.filter(f => f.fact_key !== "cargo.value");
+  } }, async h => {
+    await h.invoke();
+    const result = h.rpcBodies[0].p_result as Json;
+    assertEquals(result.status, "success");
+    assertEquals(result.qualification, "partial");
+    const params = h.engineBodies[0].params as Json;
+    assertEquals(params.scenarioPricingMode, "DAP_SERVICES_ONLY");
+    assert(!("cargoValue" in params));
+  });
 });

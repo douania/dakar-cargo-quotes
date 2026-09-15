@@ -26,10 +26,11 @@
  *     service_role-only et les contraintes de la table.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { ScenarioProposalPanel, type ScenarioProposalAction } from "./ScenarioProposalPanel";
 import type { Database } from "@/integrations/supabase/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -149,6 +150,12 @@ type QuoteScenarioSelection =
 
 interface QuoteScenariosPanelProps {
   caseId: string;
+  actionRef?: Ref<ScenarioPricingAction>;
+  onPricingPendingChange?: (pending: boolean) => void;
+}
+
+export interface ScenarioPricingAction {
+  estimateSelected: () => void;
 }
 
 const SCENARIO_COLUMNS =
@@ -1055,13 +1062,15 @@ function ComparisonBlock({ left, right }: ComparisonBlockProps) {
 
 const NO_SCENARIO = "__none__";
 
-export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
+export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange }: QuoteScenariosPanelProps) {
   const queryClient = useQueryClient();
   // Une réponse réseau perdue ne doit jamais transformer un rejeu manuel en
   // nouvelle création/révision. La clé reste associée au contenu logique exact
   // jusqu'au succès ; modifier le formulaire produit une autre signature.
   const mutationKeys = useRef(new Map<string, string>());
   const pricingMutationKeys = useRef(new Map<string, string>());
+  const pricingInFlight = useRef(false);
+  const proposalAction = useRef<ScenarioProposalAction>(null);
   const outputMutationKeys = useRef(new Map<string, string>());
   const [formMode, setFormMode] = useState<"none" | "create" | "revise">("none");
   const [reviseTargetId, setReviseTargetId] = useState<string | null>(null);
@@ -1315,7 +1324,7 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
     onError: (err: unknown) => {
       toast.error(errorMessage(err) ?? "Estimation isolée refusée");
     },
-    onSettled: () => setPendingPricingId(null),
+    onSettled: () => { pricingInFlight.current = false; setPendingPricingId(null); },
   });
 
   const outputMutation = useMutation({
@@ -1439,12 +1448,15 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
   };
 
   const runScenarioPricing = (scenario: QuoteScenario) => {
+    if (pricingInFlight.current) return;
     const signature = scenarioPricingMutationSignature(caseId, scenario.id, scenario.scope_hash);
     let idempotencyKey = pricingMutationKeys.current.get(signature);
     if (!idempotencyKey) {
-      idempotencyKey = crypto.randomUUID();
+      try { idempotencyKey = crypto.randomUUID(); }
+      catch { toast.error("Impossible de préparer un identifiant sécurisé pour cette estimation. Réessayez dans un navigateur sécurisé."); return; }
       pricingMutationKeys.current.set(signature, idempotencyKey);
     }
+    pricingInFlight.current = true;
     setPendingPricingId(scenario.id);
     pricingMutation.mutate({
       scenarioId: scenario.id,
@@ -1517,6 +1529,33 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
   const compareLeft = compareLeftId === NO_SCENARIO ? null : scenarioById.get(compareLeftId);
   const compareRight = compareRightId === NO_SCENARIO ? null : scenarioById.get(compareRightId);
 
+  useEffect(() => {
+    onPricingPendingChange?.(pricingMutation.isPending);
+    return () => onPricingPendingChange?.(false);
+  }, [onPricingPendingChange, pricingMutation.isPending]);
+
+  // Le bouton principal réutilise exactement la mutation et l'idempotence du
+  // panneau. Aucun lancement au montage, aucune création/sélection implicite.
+  useImperativeHandle(actionRef, () => ({
+    estimateSelected: () => {
+      if (scenariosQuery.isLoading || selectionsQuery.isLoading ||
+        scenariosQuery.error || selectionsQuery.error || submitting || formMode !== "none") {
+        toast.warning("Terminez la saisie ou le chargement des scénarios avant d’estimer.");
+        return;
+      }
+      const selected = scenarios.find(s => s.id === openSelection?.scenario_id);
+      if (!selected && !openSelection) {
+        proposalAction.current?.propose();
+        return;
+      }
+      if (!selected || ["blocked", "superseded", "promoted_to_final"].includes(selected.status) || selected.superseded_by_scenario_id) {
+        toast.warning("Sélectionnez un scénario actif et vérifiez ses hypothèses par groupe avant d’estimer.");
+        return;
+      }
+      runScenarioPricing(selected);
+    },
+  }));
+
   if (scenariosQuery.isLoading) {
     return (
       <Card className="mb-6 border-border/50">
@@ -1578,6 +1617,10 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
       </CardHeader>
 
       <CardContent className="py-2 px-4 space-y-2">
+        {formMode === "none" && <ScenarioProposalPanel key={caseId} caseId={caseId} actionRef={proposalAction}
+          disabled={submitting || pricingMutation.isPending} onUseDraft={proposedDraft => {
+            setDraft(proposedDraft); setReviseTargetId(null); setFormMode("create");
+          }} />}
         <Alert className="border-amber-200 bg-amber-50/60">
           <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />
           <AlertDescription className="text-[11px] text-amber-900">
@@ -1822,13 +1865,15 @@ export function QuoteScenariosPanel({ caseId }: QuoteScenariosPanelProps) {
                           Socle ferme démontré
                         </p>
                         <p className="font-medium text-emerald-800">
-                          HT {formatScenarioPricingAmount(latestPricing.firm_total_ht, latestPricing.currency)}
-                          {" · "}TTC {formatScenarioPricingAmount(latestPricing.firm_total_ttc, latestPricing.currency)}
+                          {latestPricing.firm_total_ht === 0 ? "Aucun montant ferme démontré" : <>
+                            HT {formatScenarioPricingAmount(latestPricing.firm_total_ht, latestPricing.currency)}
+                            {" · "}TTC {formatScenarioPricingAmount(latestPricing.firm_total_ttc, latestPricing.currency)}
+                          </>}
                         </p>
                       </div>
                       <div className="rounded border border-violet-200 bg-white/70 p-1.5">
                         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Total indicatif avec hypothèses
+                          {latestPricing.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"}
                         </p>
                         <p className="font-medium text-violet-900">
                           HT {formatScenarioPricingAmount(latestPricing.indicative_total_ht, latestPricing.currency)}

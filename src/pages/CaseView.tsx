@@ -80,7 +80,7 @@ import { CaseActionPlan } from "@/components/case/CaseActionPlan";
 import { NextActionBanner } from "@/components/case/NextActionBanner";
 import { ReadyActionsPanel } from "@/components/case/ReadyActionsPanel";
 import { QuoteScenarioAssumptionsPanel } from "@/components/case/QuoteScenarioAssumptionsPanel";
-import { QuoteScenariosPanel } from "@/components/case/QuoteScenariosPanel";
+import { QuoteScenariosPanel, type ScenarioPricingAction } from "@/components/case/QuoteScenariosPanel";
 import { FinalRequestStatePanel } from "@/components/case/FinalRequestStatePanel";
 import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
@@ -124,6 +124,9 @@ function formatContainersValue(value: unknown): string | null {
 
 export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
+  const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
+  const scenarioPanel = React.useRef<HTMLDivElement>(null);
+  const [isScenarioEstimating, setIsScenarioEstimating] = React.useState(false);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
@@ -1844,7 +1847,7 @@ export default function CaseView() {
         {caseId && <FinalRequestStatePanel caseId={caseId} />}
 
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
-        {caseId && <QuoteScenariosPanel caseId={caseId} />}
+        {caseId && <div ref={scenarioPanel}><QuoteScenariosPanel key={caseId} caseId={caseId} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} /></div>}
 
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
@@ -2088,6 +2091,12 @@ export default function CaseView() {
               <PricingReadinessCard caseId={caseId!} />
               <PricingLaunchPanel
                 caseId={caseId!}
+                isEstimating={isScenarioEstimating}
+                onEstimate={() => {
+                  if (!scenarioPricingAction.current) { toast.warning("Scénarios indisponibles : réessayez après leur chargement."); return; }
+                  scenarioPricingAction.current.estimateSelected();
+                  scenarioPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
                 onComplete={handlePricingComplete}
                 isRerun={isPricingRerun(caseData.status)}
                 blockedByIntent={(() => {
