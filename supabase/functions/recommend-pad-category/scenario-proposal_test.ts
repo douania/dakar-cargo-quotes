@@ -96,7 +96,7 @@ Deno.test("PAD proposals: only actual validated aliases and unique applicable ta
   assertEquals(validatePadCandidates([candidate], groups, [{ ...aliases[0], is_validated: false }], tariffs, "2026-09-15"), []);
 });
 
-interface Options { invisible?: boolean; invalidAuth?: boolean; incomplete?: boolean; aiFail?: boolean; catalogFail?: boolean; scope?: unknown; scopeKey?: string; changed?: boolean; threadClient?: string | null; contact?: string; encoded?: boolean }
+interface Options { invisible?: boolean; invalidAuth?: boolean; incomplete?: boolean; aiFail?: boolean; catalogFail?: boolean; scope?: unknown; scopeKey?: string; changed?: boolean; threadClient?: string | null; contact?: string; encoded?: boolean; bodyText?: string }
 async function withTransport(options: Options, check: (invoke: (body: Row, auth?: boolean) => Promise<Response>, calls: string[], aiBodies: Row[]) => Promise<void>) {
   const fetchBefore = globalThis.fetch; const names = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "LOVABLE_API_KEY"];
   const envBefore = names.map(k => Deno.env.get(k)); const calls: string[] = []; const aiBodies: Row[] = []; const unexpected: string[] = [];
@@ -116,7 +116,7 @@ async function withTransport(options: Options, check: (invoke: (body: Row, auth?
         if (url.pathname === "/auth/v1/user") return options.invalidAuth ? reply({}, 401) : reply({ id: CASE, aud: "authenticated" });
         if (url.pathname === "/rest/v1/quote_cases") { assertEquals(url.searchParams.get("id"), `eq.${CASE}`); return reply(options.invisible ? null : { id: CASE, thread_id: "thread", request_type: "IMPORT" }); }
         if (url.pathname === "/rest/v1/email_threads") { assertEquals(url.searchParams.get("id"), "eq.thread"); return reply({ client_email: "threadClient" in options ? options.threadClient : CLIENT }); }
-        if (url.pathname === "/rest/v1/emails") { assertEquals(url.searchParams.get("thread_ref"), "eq.thread"); return reply([mail(options.encoded ? `Content-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n\n${btoa(CARGO)}` : options.changed ? CARGO + "\nchanged" : CARGO)], 200, options.incomplete ? 2 : 1); }
+        if (url.pathname === "/rest/v1/emails") { assertEquals(url.searchParams.get("thread_ref"), "eq.thread"); return reply([mail(options.bodyText ?? (options.encoded ? `Content-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n\n${btoa(CARGO)}` : options.changed ? CARGO + "\nchanged" : CARGO))], 200, options.incomplete ? 2 : 1); }
         if (url.pathname === "/rest/v1/quote_facts") { assertEquals(url.searchParams.get("is_current"), "eq.true"); assertEquals(url.searchParams.get("case_id"), `eq.${CASE}`); return reply([...(options.scope ? [{ fact_key: options.scopeKey ?? "service.package", value_text: options.scope }] : []), ...(options.contact ? [{ fact_key: "contacts.client_email", value_text: options.contact }] : [])]); }
         if (url.pathname === "/rest/v1/pad_designation_aliases") return reply(aliases, 200, aliases.length);
         if (url.pathname === "/rest/v1/port_tariffs") {
@@ -162,6 +162,35 @@ Deno.test("proposal HTTP: client identity conflict refuses before AI and never i
   await withTransport({contact:"other@example.invalid"},async(invoke,_calls,ai)=>{
     const response=await invoke({action:"propose_scenario",case_id:CASE});const body=await response.json();
     assertEquals(body.status,"needs_review");assertEquals(body.reasons,["CLIENT_IDENTITY_CONFLICT"]);assertEquals(ai,[]);
+  });
+});
+
+Deno.test("proposal HTTP: legacy alternatives reach PAD advice, raw source drift invalidates draft, no database write", async () => {
+  const html = `<div>${CARGO.replaceAll("\n", "<br>")}</div>`;
+  const options: Options = { threadClient: null, contact: CLIENT, bodyText: `${btoa(CARGO)}\n--test-legacy\n${btoa(html)}` };
+  await withTransport(options, async (invoke, calls, ai) => {
+    const response = await invoke({ action: "propose_scenario", case_id: CASE });
+    const body = await response.json();
+    assertEquals(response.status, 200); assertEquals(body.status, "proposed");
+    assertEquals(body.groups.map((g: Row) => g.quantity), [39, 13, 3]);
+    assertEquals(body.groups.map((g: Row) => g.dangerous), [true, null, null]);
+    assertEquals(body.pad_candidates[0].rate, 100);
+    assertEquals(calls.filter(c => c.startsWith("POST")), ["POST /v1/chat/completions"]);
+    assert(!JSON.stringify(ai).includes(btoa(CARGO))); assert(!JSON.stringify(ai).includes(CLIENT));
+    const request = { action: "verify_scenario_source", case_id: CASE, source_fingerprint: body.source_fingerprint };
+    assertEquals((await invoke(request)).status, 200);
+    options.bodyText += "\n"; // decoded meaning identical, stored source still changed
+    assertEquals((await invoke(request)).status, 409); assertEquals(ai.length, 1);
+  });
+});
+
+Deno.test("proposal HTTP: mismatching legacy alternatives stop before catalog and AI", async () => {
+  await withTransport({ bodyText: `${btoa(CARGO)}\n--test-legacy\n${btoa(`<div>${CARGO.replace("1.39", "1.40")}</div>`)}` }, async (invoke, calls, ai) => {
+    const body = await (await invoke({ action: "propose_scenario", case_id: CASE })).json();
+    assertEquals(body.status, "needs_review"); assertEquals(body.groups, []);
+    assert(body.reasons.includes("SOURCE_BODY_UNAVAILABLE")); assertEquals(ai, []);
+    assert(!calls.some(c => /port_tariffs|pad_designation_aliases/.test(c)));
+    assertEquals(calls.filter(c => !c.startsWith("GET")), []);
   });
 });
 
