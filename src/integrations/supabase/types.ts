@@ -8309,6 +8309,10 @@ export type Database = {
         Args: { p_path: string; p_place: Json }
         Returns: string
       }
+      quote_scenario_scope_v2_violation: {
+        Args: { p_snapshot: Json }
+        Returns: string
+      }
       quote_scenario_scope_violation: {
         Args: { p_snapshot: Json }
         Returns: string
