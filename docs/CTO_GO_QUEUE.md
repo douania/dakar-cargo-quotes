@@ -24,6 +24,19 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-15 11:33 UTC] TRAITÉ — Correctif bundling livré ; recette GoTrans PARTIAL
+
+**GO** : utilisateur « oui si c'est nécessaire » autorisant correctif ciblé/tests/reprise de la livraison, sans nouvelle migration ni tarif. Remplace le blocage bundling ci-dessous, historique conservé.
+**Git** : work 3170e98→b3499cf22cdbac6fb3ec98fef97c3381c179c5a3 poussé, 7 fichiers +1717/-1587 ; domaine pur partagé, façade compatible, imports et gate isolé CI. Contre-revue Claude Read-only GO, réserves export default/imports résiduels levées. CI GitHub 34962663800 SUCCESS ; local 97 Deno ciblés PASS, 378 frontend PASS, Deno1336/1échec CRLF baseline/6ignorés, dette types49/lint737-16 inchangée.
+**Runtime** : quotation-engine déjà livrée et source inchangée ; run-scenario-pricing puis manage-quote-scenario déployées avec succès depuis b3499cf, sources supabase/ identiques avant/après, OPTIONS200/POST sans auth401. Messages umsg_01m2jcqcj9eg7sa0m74yv4r290 / umsg_01m2jcvp7mehz9b6893znd9x87. Preuve de remplacement acceptée, bundle runtime NOT_VERIFIED. Aucune des quatre enveloppes SQL antérieures rejouée, ledger202.
+**Recette** : sonde authentifiée run-scenario-pricing vide 400 attendu ; moteur générique mixte HTTP200, DTHC des groupes isolés (465000/1023000/à confirmer), total indicatif1735800XOF, honoraires0. GoTrans scénario v2 60081f2a-6ac9-4487-97fa-aa2739d94d05 créé/sélectionné UI, groupes39SOC/13SOC/3COC ; dérivation sourcée UN3536→9 uniquement armoires. Run isolé d2317567-4eb9-4cb8-8c89-aca932b06a86 HTTP200/blocked, sans appel moteur ni montant : TERMINAL_OPERATION_MODE_REQUIRED, PAD_CATEGORY_REQUIRED, CARGO_VALUE_REQUIRED_FOR_SCENARIO_ENGINE. Parcours positif GoTrans non validé ; pas de boucle de revue générale à rouvrir.
+**Réserve UI** : base scénario203 caractères refusée par limite structurelle200 malgré contrôle cargo500 ; diagnostic local reproduit, texte de recette raccourci sans changement de sens puis création réussie. Aucun correctif UI/SQL supplémentaire effectué.
+**Intégrité fraîche** : 11:20:58→11:32:33 UTC : scénarios0→1, runs isolés0→1 ; ledger202, faits1409 MD5 393ff8e6bcdf748f3b61b329a2441d9e, port_tariffs MD5 235a655bf711e7ad8fc6c917f6419fee, pricing canonique171/versions9 inchangés. Même formule to_jsonb que contrôle précédent. Une requête diagnostic created_at inconnue refusée sans écriture, reprise ts conforme après lecture schéma.
+**Limites** : faits/barèmes/Auth/RLS/migrations inchangés, aucun envoi/publication publique. Projet workspace_edit/is_published=false observé ; publish_visibility=public est un réglage non modifié, pas une publication. Une ligne v2 existe désormais : rollback SQL v1 interdit en l'état, ledger conservé ; aucun rollback/nettoyage. Revert bundling réintroduirait l'import défaillant.
+**Suite** : cadrer le chiffrage partiel générique avec réserves et les trois préconditions métier, sans inventer valeur/PAD ; harmonisation longueur UI à regrouper. Preuves hors dépôt delivery-bundling-recipe-20260915.json ; note roadmap de clôture locale non commitée. Cette queue seule fait l'objet du commit documentaire dédié autorisé.
+
+---
+
 ## [2026-09-15 10:46 UTC] GO — Preuve de remplacement acceptée ; livraison PARTIAL, bundling Edge 2 FAIL
 
 **Origine** : session interactive, GO utilisateur explicite après contre-revue Claude B1 LEVÉ.
