@@ -2,6 +2,7 @@ import { computeCanonicalHash } from "../_shared/canonical-hash.ts";
 import { resolveImoFromUn } from "../_shared/imo-un-resolution.ts";
 import { CONTAINER_PROFILES } from "../_shared/dpw-dthc-tariff.ts";
 import { proposalPlainBody } from "./scenario-source.ts";
+import { isApplicableScenarioPadTariff } from "../_shared/scenario-pad-tariff.ts";
 
 export type Row = Record<string, unknown>;
 export interface ProposedGroup {
@@ -100,6 +101,34 @@ export function proposeGroups(client: unknown, emails: Row[]): Pick<ScenarioProp
   return { status: reasons.size ? "needs_review" : "proposed", groups: reasons.size ? [] : groups, reasons: [...reasons] };
 }
 
+/** Semantic aid, not a UN-to-PAD mapping or a transport authorisation.
+ * Initial verified designation coverage: UN3536 only (IMDG 42-24, read 2026-09-15).
+ * Other UN numbers remain explicit in the excerpt, with no invented designation.
+ */
+export function padCommodityContext(group: ProposedGroup) {
+  if (group.un_number !== "UN3536" || !group.imo_source || group.imo_class !== "9") return null;
+  return {
+    un_number: "UN3536",
+    designation: "LITHIUM BATTERIES INSTALLED IN CARGO TRANSPORT UNIT",
+    interpretation: "Batteries installées dans une unité de transport ; pas une armoire de rangement de bureau. Ne détermine pas la catégorie PAD.",
+    source: "https://imo-epublications.org/content/books/9789280117974.UNNo3536",
+    edition: "IMDG 42-24",
+  };
+}
+
+/** A catalogued alias is not evidence of the cargo's nature. Bare 'storage cabinets'
+ * does not establish office furniture; industrial battery context rules it out.
+ * This narrow compatibility check does not force an electrical category or alter DG.
+ */
+function compatiblePadAlias(alias: string, group: ProposedGroup): boolean {
+  const words = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const a = words(alias); const description = words(group.excerpt);
+  const furniture = /\b(?:mobilier|meubles?|furniture|ameublement|furnishings?|chaises?|chairs?|desks?|fauteuils?)\b/;
+  if (!furniture.test(a)) return true;
+  const technical = padCommodityContext(group) !== null || /\b(?:bess|batter(?:y|ies|ie)|transformers?|transformateurs?|electrical|electriques?|energy|energie)\b/.test(description);
+  return !technical && (furniture.test(description) || /\b(?:office|bureau)\b/.test(description));
+}
+
 /** AI chooses candidates, never their amounts or provenance. Duplicated/expired rates are not selected. */
 export function validatePadCandidates(raw: unknown, groups: ProposedGroup[], aliases: Row[], tariffs: Row[], today: string): PadCandidate[] {
   if (!Array.isArray(raw)) return [];
@@ -112,18 +141,15 @@ export function validatePadCandidates(raw: unknown, groups: ProposedGroup[], ali
       typeof c.justification !== "string" || !c.justification.trim() || c.justification.length > 1000) continue;
     const key = `${c.unit_ref}:${c.category}`;
     if (seen.has(key) || (counts.get(String(c.unit_ref)) ?? 0) >= 3) continue;
-    const matched = Array.isArray(c.matching_aliases) ? c.matching_aliases.filter(a => typeof a === "string" && aliases.some(
+    const group = groups.find(g => g.unit_ref === c.unit_ref)!;
+    const matched = Array.isArray(c.matching_aliases) ? c.matching_aliases.filter(a => typeof a === "string" && compatiblePadAlias(a, group) && aliases.some(
       known => known.is_validated === true && known.pad_category === c.category && normalize(known.normalized_term) === normalize(a))) as string[] : [];
     if (!matched.length) continue;
-    const rates = tariffs.filter(t => t.classification === c.category && t.provider === "PAD" && t.category === "DROIT_PASSAGE" &&
-      // Existing PAD catalogue is in FCFA/t and has no per-row currency column.
-      t.operation_type === "IMPORT" && t.cargo_type === "CONTENEUR" && t.is_active === true && (t.currency === undefined || t.currency === "XOF") &&
-      ["official", "validated_internal"].includes(String(t.evidence_level)) && typeof t.source_document === "string" && t.source_document.trim() &&
-      ["tonne", "tonnes", "t", "ton"].includes(normalize(t.unit)) && typeof t.amount === "number" && Number.isFinite(t.amount) && t.amount > 0 &&
-      typeof t.effective_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.effective_date) && t.effective_date <= today &&
-      (t.expiry_date === null || (typeof t.expiry_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.expiry_date) && t.expiry_date >= today)));
+    const rates = tariffs.filter(t => isApplicableScenarioPadTariff(t, c.category, today));
     const rate = rates.length === 1 ? rates[0] : null;
-    out.push({ unit_ref: String(c.unit_ref), category: c.category, justification: c.justification, matching_aliases: [...new Set(matched)].slice(0, 5),
+    const context = padCommodityContext(group);
+    const justification = context ? `${c.justification} Contexte ONU sourcé : ${context.designation} (${context.source}). Proposition PAD, non équivalence réglementaire.` : c.justification;
+    out.push({ unit_ref: String(c.unit_ref), category: c.category, justification, matching_aliases: [...new Set(matched)].slice(0, 5),
       rate: rate ? Number(rate.amount) : null, tariff_source: rate ? { id: rate.id, source_document: rate.source_document,
         evidence_level: rate.evidence_level, effective_date: rate.effective_date, expiry_date: rate.expiry_date, unit: rate.unit } : null,
       qualification: "PROPOSAL_ONLY" });

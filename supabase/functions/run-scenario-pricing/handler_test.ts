@@ -141,7 +141,7 @@ async function withTransport(options: Options, check: (h: {
         assertEquals(apiKey, "synthetic-service-key");
         if (path.endsWith("port_tariffs")) assert(!String(url.searchParams.get("select")).split(",").includes("currency"), "No currency column exists in port_tariffs");
         const rows = path.endsWith("port_tariffs") ? [
-          { id:"synthetic-pad",provider:"PAD",category:"DROIT_PASSAGE",operation_type:"IMPORT",cargo_type:"CONTENEUR",classification:"T02",amount:100,unit:"tonne",source_document:"Synthetic PAD source",evidence_level:"official",effective_date:"2025-01-01",expiry_date:null,is_active:true },
+          { id:"synthetic-pad",provider:"PAD",category:"DROIT_PASSAGE",operation_type:"IMPORT",cargo_type:"CONTENEUR",classification:"T02",amount:100,unit:"PER_TONNE",source_document:"Synthetic PAD source",evidence_level:"official",effective_date:"2025-01-01",expiry_date:null,is_active:true },
         ] : path.endsWith("fee_lines") ? [{ id:"synthetic-agency",code:"AGENCY",label_fr:"Agence",vat_applicable:true,is_active:true }] :
           [{ id:"synthetic-rule",fee_line_id:"synthetic-agency",method:"FIXED",amount:1000,currency:"XOF",effective_from:"2025-01-01",is_active:true }];
         return new Response(JSON.stringify(rows), { headers: { "Content-Type":"application/json", "Content-Range":`0-${rows.length-1}/${rows.length + (options.incompleteCatalog ? 1 : 0)}` } });

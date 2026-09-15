@@ -1,5 +1,6 @@
 import type { ScenarioTariffLine } from "./domain.ts";
 import { scenarioPadViolation, type ScenarioPadChoice } from "../_shared/scenario-pad-contract.ts";
+import { isApplicableScenarioPadTariff } from "../_shared/scenario-pad-tariff.ts";
 
 type Row = Record<string, unknown>;
 /** One current source per category, one line per group. No global classification fallback. */
@@ -10,16 +11,7 @@ export function priceScenarioPad(snapshot: Row, tariffs: Row[], today: string): 
     const weight = typeof unit.gross_weight_kg === "number" && unit.gross_weight_kg > 0 &&
       ["total", "per_unit"].includes(String(unit.weight_basis))
       ? unit.gross_weight_kg * (unit.weight_basis === "per_unit" ? Number(unit.quantity) : 1) : null;
-    const valid = tariffs.filter(t => unit.unit_kind === "CONTAINER" && t.classification === choice.category && choice.category !== null &&
-      t.provider === "PAD" && t.category === "DROIT_PASSAGE" && t.operation_type === "IMPORT" &&
-      // port_tariffs PAD has no currency column: its existing contract is FCFA/t.
-      t.cargo_type === "CONTENEUR" && t.is_active === true && (t.currency === undefined || t.currency === "XOF") &&
-      ["official", "validated_internal"].includes(String(t.evidence_level)) &&
-      typeof t.id === "string" && typeof t.source_document === "string" && t.source_document.trim() &&
-      ["t", "ton", "tonne", "tonnes"].includes(String(t.unit).trim().toLowerCase()) &&
-      typeof t.amount === "number" && Number.isFinite(t.amount) && t.amount > 0 &&
-      typeof t.effective_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.effective_date) && t.effective_date <= today &&
-      (t.expiry_date === null || (typeof t.expiry_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(t.expiry_date) && t.expiry_date >= today)));
+    const valid = tariffs.filter(t => unit.unit_kind === "CONTAINER" && isApplicableScenarioPadTariff(t, choice.category, today));
     const rate = valid.length === 1 ? valid[0] : null;
     const computed = rate && weight !== null && Number.isSafeInteger(weight) && weight <= 1e12 ? Math.round(weight / 1000 * Number(rate.amount)) : null;
     const amount = computed !== null && Number.isSafeInteger(computed) ? computed : null;

@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { proposeGroups, proposalFingerprint, validatePadCandidates, type Row } from "./scenario-domain.ts";
+import { padCommodityContext, proposeGroups, proposalFingerprint, validatePadCandidates, type Row } from "./scenario-domain.ts";
 const prior = Deno.env.get("RECOMMEND_PAD_DISABLE_SERVE");
 Deno.env.set("RECOMMEND_PAD_DISABLE_SERVE", "1");
 const { handleRequest } = await import("./index.ts");
@@ -12,7 +12,7 @@ const CARGO = "Please quote port charges and inland freight.\n1.39 storage cabin
 function mail(body = CARGO): Row { return { id: MAIL, from_address: CLIENT, body_text: body, sent_at: "2026-09-15" }; }
 const aliases: Row[] = [{ normalized_term: "materiels electriques", pad_category: "T02", is_validated: true }];
 const tariffs: Row[] = [{ id: "synthetic-rate", provider: "PAD", category: "DROIT_PASSAGE", operation_type: "IMPORT", cargo_type: "CONTENEUR",
-  classification: "T02", amount: 100, unit: "tonne", source_document: "Synthetic validated catalog", evidence_level: "official",
+  classification: "T02", amount: 100, unit: "PER_TONNE", source_document: "Synthetic validated catalog", evidence_level: "official",
   effective_date: "2025-01-01", expiry_date: null, is_active: true }];
 const candidate = { unit_ref: "lot-1", category: "T02", justification: "Matériels dans un contexte industriel commun, à confirmer.", matching_aliases: ["materiels electriques"] };
 
@@ -96,6 +96,41 @@ Deno.test("PAD proposals: only actual validated aliases and unique applicable ta
   assertEquals(validatePadCandidates([candidate], groups, [{ ...aliases[0], is_validated: false }], tariffs, "2026-09-15"), []);
 });
 
+Deno.test("PAD context: sourced UN designation scoped to one group, never a PAD or DG propagation", () => {
+  const groups = proposeGroups(CLIENT, [mail(CARGO.replace("1.39", "1.8").replace("2.13", "2.4"))]).groups;
+  const before = JSON.stringify(groups);
+  assertEquals(padCommodityContext(groups[0])?.un_number, "UN3536");
+  assertEquals(padCommodityContext(groups[1]), null); assertEquals(padCommodityContext(groups[2]), null);
+  assertEquals(padCommodityContext({ ...groups[0], un_number: "UN3480" }), null);
+  assertEquals(padCommodityContext({ ...groups[0], imo_source: null }), null);
+  assertEquals(padCommodityContext({ ...groups[0], imo_class: "3" }), null);
+  const out = validatePadCandidates([candidate], groups, aliases, tariffs, "2026-09-15");
+  assert(out[0].justification.includes("Contexte ONU sourcé"));
+  assertEquals(JSON.stringify(groups), before);
+});
+
+Deno.test("PAD context: furniture requires explicit support, battery cabinets cannot become office furniture", () => {
+  const furnitureAlias = { normalized_term: "mobilier de bureau", pad_category: "T01", is_validated: true };
+  const furniture = { ...candidate, category: "T01", matching_aliases: [furnitureAlias.normalized_term] };
+  for (const description of ["storage cabinets, UN3536", "BESS battery cabinets", "armoires de stockage energie", "storage cabinets", "office battery cabinets"]) {
+    const groups = proposeGroups(CLIENT, [mail(`1.5 ${description}: 2t/unit, 20HQ SOC`)]).groups;
+    assertEquals(groups.length, 1);
+    assertEquals(validatePadCandidates([furniture], groups, [furnitureAlias], tariffs, "2026-09-15"), []);
+  }
+  // Electrical context in another group must not disqualify genuine furniture.
+  const mixed = proposeGroups(CLIENT, [mail("1.2 office furniture: 2t/unit, 20HQ SOC\n2.4 batteries: 3t/unit, 20HQ SOC, UN3536")]).groups;
+  assertEquals(validatePadCandidates([furniture], mixed, [furnitureAlias], tariffs, "2026-09-15")[0].category, "T01");
+  assertEquals(mixed[0].dangerous, null);
+  for (const term of ["articles d'ameublement", "office furnishings", "chaises"]) {
+    const a = { ...furnitureAlias, normalized_term: term };
+    const c = { ...furniture, matching_aliases: [term] };
+    const industrial = proposeGroups(CLIENT, [mail()]).groups;
+    assertEquals(validatePadCandidates([c], industrial, [a], tariffs, "2026-09-15"), []);
+    const ordinary = proposeGroups(CLIENT, [mail("1.4 chairs and desks: 2t/unit, 20HQ SOC")]).groups;
+    assertEquals(validatePadCandidates([c], ordinary, [a], tariffs, "2026-09-15")[0].category, "T01");
+  }
+});
+
 interface Options { invisible?: boolean; invalidAuth?: boolean; incomplete?: boolean; aiFail?: boolean; catalogFail?: boolean; scope?: unknown; scopeKey?: string; changed?: boolean; threadClient?: string | null; contact?: string; encoded?: boolean; bodyText?: string }
 async function withTransport(options: Options, check: (invoke: (body: Row, auth?: boolean) => Promise<Response>, calls: string[], aiBodies: Row[]) => Promise<void>) {
   const fetchBefore = globalThis.fetch; const names = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "LOVABLE_API_KEY"];
@@ -142,6 +177,11 @@ Deno.test("proposal HTTP: actual authenticated route reads only case-bound data 
     assertEquals(calls.filter(c => c.startsWith("POST")), ["POST /v1/chat/completions"]);
     assertEquals(ai.length, 1); assert(!JSON.stringify(ai).includes(CLIENT)); assert(!JSON.stringify(ai).includes(MAIL));
     const messages = ai[0].messages as Row[]; const context = JSON.parse(String(messages[1].content)); assertEquals(context.groups.length, 3);
+    assertEquals(context.groups[0].commodity_context.un_number, "UN3536");
+    assert(context.groups[0].commodity_context.designation.includes("LITHIUM BATTERIES"));
+    assert(context.groups[0].commodity_context.source.startsWith("https://imo-epublications.org/"));
+    assertEquals(context.groups[1].commodity_context, null);
+    assertEquals(context.groups[2].commodity_context, null);
     const verified = await invoke({ action: "verify_scenario_source", case_id: CASE, source_fingerprint: body.source_fingerprint });
     assertEquals(await verified.json(), { verified: true }); assertEquals(ai.length, 1);
   });
