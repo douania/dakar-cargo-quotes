@@ -24,7 +24,7 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
-## [2026-09-15 10:39 UTC] GO — Livraison privée scénarios PARTIAL ; arrêt au contrôle des sources runtime
+## [2026-09-15 10:46 UTC] GO — Preuve de remplacement acceptée ; livraison PARTIAL, bundling Edge 2 FAIL
 
 **Origine** : session interactive, GO utilisateur explicite après contre-revue Claude B1 LEVÉ.
 **Périmètre autorisé** : transport E3 et deux préflights SELECT ; quatre enveloppes B→E1→E2→E3 avec accusés ; commit/push work ; Edge quotation-engine (exception FROZEN), run-scenario-pricing, manage-quote-scenario dans cet ordre ; contrôles des sources, recette privée sans envoi, traçabilité de livraison. Arrêt au premier échec.
@@ -35,6 +35,12 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 **Edge 1/3** : quotation-engine déployée seule, succès rapporté par Lovable (message umsg_01m2ja1cmperss84qvjb6nwr57), sources Git supabase/ identiques au commit applicatif ; OPTIONS 200, POST sans auth 401. Interface Cloud : Active. Code du bundle runtime / empreinte / version non accessibles par le connecteur ni dans la vue Cloud consultée : NOT_VERIFIED, ne pas confondre avec identité Git. run-scenario-pricing et manage-quote-scenario NOT_RUN ; sonde métier authentifiée et recette NOT_RUN.
 **Suite / risque** : ne créer aucun scénario v2 pendant cette fenêtre frontend/Edge incomplète. Obtenir la preuve runtime manquante ou faire arbitrer explicitement la preuve de remplacement (sources Git identiques + succès de déploiement + sondes authentifiées) avant les deux autres Edge et la recette. Pas de modification tarif/fait/Auth/RLS, pas d'envoi ni publication publique. Retour SQL uniquement après contrôle zéro v2, ledger conservé ; aucun rollback exécuté.
 **Preuves** : preparation-locale/delivery-cloud-results-20260915.json hors dépôt, archive privée non transmise ; roadmap détaillée. Cette entrée fait l'objet d'un commit documentaire dédié conformément à la convention.
+
+**Actualisation prioritaire 10:46 UTC** : GO utilisateur reçu sur preuve de remplacement identité Git + déploiement confirmé + sondes authentifiées ; l'absence d'accès au bundle runtime reste une réserve, plus un blocage à elle seule. Préflight et connecteur GitHub confirment work 770852653e597b0918bfcf1d36b7bbd52658bb66 ; Lovable aligné, privé/non publié. Diff depuis 450913bd limité à queue + quatre lignes de types, code métier inchangé.
+**Sonde authentifiée quotation-engine PASS borné** : cas synthétique 1×20GP SOC, famille STANDARD, 10000 kg, DAP Dakar, valeur fictive 1000000 XOF : HTTP200 success true ; THC 155000, transport 82600, total indicatif 237600 XOF, honoraires 0 ; postes non documentés TO_CONFIRM. Première sonde mal formée (count au lieu de quantity) exclue de la preuve de calcul ; sonde corrigée conforme au contrat. Aucun scénario/quote_facts/pricing canonique créé.
+**Nouveau blocage réel** : Lovable message umsg_01m2japfq6e7p927b6rhejbd1k : déploiement run-scenario-pricing FAIL, Deployed: none. Module not found ../manage-quote-scenario/domain.ts depuis run-scenario-pricing/domain.ts:2:39 ; import inter-fonctions confirmé localement. Dépôt complet disponible en tests, mais pas cette dépendance lors du bundling isolé. manage-quote-scenario non tentée ; ancienne run-scenario-pricing non remplacée ; recette scénarios NOT_RUN.
+**Intégrité fraîche** : SELECT avant/après 10:45:35→10:46:32 UTC : ledger 202, scénarios/runs scénario 0, faits 1409, runs canoniques 171, versions canoniques 9 ; empreintes complètes calculées par md5(string_agg(to_jsonb(t)::text,'|' ORDER BY id)) inchangées : facts 393ff8e6bcdf748f3b61b329a2441d9e / port_tariffs 235a655bf711e7ad8fc6c917f6419fee. Formule différente des empreintes SQL du tour précédent : ne pas les comparer directement.
+**Suite proposée, GO correctif requis** : partager le validateur pur dans _shared, conserver les exports et règles existants, raccorder les deux consommateurs, tests génériques et résolution isolée de chacun des trois bundles ; aucun changement de migration/ACL/Auth/RLS/tarif/fait ou quotation-engine. Puis reprendre la livraison bornée des deux Edge et la recette. Aucun correctif applicatif effectué ; ne créer aucun scénario v2 avant fin de fenêtre. Le risque/retour SQL documenté demeure, aucun rollback exécuté.
 
 ---
 
