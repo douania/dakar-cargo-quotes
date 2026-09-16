@@ -12,7 +12,7 @@ import {
   LOCAL_TRANSPORT_EVIDENCE_WHITELIST,
   resolveOfficialLocalTransportRate,
 } from "../_shared/local-transport-destination.ts";
-import { normalizeDpwDthcFamily, resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
+import { normalizeDpwDthcFamily, resolveContainerProfile, resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
 import { assertImoGoodsPlan, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
 import { assertScenarioCargoContext, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
 import {
@@ -1496,7 +1496,13 @@ export async function generateQuotationLines(
     // cargo_type CONTENEUR_20/40 servait la ligne Transbordement à 75 000 FCFA.
     // La sélection passe par le même résolveur fail-closed que price-service-lines,
     // qui rend un montant DÉJÀ multiplié par les EVP — pas de getEVPMultiplier ici.
-    const dthc = scenarioGoods?.dangerous === null
+    // Estimate only: price the documented ordinary basis without declaring this
+    // group non-DG. A separate unresolved supplement keeps the uncertainty visible.
+    const unknownDangerBase = servicesOnly && scenarioGoods?.dangerous === null &&
+      normalizeDpwDthcFamily(request.dthcFamily) !== 'DANGEROUS';
+    const standardFamilyAssumption = servicesOnly && scenarioGoods && scenarioGoods.dangerous !== true &&
+      !normalizeDpwDthcFamily(request.dthcFamily) && resolveContainerProfile(container.type)?.equipment === 'DRY';
+    const dthc = scenarioGoods?.dangerous === null && !unknownDangerBase
       ? { status: 'TO_CONFIRM' as const, code: 'SCENARIO_DG_UNKNOWN', reason: 'SCENARIO_DG_UNKNOWN', message: 'Danger du lot inconnu ; aucun tarif ordinaire présumé.' }
       : resolveDpwDthcTariff(thcTariffs, {
       scope: effectiveOperationType === 'IMPORT' ? 'import' : String(effectiveOperationType).toLowerCase(),
@@ -1504,7 +1510,8 @@ export async function generateQuotationLines(
       // A global description containing IMO must not reclassify a non-DG group.
       cargoDescription: goods || scenarioGoods ? undefined : request.cargoDescription,
       // DTHC-3 : famille opérateur prioritaire ; null => inférence inchangée (fail-closed)
-      family: normalizeDpwDthcFamily(request.dthcFamily),
+      family: normalizeDpwDthcFamily(request.dthcFamily) ??
+        (standardFamilyAssumption ? 'STANDARD' : null),
       isDangerous: scenarioGoods ? scenarioGoods.dangerous === true : goods ? goods.dangerous : request.isIMO === true || request.isHazmat === true,
       asOfDate: new Date().toISOString().split('T')[0],
     });
@@ -1514,21 +1521,32 @@ export async function generateQuotationLines(
         id: `thc_${container.type.toLowerCase()}_${lines.length}`,
         bloc: 'operationnel',
         category: 'Terminal (DPW)',
-        description: `THC ${effectiveOperationType} ${container.type}`,
+        description: `THC ${effectiveOperationType} ${container.type}${unknownDangerBase ? ' — base hors supplément IMO' : ''}`,
         amount: dthc.amount,
         currency: 'FCFA',
         unit: 'EVP',
         quantity: dthc.evpQuantity,
         containerType: container.type,
-        ...(goods || scenarioGoods ? { notes: goodsNote } : {}),
+        ...(goods || scenarioGoods ? { notes: `${goodsNote}${unknownDangerBase ? ` Base indicative famille ${dthc.family} ; le caractère non dangereux n’est pas confirmé. Supplément IMO éventuel non compris.` : standardFamilyAssumption ? ' Famille STANDARD retenue comme hypothèse d’estimation, non comme classification confirmée.' : ''}` } : {}),
         source: {
-          type: 'OFFICIAL',
+          type: unknownDangerBase || standardFamilyAssumption ? 'CALCULATED' : 'OFFICIAL',
           reference: dthc.tariff.source_document || 'DP World Dakar 2025',
           confidence: 1.0,
           validUntil: dthc.tariff.expiry_date ?? undefined
         },
         isEditable: false
       });
+      if (unknownDangerBase) {
+        lines.push({
+          id: `thc_imo_pending_${scenarioGoods!.unitRef}`,
+          bloc: 'operationnel', category: 'Terminal (DPW)',
+          description: `Supplément IMO éventuel — ${scenarioGoods!.unitRef}`,
+          amount: null, currency: 'FCFA', containerType: container.type,
+          source: { type: 'TO_CONFIRM', reference: 'SCENARIO_DG_UNKNOWN', confidence: 0 },
+          notes: `${goodsNote} La base est chiffrée séparément ; supplément non inclus, ni supposé nul.`,
+          isEditable: false,
+        });
+      }
     } else {
       // No normative THC found — flag for human confirmation
       lines.push({
@@ -2163,12 +2181,19 @@ export async function generateQuotationLines(
   // 8c. SURESTARIES (demurrage_rates)
   // =====================================================
   
-  if (request.cargoType?.toLowerCase().includes('conteneur') || containers.length > 0) {
+  const demurrageGroups = servicesOnly
+    ? containers.filter(c => c.coc_soc === 'COC').map(c => [c])
+    : (request.cargoType?.toLowerCase().includes('conteneur') || containers.length > 0) ? [containers] : [];
+  if (servicesOnly && containers.some(c => c.coc_soc === 'SOC')) {
+    warnings.push('Scénario SOC : surestaries armateur exclues pour ces lots seulement ; magasinage et autres frais de séjour restent distincts, non supposés gratuits.');
+  }
+  for (const demurrageContainers of demurrageGroups) {
+    const demurrageGroup = servicesOnly ? demurrageContainers[0].unit_ref : undefined;
     const detectedCarrier = typeof carrier === 'string' && carrier.trim() ? carrier.trim() : null;
 
     // [FAIL-CLOSED surestaries] Le couple armateur/type ISO doit être exact.
     // Aucun défaut 20DV, rapprochement par taille, sous-chaîne ou premier résultat.
-    const equipment = resolveDemurrageEquipment(containers);
+    const equipment = resolveDemurrageEquipment(demurrageContainers);
     let demSelection: DemurrageRateSelection = {
       row: null,
       matchKind: null,
@@ -2253,10 +2278,10 @@ export async function generateQuotationLines(
       }
 
       lines.push({
-        id: 'demurrage_estimate',
+        id: demurrageGroup ? `demurrage_estimate_${demurrageGroup}` : 'demurrage_estimate',
         bloc: 'operationnel',
         category: 'Surestaries',
-        description: demDescription,
+        description: `${demDescription}${demurrageGroup ? ` — lot COC ${demurrageGroup}` : ''}`,
         amount: null,
         currency: demCurrency,
         source: {
@@ -2273,10 +2298,10 @@ export async function generateQuotationLines(
       const failClosedReason = demSelection.reason || 'Aucune donnée de surestaries en base';
       console.log(`[quotation-engine §8c] demurrage FAIL-CLOSED reason="${failClosedReason}"`);
       lines.push({
-        id: 'demurrage_estimate',
+        id: demurrageGroup ? `demurrage_estimate_${demurrageGroup}` : 'demurrage_estimate',
         bloc: 'operationnel',
         category: 'Surestaries',
-        description: 'Surestaries armateur',
+        description: `Surestaries armateur${demurrageGroup ? ` — lot COC ${demurrageGroup}` : ''}`,
         amount: null,
         currency: 'USD',
         source: {

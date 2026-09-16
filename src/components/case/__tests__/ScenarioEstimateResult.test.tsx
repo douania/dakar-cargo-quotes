@@ -3,6 +3,18 @@ import userEvent from "@testing-library/user-event";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ScenarioEstimateResult, type SelectedScenarioEstimate } from "../ScenarioEstimateResult";
 afterEach(cleanup);
+it("distinguishes an ownership exclusion from a free service and shows the priced-base qualification", () => {
+  const e = estimate(); e.run!.tariff_lines = [
+    { id: "excluded", description: "Retour COC", category: "EMPTY_RETURN", amount: 0, notes: "Responsabilité contractuelle à vérifier", source: { type: "EXCLUDED_BY_RULE", reference: "TECHNICAL_CODE" } },
+    { id: "base", description: "Base manutention", amount: 1000, notes: "Supplément IMO non compris", source: { type: "CALCULATED", reference: "Barème vérifié" } },
+  ];
+  render(<ScenarioEstimateResult estimate={e} />);
+  expect(screen.getByText("Exclu sous hypothèse")).toBeInTheDocument();
+  expect(screen.getByText("Responsabilité contractuelle à vérifier")).toBeInTheDocument();
+  expect(screen.getByText("Supplément IMO non compris")).toBeInTheDocument();
+  expect(screen.queryByText("TECHNICAL_CODE")).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Postes à compléter" })).not.toBeInTheDocument();
+});
 const estimate = (): SelectedScenarioEstimate => ({ caseId:"test", title:"Scenario courant", pending:false, error:null,
   run:{ id:"run", scenario_id:"scenario", run_seq:4,status:"success",qualification:"partial",completed_at:"2026-09-15T14:03:00Z",
     blockers:[],reservations:[],assumptions_snapshot:[],firm_total_ht:0,firm_total_ttc:0,indicative_total_ht:1000,indicative_total_ttc:1000,currency:"XOF",

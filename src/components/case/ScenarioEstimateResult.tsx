@@ -5,7 +5,8 @@ export interface SelectedScenarioEstimate {
 }
 type Line = Record<string, unknown>;
 const sourceOf = (line: Line): Line => line.source && typeof line.source === "object" ? line.source as Line : {};
-const isPriced = (line: Line) => typeof line.amount === "number" && Number.isFinite(line.amount) && sourceOf(line).type !== "TO_CONFIRM";
+const isExcluded = (line: Line) => sourceOf(line).type === "EXCLUDED_BY_RULE";
+const isPriced = (line: Line) => typeof line.amount === "number" && Number.isFinite(line.amount) && sourceOf(line).type !== "TO_CONFIRM" && !isExcluded(line);
 
 /** Presentation only: no amount, fact, tariff or persisted status is changed. */
 function pendingFamily(line: Line) {
@@ -21,7 +22,7 @@ export function ScenarioEstimateResult({ estimate, onReview }: { estimate: Selec
   const { run, pending, error } = estimate;
   const lines = Array.isArray(run?.tariff_lines) ? run.tariff_lines as Line[] : [];
   const families = new Map<string, { label: string; action: string; count: number; scenario: boolean }>();
-  for (const line of lines.filter(line => !isPriced(line))) {
+  for (const line of lines.filter(line => !isPriced(line) && !isExcluded(line))) {
     const family = pendingFamily(line);
     const previous = families.get(family.key);
     families.set(family.key, { ...family, count: (previous?.count ?? 0) + 1, scenario: family.key === "PAD" || family.key === "THC" });
@@ -56,8 +57,10 @@ export function ScenarioEstimateResult({ estimate, onReview }: { estimate: Selec
           <tbody>{lines.map((line, i) => {
             const source = sourceOf(line);
             return <tr className="border-t align-top" key={`${String(line.id ?? "line")}-${i}`}><td className="p-2">{String(line.description ?? line.category ?? "Prestation")}</td>
-              <td className="text-right p-2 whitespace-nowrap">{isPriced(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
-              <td className="p-2 break-words">{String(isPriced(line) ? source.reference ?? "Source non renseignée" : line.notes ?? source.reference ?? "Données ou tarif à préciser")}</td></tr>;
+              <td className="text-right p-2 whitespace-nowrap">{isExcluded(line) ? "Exclu sous hypothèse" : isPriced(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
+              <td className="p-2 break-words">{String(isPriced(line) ? source.reference ?? "Source non renseignée" : line.notes ?? source.reference ?? "Données ou tarif à préciser")}
+                {isPriced(line) && typeof line.notes === "string" && <p className="mt-1 text-xs text-muted-foreground">{line.notes}</p>}
+              </td></tr>;
           })}</tbody></table></div>
         </details>}
       </> : <p role="alert">{run.status === "blocked" ? "Calcul bloqué : aucun montant retenu." : "Calcul non abouti : aucun montant retenu."}</p>}

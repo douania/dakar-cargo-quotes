@@ -4,6 +4,7 @@
  */
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handleRequest } from "./index.ts";
+import { readScenarioOutputContext } from "../_shared/scenario-output.ts";
 import { validateScopeSnapshot } from "../manage-quote-scenario/domain.ts";
 import { applyScenarioContainerTerminalLines, resolveScenarioContainerTerminal, type PricingFactRow } from "./domain.ts";
 
@@ -65,6 +66,7 @@ interface Options {
   linkedAssumption?: boolean;
   terminalLines?: boolean;
   legacyEngine?: boolean;
+  existingEmptyReturn?: boolean;
   mutate?: (state: ReturnType<typeof fixture>) => void;
 }
 
@@ -118,6 +120,7 @@ async function withTransport(options: Options, check: (h: {
           { id: "alpha-fee", unit_ref: "alpha", category: "DTHC", amount: 100, source: { type: "OFFICIAL" } },
           { id: "beta-fee", unit_ref: "beta", category: "TRUCKING", amount: 200, source: { type: "OFFICIAL" } },
           { id: "common-fee", category: "AGENCY", amount: 50, source: { type: "OFFICIAL" } },
+          ...(options.existingEmptyReturn ? [{ id: "existing-return", category: "Retour conteneur vide", amount: 200, source: { type: "OFFICIAL" } }] : []),
           ...(options.terminalLines ? [
             { id: "thc_20hq_3", category: "Terminal (DPW)", description: "THC IMPORT 20HQ", amount: 465000, source: { type: "OFFICIAL", reference: "Synthetic homologated tariff" } },
             { id: "relevage_20hq_4", category: "Terminal (DPW)", description: "Relevage", amount: 123, source: { type: "OFFICIAL" } },
@@ -219,7 +222,7 @@ Deno.test("scenario actual handler: v2 groups -> one engine call -> isolated per
     assertEquals(lines.filter(l => l.unit_ref).map(l => l.unit_ref), ["alpha", "beta"]);
     const reservations = result.reservations as Json[];
     assert(reservations.some(r => r.code === "SCENARIO_DG_UNKNOWN" && r.unit_ref === "gamma"));
-    assert(reservations.some(r => r.code === "SCENARIO_OWNERSHIP_NOT_PRICED"));
+    assert(reservations.some(r => r.code === "SCENARIO_OWNERSHIP_SCOPE"));
     assertEquals(result.engine_request, params);
     assertEquals(result.scenario_snapshot, h.state.snapshot);
     assertEquals((result.facts_snapshot as Json[]).map(f => f.fact_key), h.state.facts.map(f => f.fact_key));
@@ -244,6 +247,27 @@ Deno.test("scenario v3 actual route: PAD choices reach isolated result, fixed fe
     assertEquals(((h.engineBodies[0].params as Json).scenarioCargoContext as Json).schema_version,2);
     assertEquals((result.scenario_snapshot as Json).schema_version,3);
     assertEquals(h.engineBodies.length,1);
+  });
+});
+
+for (const existingEmptyReturn of [false, true]) Deno.test(`scenario actual route: per-group empty return without duplicate existing line (${existingEmptyReturn})`, async () => {
+  await withTransport({ existingEmptyReturn }, async h => {
+    await h.invoke(); const result = h.rpcBodies[0].p_result as Json;
+    const lines = result.tariff_lines as Json[];
+    if (existingEmptyReturn) {
+      assertEquals(lines.filter(l => l.id === "existing-return").length, 1);
+      assert(!lines.some(l => String(l.id).startsWith("scenario-empty-return-")));
+    } else {
+      assertEquals(lines.filter(l => l.category === "EMPTY_RETURN").map(l => l.amount), [0, null, 0]);
+      assert(!lines.some(l => l.id === "scenario-reserve-empty_return"));
+      const output = readScenarioOutputContext({ meta: { source_kind: "scenario", quoteQualification: { level: "partial" } },
+        scenario: { reference: "SIM-TEST", title: "Synthetic", revision_no: 1, pricing_run_seq: 1, reservations: result.reservations },
+        totals: { currency: "XOF", firm_total_ht: 0, firm_total_ttc: 0, indicative_total_ht: 350, indicative_total_ttc: 350 } });
+      assert(output?.reservations.some(r => r.includes("repositionnement demandé")));
+      assert(output?.reservations.some(r => r.includes("responsabilité contractuelle")));
+    }
+    assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_OWNERSHIP_SCOPE"));
+    assert(!(result.reservations as Json[]).some(r => r.code === "SCENARIO_OWNERSHIP_NOT_PRICED"));
   });
 });
 

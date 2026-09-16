@@ -18,8 +18,9 @@ async function serverErrorMessage(error: unknown): Promise<string | null> {
   try { return context && typeof context.json === "function" ? responseMessage(await context.clone().json()) : null; }
   catch { return null; }
 }
-export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, actionRef }: {
+export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, onRevisePad, actionRef }: {
   caseId: string; disabled?: boolean; onUseDraft: (draft: ScenarioDraft) => void; actionRef?: Ref<ScenarioProposalAction>;
+  onRevisePad?: (proposal: ScenarioProposal, choices: Record<string, string>) => void;
 }) {
   const [proposal, setProposal] = useState<ScenarioProposal | null>(null);
   const [padChoices, setPadChoices] = useState<Record<string, string>>({});
@@ -49,7 +50,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
     void propose();
   } }));
 
-  const handleUseDraft = async () => {
+  const handleUseDraft = async (padOnly = false) => {
     if (!proposal || disabled || inFlight.current) return;
     inFlight.current = true; setPending(true); setError(null);
     try {
@@ -57,7 +58,10 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
         body: { action: "verify_scenario_source", case_id: caseId, source_fingerprint: proposal.source_fingerprint },
       });
       if (checkError || data?.verified !== true) throw new Error("Source modifiée ou non vérifiable : relancez la proposition. Aucun brouillon remplacé.");
-      if (alive.current) onUseDraft(proposalToDraft(proposal, padChoices));
+      if (alive.current) {
+        if (padOnly) onRevisePad?.(proposal, padChoices);
+        else onUseDraft(proposalToDraft(proposal, padChoices));
+      }
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "Source non vérifiée"); }
     finally { inFlight.current = false; if (alive.current) setPending(false); }
   };
@@ -95,5 +99,9 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, ac
       <p>Le choix est une hypothèse opérateur conservée dans le scénario ; le tarif sera vérifié à nouveau au calcul.</p>
     </div>)}
     {proposal?.status === "proposed" && <Button size="sm" disabled={disabled || pending} onClick={() => void handleUseDraft()}>Reprendre cette proposition dans un brouillon</Button>}
+    {proposal?.status === "proposed" && onRevisePad && <Button size="sm" variant="outline"
+      disabled={disabled || pending || !Object.values(padChoices).some(Boolean)} onClick={() => void handleUseDraft(true)}>
+      Réviser seulement les choix PAD du scénario sélectionné
+    </Button>}
   </section>;
 }

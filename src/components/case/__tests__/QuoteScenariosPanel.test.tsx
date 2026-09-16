@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { createRef } from "react";
 import { QuoteScenariosPanel, type ScenarioPricingAction } from "../QuoteScenariosPanel";
 import { buildScopeSnapshot, emptyScenarioDraftV2, type ScenarioDraft } from "@/lib/quoteScenarios";
+import { proposalToDraft } from "@/lib/scenarioProposal";
+import { proposeGroups } from "../../../../supabase/functions/recommend-pad-category/scenario-domain";
 
 const mocks = vi.hoisted(() => ({ mutate: vi.fn(), rows: [], invoke: vi.fn(),
   queryRows: {} as Record<string, unknown[]>,
@@ -40,6 +42,32 @@ function submit() {
 }
 
 describe("scenario creation contract routing", () => {
+  it("routes sourced PAD-only choices to revision of the selected scenario, never creation or pricing", async () => {
+    const proposal = { ...proposeGroups("client@example.invalid", [{ id: "22222222-2222-4222-8222-222222222222",
+      from_address: "client@example.invalid", body_text: "1.8 cabinets: 55t/unit, 20HQ SOC, UN3536" }]),
+      case_id: "synthetic-case", source_fingerprint: "a".repeat(64), pad_candidates: [{ unit_ref: "lot-1", category: "T02", justification: "Équipement électrique",
+        matching_aliases: ["MATERIELS ELECTRIQUES"], rate: 9678, qualification: "PROPOSAL_ONLY" as const, tariff_source: { id: "source-id" } }] };
+    const initial = proposalToDraft(proposal);
+    const snapshot = buildScopeSnapshot(initial).snapshot;
+    mocks.queryRows["quote-scenarios"] = [{ id: "scenario-a", case_id: "synthetic-case", title: "Keep selected title", status: "draft",
+      scope_hash: "a".repeat(64), scope_snapshot: snapshot, open_points: [], revision_no: 1 }];
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-a", released_at: null }];
+    mocks.invoke.mockResolvedValueOnce({ data: proposal, error: null }).mockResolvedValueOnce({ data: { verified: true }, error: null });
+    render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    fireEvent.click(screen.getByRole("button", { name: "Proposer les groupes et catégories PAD depuis les e-mails" }));
+    fireEvent.change(await screen.findByLabelText("Choix PAD pour lot-1"), { target: { value: "T02" } });
+    fireEvent.click(screen.getByRole("button", { name: "Réviser seulement les choix PAD du scénario sélectionné" }));
+    const save = await screen.findByRole("button", { name: "Enregistrer la révision" });
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    fireEvent.click(save);
+    expect(mocks.mutate).toHaveBeenCalledOnce();
+    const input = mocks.mutate.mock.lastCall![0];
+    expect(input.operation).toBe("revise"); expect(input.scenarioId).toBe("scenario-a");
+    expect(input.draft.title).toBe("Keep selected title");
+    expect(input.draft.padChoices).toMatchObject([{ unit_ref: "lot-1", category: "T02" }]);
+    expect(buildScopeSnapshot(input.draft).snapshot?.cargo_units).toEqual(snapshot?.cargo_units);
+    expect(mocks.invoke.mock.calls.every(call => call[0] === "recommend-pad-category")).toBe(true);
+  });
   it("publishes the selected latest result and clears it when selection disappears", () => {
     const scope = buildScopeSnapshot(emptyScenarioDraftV2()).snapshot;
     mocks.queryRows["quote-scenarios"] = [{ id: "scenario-a", case_id: "synthetic-case", title: "Synthetic",
@@ -114,7 +142,7 @@ describe("scenario creation contract routing", () => {
   it("maritime group creation remains v2 and cancellation does not contaminate general creation", () => {
     render(<QuoteScenariosPanel caseId="synthetic-case" />);
     fireEvent.click(screen.getByRole("button", { name: "Nouveau maritime par groupes" }));
-    expect(screen.getByText(/sans ajustement tarifaire SOC\/COC/)).toBeInTheDocument();
+    expect(screen.getByText(/retour vide examinés séparément par lot/)).toBeInTheDocument();
     expect(screen.getByText("Base du poids brut", { selector: "label" })).toBeInTheDocument();
     const snapshot = buildScopeSnapshot(submit()).snapshot;
     expect(snapshot.schema_version).toBe(2);
@@ -133,7 +161,7 @@ describe("scenario creation contract routing", () => {
     expect(buildScopeSnapshot(submit()).snapshot.schema_version).toBe(1);
     fireEvent.click(screen.getByRole("button", { name: /Passer ce brouillon en v2 maritime/ }));
     expect(buildScopeSnapshot(submit()).snapshot.schema_version).toBe(2);
-    expect(screen.getByText(/sans ajustement tarifaire SOC\/COC/)).toBeInTheDocument();
+    expect(screen.getByText(/retour vide examinés séparément par lot/)).toBeInTheDocument();
   });
 
   it("changing a maritime v2 draft to AIR warns without discarding its assumptions", () => {

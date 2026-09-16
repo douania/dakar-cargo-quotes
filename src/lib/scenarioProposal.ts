@@ -2,6 +2,38 @@ import { buildScopeSnapshot, emptyCargoUnitDraft, emptyScenarioDraftV2, type Sce
 import type { ScenarioProposal } from "../../supabase/functions/recommend-pad-category/scenario-domain";
 export type { ScenarioProposal };
 
+/** Reuse reviewed candidates without replacing quantities, routing, links or other
+ * choices in an existing scenario. Same reference alone is NOT a source match. */
+export function proposalPadRevision(current: ScenarioDraft, proposal: ScenarioProposal, choices: Record<string, string>): ScenarioDraft {
+  const proposed = proposalToDraft(proposal, choices);
+  if ((current.schemaVersion ?? 1) < 2 || current.transportMode !== "MARITIME" ||
+    current.movementDirection !== "IMPORT" || !Object.values(choices).some(Boolean)) {
+    throw new Error("Choisir au moins une catégorie PAD pour un scénario maritime d’import.");
+  }
+  const selected = Object.entries(choices).filter(([, category]) => category);
+  for (const [ref] of selected) {
+    const existing = current.cargoUnits.filter(g => g.unitRef === ref);
+    const incoming = proposed.cargoUnits.find(g => g.unitRef === ref);
+    const source = proposal.groups.find(g => g.unit_ref === ref);
+    const keys = ["unitKind", "equipmentCode", "quantity", "ownership", "weightBasis", "grossWeightKg", "dangerousGoods", "unNumber", "imoClass"] as const;
+    if (existing.length !== 1 || !incoming || !source || keys.some(k => existing[0][k] !== incoming[k]) ||
+      !existing[0].scenarioBasis?.includes(proposal.source_fingerprint) || !existing[0].scenarioBasis?.includes(source.source_email_id)) {
+      throw new Error(`Sources ou groupe ${ref} différents : vérifier manuellement le choix PAD, sans remplacer le scénario.`);
+    }
+  }
+  const next = { ...current, schemaVersion: 3 as const, revisionReason: "Choix PAD sourcés revus pour l’estimation",
+    padChoices: current.cargoUnits.map(g => {
+      if (!choices[g.unitRef]) return current.padChoices?.find(c => c.unit_ref === g.unitRef) ?? { unit_ref: g.unitRef, category: null, basis: "" };
+      const candidate = proposal.pad_candidates.find(c => c.unit_ref === g.unitRef && c.category === choices[g.unitRef])!;
+      if (!candidate.matching_aliases.length) throw new Error("Choix PAD sans alias validé");
+      const reference = String(candidate.tariff_source?.id ?? "tarif à vérifier");
+      return { unit_ref: g.unitRef, category: candidate.category,
+        basis: `Hypothèse PAD ${candidate.category}; alias ${candidate.matching_aliases[0].slice(0, 90)}; réf. ${reference.slice(0, 50)}. Tarif relu au calcul.`.slice(0, 200) };
+    }) };
+  if (!buildScopeSnapshot(next).ok) throw new Error("Révision PAD incompatible avec le contrat scénario");
+  return next;
+}
+
 export function proposalToDraft(proposal: ScenarioProposal, choices?: Record<string, string>): ScenarioDraft {
   if (proposal.status !== "proposed" || !/^[a-f0-9]{64}$/.test(proposal.source_fingerprint) ||
     !Array.isArray(proposal.groups) || !proposal.groups.length || proposal.groups.length > 12) throw new Error("Proposition source invalide");

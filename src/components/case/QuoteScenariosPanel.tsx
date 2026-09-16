@@ -31,6 +31,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ScenarioProposalPanel, type ScenarioProposalAction } from "./ScenarioProposalPanel";
+import { proposalPadRevision } from "@/lib/scenarioProposal";
 import type { SelectedScenarioEstimate } from "./ScenarioEstimateResult";
 import type { Database } from "@/integrations/supabase/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -775,7 +776,7 @@ function ScenarioForm({
           <p className="text-xs text-muted-foreground">Pour recalculer un scénario à conteneurs, passer explicitement ce brouillon en v2 et vérifier les hypothèses par lot. Les résultats historiques restent conservés. Les anciennes références d'équipement non reconnues doivent être remplacées par un code de conteneur explicite (ex. 40hc), sans conversion automatique.</p>
         ) : null}
         {(draft.schemaVersion ?? 1) >= 2 ? (
-          <p className="text-xs text-muted-foreground">Propriété conservée sans ajustement tarifaire SOC/COC dans cette version ; frais dépendants à vérifier.</p>
+          <p className="text-xs text-muted-foreground">Propriété SOC/COC conservée comme hypothèse ; surestaries armateur et retour vide examinés séparément par lot, sans modifier les barèmes.</p>
         ) : null}
         <div className="flex items-center justify-between gap-2">
           <SectionTitle>Lots ({draft.cargoUnits.length}/{MAX_CARGO_UNITS})</SectionTitle>
@@ -1645,7 +1646,15 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
       </CardHeader>
 
       <CardContent className="py-2 px-4 space-y-2">
-        {formMode === "none" && <ScenarioProposalPanel key={caseId} caseId={caseId} actionRef={proposalAction}
+        {formMode === "none" && <ScenarioProposalPanel key={`${caseId}:${openSelection?.scenario_id ?? "none"}`} caseId={caseId} actionRef={proposalAction}
+          onRevisePad={openSelection ? (proposal, choices) => {
+            const selected = scenarios.find(s => s.id === openSelection.scenario_id && !s.superseded_by_scenario_id);
+            if (!selected || ["blocked", "superseded", "promoted_to_final"].includes(selected.status)) throw new Error("Scénario sélectionné non révisable");
+            const current = draftFromScenario(selected, (linksByScenario.get(selected.id) ?? []).map(l => ({
+              assumption_id: l.assumption_id, reserve_code: l.reserve_code, open_point_key: l.open_point_key,
+            })));
+            setDraft(proposalPadRevision(current, proposal, choices)); setReviseTargetId(selected.id); setFormMode("revise");
+          } : undefined}
           disabled={submitting || pricingMutation.isPending} onUseDraft={proposedDraft => {
             setDraft(proposedDraft); setReviseTargetId(null); setFormMode("create");
           }} />}

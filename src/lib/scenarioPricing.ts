@@ -115,7 +115,13 @@ export function scenarioPricingCodeMessage(code: string): string {
     case "SCENARIO_CARGO_ASSUMPTIONS":
       return "Le calcul utilise les hypothèses de quantité, de poids et d’équipement du scénario.";
     case "SCENARIO_DG_UNKNOWN":
-      return "Le caractère dangereux de certains groupes reste à préciser ; les postes concernés restent en réserve.";
+      return "Le caractère dangereux de certains groupes reste à préciser ; toute base chiffrée est indicative et ne comprend pas le supplément IMO éventuel.";
+    case "SCENARIO_OWNERSHIP_SCOPE":
+      return "Les surestaries armateur concernent les lots COC ; le retour vide est examiné par lot. Les exclusions ne signifient pas que les transports ou autres frais de séjour sont gratuits.";
+    case "SCENARIO_EMPTY_RETURN_SCOPE":
+      return "Vérifier les conditions de retour vide de chaque lot dans le détail : responsabilité du client et éventuel repositionnement restent distincts du transport de livraison.";
+    case "SCENARIO_THC_BASE_ESTIMATE":
+      return "La base de manutention repose sur une famille tarifaire indicative, précisée par lot ; aucun supplément IMO éventuel n’est inclus dans cette base.";
     case "OPEN_POINT":
       return "Des informations restent à compléter dans ce scénario.";
     case "RATE_PENDING_CONFIRMATION":

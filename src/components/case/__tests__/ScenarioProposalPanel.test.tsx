@@ -13,6 +13,21 @@ beforeEach(() => mocks.invoke.mockReset());
 afterEach(cleanup);
 const proposeButton = () => screen.getByRole("button", { name: "Proposer les groupes et catégories PAD depuis les e-mails" });
 
+it("rechecks the source before a PAD-only revision and never creates a replacement scenario", async () => {
+  const data = { ...result(), pad_candidates: [{ unit_ref: "lot-1", category: "T02", justification: "Équipement",
+    matching_aliases: ["equipement"], rate: 100, qualification: "PROPOSAL_ONLY", tariff_source: null }] };
+  const revise = vi.fn(); const create = vi.fn();
+  mocks.invoke.mockResolvedValueOnce({ data, error: null }).mockResolvedValueOnce({ data: { verified: true }, error: null });
+  render(<ScenarioProposalPanel caseId={CASE} onUseDraft={create} onRevisePad={revise} />);
+  fireEvent.click(proposeButton());
+  const button = await screen.findByRole("button", { name: "Réviser seulement les choix PAD du scénario sélectionné" });
+  expect(button).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Choix PAD pour lot-1"), { target: { value: "T02" } });
+  fireEvent.click(button); await waitFor(() => expect(revise).toHaveBeenCalledOnce());
+  expect(revise).toHaveBeenCalledWith(data, { "lot-1": "T02" }); expect(create).not.toHaveBeenCalled();
+  expect(mocks.invoke.mock.calls.map(c => c[1].body.action)).toEqual(["propose_scenario", "verify_scenario_source"]);
+});
+
 it("discloses the AI transfer and displays the real server refusal from a 4xx context", async () => {
   mocks.invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({ error: "Source complète non vérifiable" }), { status: 422 }) } });
   render(<ScenarioProposalPanel caseId={CASE} onUseDraft={vi.fn()} />);

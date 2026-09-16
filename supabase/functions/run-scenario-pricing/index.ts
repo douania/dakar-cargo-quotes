@@ -27,6 +27,7 @@ import {
 import { resolvePadScopeBlocker } from "../_shared/pad-scope-blocker.ts";
 import { priceScenarioPad } from "./pad-pricing.ts";
 import { priceScenarioFees } from "./fee-pricing.ts";
+import { scenarioEmptyReturnLines } from "./ownership-pricing.ts";
 import type { FeeLineRow, FeeRuleRow } from "../_shared/fee-rules.ts";
 import {
   buildEngineRequest,
@@ -439,7 +440,12 @@ async function handleRequest(req: Request): Promise<Response> {
         message: "Droit de passage PAD non chiffré : catégorie et tarif applicables à déterminer. Ce poste n’est pas gratuit et n’est pas inclus dans le sous-total.",
       }] : []),
       ...terminalPolicy.reservations,
-      ...(cargoPlan?.reservations ?? []),
+      ...(cargoPlan?.reservations ?? []).map(r => servicesOnly && r.code === "SCENARIO_OWNERSHIP_NOT_PRICED" ? {
+        ...r, code: "SCENARIO_OWNERSHIP_SCOPE",
+        message: "Hypothèses SOC/COC : surestaries armateur limitées aux lots COC, retour vide évalué par lot. Les autres frais de séjour et de repositionnement ne sont pas présumés gratuits.",
+      } : servicesOnly && r.code === "SCENARIO_DG_UNKNOWN" ? {
+        ...r, message: `Lot ${r.unit_ref} : danger inconnu ; une base de manutention peut être estimée si son tarif est vérifié, supplément IMO éventuel non compris.`,
+      } : r),
       ...reserveLinks,
       ...openPointReservations,
     ];
@@ -529,6 +535,17 @@ async function handleRequest(req: Request): Promise<Response> {
                 service_key: line.category ?? null,
               })));
             }
+            if (servicesOnly && cargoContext && effectiveServiceKeys.includes("EMPTY_RETURN") &&
+              !inferCoveredServices(tariffLines).has("EMPTY_RETURN")) {
+              const returns = scenarioEmptyReturnLines(cargoContext, overlay.facts, movementDirection);
+              tariffLines.push(...returns);
+              // Existing PDF/email snapshots consume reservations, not line.notes.
+              reservations.push(...returns.map(line => ({ code: "SCENARIO_EMPTY_RETURN_SCOPE", source: "scenario_ownership_policy",
+                unit_ref: asObject(line.source).unit_ref, message: `${line.description}. ${line.notes}` })));
+            }
+            reservations.push(...tariffLines.filter(line => servicesOnly && String(line.id).startsWith("thc_") &&
+              asObject(line.source).type === "CALCULATED").map(line => ({ code: "SCENARIO_THC_BASE_ESTIMATE",
+                source: "scenario_thc_policy", message: line.notes })));
             const missingLines = buildMissingServiceReserveLines(
               effectiveServiceKeys,
               inferCoveredServices(tariffLines),

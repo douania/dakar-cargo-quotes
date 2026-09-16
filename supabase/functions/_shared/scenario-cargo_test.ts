@@ -200,6 +200,43 @@ function fakeDb(extraTables: Record<string, Record<string, unknown>[]> = {}) {
 function request(c = context()) { return { finalDestination: "Dakar", transportMode: "maritime" as const, incoterm: "DAP", cargoType: "FCL", cargoValue: 100000,
   cargoDescription: "Global IMO must not contaminate other groups", containers: resolveScenarioCargo(c).containers, scenarioCargoContext: c }; }
 
+Deno.test("scenario estimate only: unknown DG gets a sourced ordinary base plus an unresolved supplement, never a false non-DG fact", async () => {
+  const c = { schema_version: 2 as const, cargo_units: [unit("unknown", { dangerous_goods: null, un_number: null, quantity: 2 })] };
+  const base = { provider: "DPW", category: "THC", operation_type: "IMPORT", unit: "EVP", source_document: DPW_DTHC_SOURCE_DOCUMENT,
+    effective_date: "2025-01-01", expiry_date: null, is_active: true, evidence_level: "official" };
+  const rates = [{ ...base, id: "ordinary", cargo_type: "STANDARD", classification: "Produits standards", amount: 155000, surcharge_percent: 0 }];
+  const before = JSON.stringify(c);
+  const output = await generateQuotationLines(fakeDb({ port_tariffs: rates }), { ...request(c), scenarioPricingMode: "DAP_SERVICES_ONLY" });
+  const thc = output.lines.filter(l => l.id.startsWith("thc_"));
+  assertEquals(thc.map(l => l.amount), [310000, null]);
+  assertEquals(thc[0].source.type, "CALCULATED"); assert(thc[0].notes?.includes("famille STANDARD"));
+  assertEquals(thc[1].source.type, "TO_CONFIRM"); assert(thc[1].description.includes("unknown"));
+  const nonDg = { ...c, cargo_units: [{ ...c.cargo_units[0], dangerous_goods: false }] };
+  const ordinary = await generateQuotationLines(fakeDb({ port_tariffs: rates }), { ...request(nonDg), scenarioPricingMode: "DAP_SERVICES_ONLY" });
+  assertEquals(ordinary.lines.filter(l => l.id.startsWith("thc_")).map(l => l.amount), [310000]);
+  assert(ordinary.lines.find(l => l.id.startsWith("thc_"))?.notes?.includes("hypothèse d’estimation"));
+  const canonical = await generateQuotationLines(fakeDb({ port_tariffs: rates }), request(c));
+  assertEquals(canonical.lines.filter(l => l.id.startsWith("thc_")).map(l => l.amount), [null]);
+  for (const invalid of [[], [{ ...rates[0], evidence_level: "observed" }], [rates[0], { ...rates[0], id: "duplicate" }]]) {
+    const refused = await generateQuotationLines(fakeDb({ port_tariffs: invalid }), { ...request(c), scenarioPricingMode: "DAP_SERVICES_ONLY" });
+    assertEquals(refused.lines.filter(l => l.id.startsWith("thc_")).map(l => l.amount), [null]);
+  }
+  assertEquals(JSON.stringify(c), before);
+});
+
+Deno.test("scenario estimate: surestaries scoped to each COC group; SOC cannot poison equipment lookup", async () => {
+  const c = { schema_version: 2 as const, cargo_units: [unit("soc"),
+    unit("coc-a", { ownership: "COC", equipment_code: "40hq" }),
+    unit("coc-b", { ownership: "COC", equipment_code: "20gp" })] };
+  const output = await generateQuotationLines(fakeDb(), { ...request(c), scenarioPricingMode: "DAP_SERVICES_ONLY" });
+  assertEquals(output.lines.filter(l => l.id.startsWith("demurrage_estimate")).map(l => l.id), ["demurrage_estimate_coc-a", "demurrage_estimate_coc-b"]);
+  assert(output.lines.filter(l => l.id.startsWith("demurrage_estimate")).every(l => l.amount === null));
+  const soc = { schema_version: 2 as const, cargo_units: [unit("soc")] };
+  const onlySoc = await generateQuotationLines(fakeDb(), { ...request(soc), scenarioPricingMode: "DAP_SERVICES_ONLY" });
+  assert(!onlySoc.lines.some(l => l.id.startsWith("demurrage_estimate")));
+  assert(onlySoc.warnings.some(w => w.includes("magasinage")));
+});
+
 Deno.test("scenario DAP services: absent value never triggers CAF, FX or customs, tariff lines unchanged", async () => {
   const db = fakeDb();
   const input = { ...request(), scenarioPricingMode: "DAP_SERVICES_ONLY" as const, cargoValue: undefined,
@@ -211,7 +248,9 @@ Deno.test("scenario DAP services: absent value never triggers CAF, FX or customs
   assert(!result.lines.some(l => l.id.startsWith("duties_")));
   for (const table of ["exchange_rates", "customs_regimes", "tax_rates", "hs_codes"]) assert(!db.reads.includes(table), table);
   const baseline = await generateQuotationLines(fakeDb(), request());
-  assertEquals(result.lines, baseline.lines.filter(l => !l.id.startsWith("duties_")));
+  // Ownership-scoped surestaries are intentionally different in estimate mode.
+  const unchanged = (l: { id: string; amount: number | null }) => !l.id.startsWith("demurrage_estimate") && !l.id.startsWith("duties_") && !(l.id.startsWith("thc_") && l.amount === null);
+  assertEquals(result.lines.filter(unchanged), baseline.lines.filter(unchanged));
   assertEquals(JSON.stringify(input), before);
   assertEquals(result.lines.filter(l => l.id.startsWith("thc_")).map(l => l.amount), [930000, 682000, null]);
 });
@@ -235,7 +274,8 @@ Deno.test("scenario DAP services: known value and HS still exclude customs inten
   assert(legacy.lines.some(l => l.id.startsWith("duties_") && Number(l.amount) > 0));
   const estimate = await generateQuotationLines(fakeDb(tariffs), { ...input, scenarioPricingMode: "DAP_SERVICES_ONLY" });
   assertEquals(estimate.cargoValueFCFA, null);
-  assertEquals(estimate.lines, legacy.lines.filter(l => !l.id.startsWith("duties_")));
+  const unchanged = (l: { id: string; amount: number | null }) => !l.id.startsWith("demurrage_estimate") && !l.id.startsWith("duties_") && !(l.id.startsWith("thc_") && l.amount === null);
+  assertEquals(estimate.lines.filter(unchanged), legacy.lines.filter(unchanged));
   assert(estimate.warnings.some(w => w.includes("droits et taxes douaniers et calcul CAF exclus")));
   assertEquals(JSON.stringify(input), before);
 });

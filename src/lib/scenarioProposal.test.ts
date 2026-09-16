@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { proposalToDraft, type ScenarioProposal } from "./scenarioProposal";
+import { proposalPadRevision, proposalToDraft, type ScenarioProposal } from "./scenarioProposal";
 import { buildScopeSnapshot } from "./quoteScenarios";
 import { proposeGroups } from "../../supabase/functions/recommend-pad-category/scenario-domain";
 
@@ -9,6 +9,31 @@ export function proposalFixture(): ScenarioProposal {
   return { ...result, source_fingerprint: "a".repeat(64), pad_candidates: [] };
 }
 describe("automatic scenario proposals", () => {
+  it("revises only selected PAD choices with the same source and group, preserving other choices and routing", () => {
+    const p = proposalFixture();
+    p.pad_candidates = [{ unit_ref: "lot-1", category: "T02", qualification: "PROPOSAL_ONLY", justification: "Electrical equipment",
+      matching_aliases: ["MATERIELS ELECTRIQUES"], rate: 9678, tariff_source: { id: "source-id" } }];
+    const draft = proposalToDraft(p, { "lot-1": "T02" });
+    draft.padChoices![0] = { unit_ref: "lot-1", category: null, basis: "" };
+    draft.padChoices![1] = { unit_ref: "lot-2", category: "T13", basis: "Existing reviewed choice" };
+    draft.title = "Keep title";
+    const before = JSON.stringify(draft);
+    const next = proposalPadRevision(draft, p, { "lot-1": "T02" });
+    expect(next.cargoUnits).toEqual(draft.cargoUnits); expect(next.destination).toEqual(draft.destination);
+    expect(next.title).toBe(draft.title); expect(next.links).toEqual(draft.links);
+    expect(next.padChoices![1]).toEqual(draft.padChoices![1]);
+    expect(next.padChoices![0].basis).toContain("MATERIELS ELECTRIQUES");
+    expect(next.padChoices![0].basis).toContain("source-id");
+    expect(JSON.stringify(next)).not.toContain("9678"); expect(JSON.stringify(draft)).toBe(before);
+    for (const changed of [
+      { quantity: "9" }, { scenarioBasis: "Unrelated source" }, { equipmentCode: "40hc" },
+      { ownership: "COC" as const }, { grossWeightKg: "12000" }, { dangerousGoods: false }, { unNumber: "UN3480" },
+    ]) {
+      expect(() => proposalPadRevision({ ...draft, cargoUnits: draft.cargoUnits.map((g, i) => i ? g : { ...g, ...changed }) }, p, { "lot-1": "T02" })).toThrow();
+    }
+    expect(() => proposalPadRevision(draft, p, {})).toThrow();
+    expect(() => proposalPadRevision(draft, { ...p, source_fingerprint: "b".repeat(64) }, { "lot-1": "T02" })).toThrow();
+  });
   it("keeps proposals without any PAD choice on the existing v2 path", () => {
     expect(proposalToDraft(proposalFixture(), {}).schemaVersion).toBe(2);
     expect(proposalToDraft(proposalFixture(), { "lot-1": "" }).schemaVersion).toBe(2);
