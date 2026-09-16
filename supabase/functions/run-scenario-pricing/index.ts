@@ -468,6 +468,11 @@ async function handleRequest(req: Request): Promise<Response> {
         ...buildEngineRequest(inputs, transportMode),
         ...(cargoContext ? { scenarioCargoContext: cargoContext } : {}),
         ...(servicesOnly ? { scenarioPricingMode: "DAP_SERVICES_ONLY" } : {}),
+        ...(servicesOnly && inputs.containerStayEstimate !== undefined ? { scenarioStay: {
+          basis: inputs.containerStayEstimate, movement_direction: movementDirection,
+          destination_country: inputs.destinationCountry, discharge_port: inputs.destinationPort,
+          terminal_mode: terminalPolicy.effectiveMode,
+        } } : {}),
         ...(servicesOnly && inputs.localTransportEstimate !== undefined ? { scenarioLocalTransport: {
           basis: inputs.localTransportEstimate, movement_direction: movementDirection,
           destination_country: inputs.destinationCountry, discharge_port: inputs.destinationPort,
@@ -553,6 +558,10 @@ async function handleRequest(req: Request): Promise<Response> {
             reservations.push(...tariffLines.filter(line => String(line.id).startsWith("transport_km_")).map(line => ({
               code: "SCENARIO_TRANSPORT_KM_ESTIMATE", source: "SN_NORMAL_CONTAINER_KM_V1", message: line.notes,
             })));
+            reservations.push(...tariffLines.filter(line => servicesOnly &&
+              ["warehouse_franchise_", "demurrage_estimate_"].some(prefix => String(line.id).startsWith(prefix)))
+              .map(line => ({ code: "SCENARIO_CONTAINER_STAY_ESTIMATE", source: "container_stay_v1",
+                message: `${line.description}. ${line.notes}`, line_id: line.id })));
             const missingLines = buildMissingServiceReserveLines(
               effectiveServiceKeys,
               inferCoveredServices(tariffLines),

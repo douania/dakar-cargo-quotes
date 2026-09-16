@@ -1497,6 +1497,50 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Contrôles supplémentaires : bundles isolés40/48/34 + contrôle négatif PASS, configuration95 PASS, lint737/16 et typesDeno49/5 PASS_WITH_BASELINE. Git toujours567b936 ; aucun changement Cloud. Publication proposée :4fichiers applicatifs/tests + roadmap, preview privée, quotation-engine puis run-scenario-pricing ; sans migration, tarif, fait client ni envoi ; arrêt au premier échec et reprise dossier TEST existant.
 - GO livraison utilisateur reçu : commit/push work, preview privée, quotation-engine puis run-scenario-pricing, recette TEST ; sans migration ni envoi, arrêt au premier échec. Préflight Git/GitHub/Lovable alignés567b936, preview non publiée ; résultat runtime à consigner après exécution.
 
+#### Livraison et recette ciblée casse/cache — 16 septembre 2026 — PASS privé
+
+- GO regroupé exécuté : work567b936→89ee9a0040b74c41cc983fd2a93d35dae181db5e poussé,5fichiers +110/-4 ; tree supabase93599e520a4d918e232aae471f2c21e6914cfa52. Préflight Git/GitHub/Lovable alignés, aucune divergence.
+- Lovable `umsg_01m2n8r2vrf0ftea4m10s3e94v` : quotation-engine puis run-scenario-pricing déployées avec succès ; sources/tree/propreté identiques après chaque étape, OPTIONS200/POST vide401, preview200 privée. Bundle runtime NOT_VERIFIED ; aucune correction de dette TS2345 ni autre fonction/migration.
+- Recette Chrome authentifiée : scénario TEST rev3 inchangé, run2 `d3c9386f-e1df-42e0-b2e4-7eace9278c76` success ; transport634722XOF (HT537900+TVA fournisseur96822), aucune TVA SODATRA ajoutée, sourceCALCULATED/non ferme. THC155000 ; sous-total affiché789722XOF, autres postes explicitement non chiffrés.
+- Cache UI PASS : hypothèse synthétique « TEST CACHE — contrôle sans incidence tarifaire — NE PAS ENVOYER » créée sans clé tarifaire, immédiatement disponible dans les liens du scénario sans reload. Révision temporaire annulée sans sauvegarde/lien ; témoin conservé uniquement dans dossierTEST.
+- Aucun changement GoTrans/faits client/barèmes/Auth/RLS, aucun email, PDF ou devis ferme ; seul dossier fictif écrit pour recette. Cas négatifs et priorité tarif exact prouvés localement, non rejoués en runtime ce tour : NOT_RUN.
+- Retour arrière possible par revert ciblé89ee9a0 et preview/redéploiement coordonné. Note clôture locale non commitée ; lot ciblé terminé, ne pas assimiler ce PASS à une cotation complète ou à une validation du transport55t.
+
+#### Séjour terminal / surestaries COC — 16 septembre 2026 — PARTIAL fonctionnel, PASS_WITH_BASELINE local
+
+- GO local utilisateur : exception quotation-engine/run-scenario-pricing, hypothèses/tests/contre-revue ; aucun barème/fait/migration/Cloud/publication. Préflight work local/GitHub89ee9a0040b74c41cc983fd2a93d35dae181db5e aligné, HEAD local inchangé ; recontrôle distant final indisponible (connexion443), état distant final UNKNOWN. Clôture précédente préservée, queue historique non rouverte.
+- Nouveau contrat d’hypothèse JSON pricing.container_stay_estimate, via ledger existant sans SQL : formulaire guidé, référence/type/quantité/propriété rapprochés au scénario ; durées magasinage et armateur distinctes, null jamais recyclé, source/date requises, aucun jour/armateur par défaut. Hypothèse liée uniquement, non promouvable en fait.
+- Surestaries : import Dakar/SN DAP et moteur non-transit, lots COC non-DG/non-température seulement, couple armateur/équipement exact existant et tarif actif daté ; paliers approuvés continus/complets, chaînes NUMERIC SQL prises en charge, montants XOF/FCFA seulement et non fermes. Pas de fallback legacy chiffré ; absence/ambiguïté/durée manquante/devises étrangères restent réservées. Garde finale Bamako contradictoire refusée,63tests ciblés rejoués PASS.
+- Magasinage : lignes distinctes par lot ; zéro conditionnel uniquement DPW sec import local, sortie supposée dans10jours et franchise unique active en catalogue concordant avec FAQ DPW consultée16/09. SOC ne supprime pas le magasinage ; RoRo/ConRo effectif interdit cette franchise.
+- Source https://dpw-prod-cd-1.dpworld.com/senegal/faqs confirme franchise10j sec local/2j frigo/21j Mali, seuls10j utilisés dans ce périmètre. Lecture visuelle PDF public/data/tarifs/DPW_TARIFS_2025_0001.pdf : une page THC, aucun magasinage ; ce fichier ne prouve pas les6000/12000 XOF/j inscrits en base. Taux/unité EVP non activés, aucune correction tarifaire implicite.
+- Maersk Sénégal import consulté : https://www.maersk.com/fr-fr/local-information/imea/senegal/import distingue surestaries et détention ; pas de cumul automatique ni de taux nouveau intégré. Détention après sortie, TVA fournisseur éventuelle, frais annexes et magasinage excédentaire demeurent non chiffrés/explicitement réservés.
+- Notes/paliers humanisés et réserves conservées dans résultat isolé pour sorties existantes ; statut non ferme, hypothèses/faits et ancien parcours canonique séparés. Contrat SQL/RLS/Auth et catalogues inchangés.
+- Tests :18nouveaux Deno domaine/moteur et45handler PASS ;111ciblés avant ajout HTTP,63ciblés après. SuiteDeno1516PASS/1FAIL SIFB Intake193/6ignorés : mêmes fichiers qu’origin/work, assertion brutefalse/normaliséeCRLF→LFtrue, dette baseline. Pas de CI brute verte.
+- Frontend458tests PASS puis21ciblés PASS incluant nouveau raccourci(1test ajouté) ; typecheck frontend/build/config95/bundles41-49-34+contrôle négatif/diff-check PASS. TypesDeno49/5 et lint737/16 sans aggravation. test:deno:live/recette Lovable/PDF-email réel NOT_RUN.
+- Contre-revue indépendante Codex review_container_stay : deux blocages corrigés (mode effectif hérité, durées distinctes),18Deno+2UI puis98Deno helper/handler/moteur rejoués par relecteur PASS ; réserves et test historique multi-lignes revus, aucun nouveau blocage. Aucun avis attribué à Claude.
+- Périmètre13fichiers applicatifs/tests + roadmap ; nouveaux helper/test et formulaire/test, deux moteurs et tests, raccordement hypothèses/libellés UI. Aucun commit/push/déploiement/envoi ; runtime reste inchangé.
+- Suite : justifier les tarifs magasinage excédentaire/annexes et unités/conditions sur pièces avant activation de ces montants ; ce lot local ne rend pas la cotation complète. Publication du sous-périmètre validé nécessite GO distinct preview+quotation-engine+run-scenario-pricing et recette.
+- Retour arrière local : retirer uniquement ce lot, préserver note précédente ; aucun retour DB nécessaire.
+
+#### Magasinage P1 ×1,111 — 16 septembre 2026 — PARTIAL local, non publié
+
+- GO utilisateur : coefficient1,111 sur premières tranches, deux codes observés et autres à prouver ; poursuite du lot local précédent uniquement. HEAD work89ee9a0 inchangé ; GitHub aligné au préflight, dernier contrôle distant indisponible (connexion443), état distant final UNKNOWN.
+- Snapshot historique grille Dakar Terminal09/12/2014 p.34 ; P1×1,111 arrondi au franc, P2/P3 inchangés. Aucun catalogue existant ni fait client modifié, aucune hausse réglementaire revendiquée.
+- 412 :177→197 observé DPW facture3300753 du23/02/2026 p.99/105 (même facture) ;419 :1768→1964 observé TOM p.12/110. Transfert entre opérateurs explicitement hypothétique ; autres codes estimés à corroborer.
+- Choix explicite du code410–419 dans hypothèse de séjour ; calcul par tonne exacte et paliers15/15/reste après franchise10j vérifiée en catalogue. Poids unitaire multiplié par quantité, poids total non remultiplié ; résultat non ferme, provenance et ventilation conservées.
+- Périmètre DPW sec non-DG import Dakar DAP inchangé ; opérateur/température/danger inconnus restent réservés. Codes420/421 exclus du calcul à la tonne ; TOM non activé. Pas de calcul automatique sur les armoires IMO.
+- Extension : deux fichiers helper/test storage-rate-estimate ; raccordements helper séjour, formulaire/test, moteur, filtre scénario et tests existants. Total lot15fichiers applicatifs/tests + roadmap.
+- Tests23Deno helper/moteur +45handler PASS ;2UI ciblés PASS ; typecheck frontend/build/bundles42-50-34 et contrôle négatif PASS ; typesDeno49erreurs/5catégories identiques baseline. Suite frontend générale449PASS/10FAIL dont délais dépassés ; rejeu séquentiel confirme6FAIL sur17 dans FinalRequestStatePanel puis interrompu, bilan global séquentiel incomplet. Cause non déterminée, aucune équivalence baseline revendiquée pour ces échecs.
+- Contre-revue indépendante review_storage_uplift PASS,23Deno rejoués ; aucun avis attribué à Claude. Deno.lock non suivi créé par le relecteur supprimé (artefact régénérable), cache node_modules initialisé sans changement de dépendances suivies.
+- Aucun commit/push/migration/déploiement/envoi ; DB/Auth/RLS/runtime inchangés. Recette Lovable NOT_RUN. Publication suspendue jusqu'à clarification des tests, puis GO distinct ; rollback local par retrait ciblé du lot uniquement.
+
+#### Livraison séjour/P1 — 16 septembre 2026 — GO privé utilisateur, contrôles prépublication
+
+- GO utilisateur « publier dans lovable avec la remarque à corroborer » : commit/push work, preview privée, quotation-engine puis run-scenario-pricing ; aucune migration, publication publique ou envoi client.
+- Blocage frontend levé sans patch applicatif : dépendances locales Deno hors package-lock (Radix2.3.7 vs2.2.5, user-event14.6.7 vs14.6.1, Vitest3.2.7 vs3.2.4). npm ci restaure les versions verrouillées ;459/459tests PASS, typecheck/build PASS. Les anciens échecs ne sont pas une régression démontrée du lot.
+- Préflight Git/GitHub/Lovable89ee9a0 aligné, projet workspace_edit/is_published=false. Réserve P1 non officielle et montants non fermes conservés. Dépendances suivies inchangées ; Auth/RLS/catalogues/faits inchangés.
+- Contrôles runtime et recette à compléter après livraison ; retour arrière par revert ciblé du lot et redéploiement coordonné des deux fonctions, sans rollback SQL.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

@@ -362,7 +362,9 @@ Deno.test("scenario v2 actual engine: DG/dry/unknown independent, one common fee
   assertEquals(result.lines.filter(l => l.id.startsWith("carrier_doc")).length, 1);
   assertEquals(result.lines.find(l => l.id.startsWith("carrier_doc"))?.amount, 1000);
   assertEquals(result.lines.find(l => l.id.startsWith("carrier_dg"))?.amount, null);
-  assertEquals(result.lines.find(l => l.id === "warehouse_franchise")?.amount, null);
+  const storage = result.lines.filter(l => l.id.startsWith("warehouse_franchise_"));
+  assertEquals(storage.map(l => l.amount), [null, null, null]);
+  assertEquals(new Set(storage.map(l => l.id)).size, 3);
   assertEquals(db.reads.filter(t => t === "carrier_billing_templates").length, 1);
   const reversed = await generateQuotationLines(fakeDb(), { ...request(), containers: [...request().containers].reverse() });
   assertEquals(reversed.lines.filter(l => l.id.startsWith("thc_")).map(l => l.amount), [null, 170500 * 2 * 2, 155000 * 1.5 * 4]);

@@ -16,6 +16,8 @@ import { normalizeDpwDthcFamily, resolveContainerProfile, resolveDpwDthcTariff }
 import { assertImoGoodsPlan, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
 import { assertScenarioCargoContext, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
 import { estimateUnlistedContainerTransport } from "../_shared/local-transport-estimate.ts";
+import { resolveStayGroup, calculateStayTiers, assessDpwStorageFranchise, DPW_FRANCHISE_SOURCE, isCurrentStayTariff } from "../_shared/container-stay-estimate.ts";
+import { estimateStorageByTonne, STORAGE_POLICY } from "../_shared/storage-rate-estimate.ts";
 import {
   resolveDemurrageEquipment,
   resolveDemurragePendingProvenance,
@@ -383,6 +385,7 @@ interface ContainerInfo {
 }
 
 interface QuotationRequest {
+  scenarioStay?: { basis: unknown; movement_direction?: string; destination_country?: string; discharge_port?: string; terminal_mode?: unknown };
   scenarioLocalTransport?: { basis: unknown; movement_direction?: string; destination_country?: string; discharge_port?: string };
   // Opt-in réservé au calcul isolé v2 ; aucune relaxation du devis canonique.
   scenarioPricingMode?: 'DAP_SERVICES_ONLY';
@@ -475,7 +478,7 @@ interface QuotationLine {
   currency: string;
   unit?: string;
   quantity?: number;
-  source: QuotationLineSource;
+  source: QuotationLineSource & { firm_eligible?: boolean };
   notes?: string;
   isEditable: boolean;
   containerType?: string;
@@ -2162,10 +2165,36 @@ export async function generateQuotationLines(
       : '';
     
     if (scenarioPlan) {
-      lines.push({ id: 'warehouse_franchise', bloc: 'operationnel', category: 'Magasinage',
-        description: 'Franchise magasinage par groupes — à confirmer', amount: null, currency: 'FCFA',
-        source: { type: 'TO_CONFIRM', reference: 'SCENARIO_GROUP_STORAGE_CONFIRMATION', confidence: 0 },
-        notes: 'Aucune franchise globale ne peut être attribuée aux groupes du scénario.', isEditable: true });
+      const stay = request.scenarioStay;
+      const asOf = new Date().toISOString().slice(0, 10);
+      const eligible = servicesOnly && !isTransit && stay?.movement_direction === 'IMPORT' && stay.destination_country === 'SN' &&
+        ['dakar', 'dakar port', 'port de dakar', 'sndkr', 'sn dkr'].includes(normalize(stay.discharge_port || '')) &&
+        (stay.terminal_mode == null || stay.terminal_mode === 'LOLO');
+      const { data: storageRows, error: storageError } = eligible
+        ? await supabase.from('warehouse_franchise').select('*').eq('is_active', true)
+        : { data: null, error: null };
+      for (const unit of request.scenarioCargoContext!.cargo_units) {
+        const matched = resolveStayGroup(stay?.basis, unit, asOf);
+        let result = eligible && matched.group && !storageError && Array.isArray(storageRows)
+          ? assessDpwStorageFranchise(storageRows, matched.group, unit, asOf)
+          : { amount: null, reason: matched.reason || 'Franchise import Dakar : périmètre ou catalogue à vérifier.' };
+        // Explicit scenario-only code. Reuse the existing dry/DPW/franchise guards,
+        // never substitute unproven warehouse_franchise daily prices or a global weight.
+        if (eligible && matched.group?.storage_p1_code && matched.group.storage_days !== null &&
+          matched.group.storage_days > 10 && !storageError && Array.isArray(storageRows) &&
+          assessDpwStorageFranchise(storageRows, { ...matched.group, storage_days: 10 }, unit, asOf).amount === 0) {
+          const kg = typeof unit.gross_weight_kg === 'number' && ['per_unit', 'total'].includes(String(unit.weight_basis))
+            ? unit.gross_weight_kg * (unit.weight_basis === 'per_unit' ? matched.group.quantity : 1) : NaN;
+          result = estimateStorageByTonne(matched.group.storage_p1_code, matched.group.provider, kg, matched.group.storage_days, 10);
+        }
+        lines.push({ id: `warehouse_franchise_${unit.unit_ref}`, bloc: 'operationnel', category: 'Magasinage',
+          description: `Magasinage — lot ${unit.unit_ref}${result.amount === 0 ? ' — sortie supposée dans la franchise' : result.amount !== null ? ' — estimation sous hypothèses' : ' — à confirmer'}`,
+          amount: result.amount, currency: 'FCFA',
+          source: { type: result.amount !== null ? 'CALCULATED' : 'TO_CONFIRM',
+            reference: result.amount === 0 ? 'SCENARIO_DPW_STORAGE_FRANCHISE_V1' : result.amount !== null ? STORAGE_POLICY : 'SCENARIO_GROUP_STORAGE_CONFIRMATION', confidence: 0.5,
+            firm_eligible: false },
+          notes: `${result.reason} Source franchise : ${DPW_FRANCHISE_SOURCE}. Hypothèse liée, non confirmée.`, isEditable: true });
+      }
     } else if (franchiseData && franchiseData.length > 0) {
       const franchise = franchiseData[0];
       lines.push({
@@ -2254,6 +2283,23 @@ export async function generateQuotationLines(
 
       const tiers = tiersRows || [];
       const freeDays = bestMatch.free_days_import;
+      let stayAmount: number | null = null;
+      let stayNote = '';
+      if (servicesOnly && demurrageGroup) {
+        const stay = request.scenarioStay;
+        const asOf = new Date().toISOString().slice(0, 10);
+        const unit = request.scenarioCargoContext!.cargo_units.find(u => u.unit_ref === demurrageGroup)!;
+        const matched = resolveStayGroup(stay?.basis, unit, asOf);
+        const currentRate = isCurrentStayTariff(bestMatch, asOf);
+        if (matched.group && matched.group.demurrage_days !== null && !isTransit && stay?.movement_direction === 'IMPORT' && stay.destination_country === 'SN' &&
+          ['dakar', 'dakar port', 'port de dakar', 'sndkr', 'sn dkr'].includes(normalize(stay.discharge_port || '')) &&
+          currentRate && unit.dangerous_goods === false && unit.temperature_control_required === false) {
+          const result = calculateStayTiers(tiers, freeDays, matched.group.demurrage_days, matched.group.quantity);
+          stayAmount = result.amount;
+          const detail = result.breakdown.map(p => `J${p.from}–${p.to} : ${p.days}j × ${p.rate} XOF × ${matched.group!.quantity} TC = ${p.amount} XOF`).join(' ; ');
+          stayNote = result.reason || `Estimation ${matched.group.quantity} TC, séjour armateur ${matched.group.demurrage_days}j franchise comprise (${freeDays}j). ${detail || 'Séjour supposé dans la franchise.'} Détention après sortie et TVA fournisseur éventuelle non chiffrées séparément ; ce montant n’est pas un coût complet.`;
+        } else stayNote = matched.reason || 'Périmètre import Dakar, validité tarif ou conditions spécifiques du lot à vérifier.';
+      }
 
       let demDescription: string;
       let demCurrency: string;
@@ -2307,14 +2353,15 @@ export async function generateQuotationLines(
         bloc: 'operationnel',
         category: 'Surestaries',
         description: `${demDescription}${demurrageGroup ? ` — lot COC ${demurrageGroup}` : ''}`,
-        amount: null,
+        amount: stayAmount,
         currency: demCurrency,
         source: {
-          type: demSourceType,
+          type: stayAmount === null ? demSourceType : 'CALCULATED',
           reference: demSourceRef,
-          confidence: demConfidence
+          confidence: stayAmount === null ? demConfidence : 0.5,
+          ...(servicesOnly ? { firm_eligible: false } : {})
         },
-        notes: demNotes,
+        notes: stayNote ? `${stayNote}${stayAmount === null ? ` ${demNotes}` : ' Sous hypothèse liée, montant non ferme.'}` : demNotes,
         isEditable: true
       });
     } else {

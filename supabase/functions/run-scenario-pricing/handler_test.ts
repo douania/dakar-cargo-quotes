@@ -52,6 +52,7 @@ function fixture(air = false) {
 }
 
 interface Options {
+  stayBasis?: Json;
   transportBasis?: Json;
   engineLines?: Json[];
   v3Catalog?: boolean;
@@ -173,10 +174,12 @@ async function withTransport(options: Options, check: (h: {
       }
       if (req.method === "GET" && path === "/rest/v1/quote_scenario_links") {
         assertEquals(url.searchParams.get("scenario_id"), `eq.${SCENARIO}`);
-        return reply(options.linkedAssumption || options.transportBasis ? [{ assumption_id: "synthetic-assumption", reserve_code: null, open_point_key: null }] : []);
+        return reply(options.linkedAssumption || options.transportBasis || options.stayBasis ? [{ assumption_id: "synthetic-assumption", reserve_code: null, open_point_key: null }] : []);
       }
-      if (req.method === "GET" && path === "/rest/v1/quote_scenario_assumptions" && (options.linkedAssumption || options.transportBasis)) {
+      if (req.method === "GET" && path === "/rest/v1/quote_scenario_assumptions" && (options.linkedAssumption || options.transportBasis || options.stayBasis)) {
         assertEquals(url.searchParams.get("id"), "in.(synthetic-assumption)");
+        if (options.stayBasis) return reply([{ id: "synthetic-assumption", status: "active", assumed_fact_key: "pricing.container_stay_estimate",
+          assumed_value_type: "json", assumed_value: options.stayBasis, statement: "Séjour prévisionnel", basis: "Planning opérateur" }]);
         if (options.transportBasis) return reply([{ id: "synthetic-assumption", status: "active", assumed_fact_key: "routing.local_transport_estimate",
           assumed_value_type: "json", assumed_value: options.transportBasis, statement: "Transport ordinaire estimé", basis: "Qualification opérateur" }]);
         return reply([{ id: "synthetic-assumption", status: "active", assumed_fact_key: "cargo.value",
@@ -202,6 +205,25 @@ async function withTransport(options: Options, check: (h: {
     envKeys.forEach((key, i) => saved[i] === undefined ? Deno.env.delete(key) : Deno.env.set(key, saved[i]!));
   }
 }
+
+Deno.test("scenario stay: linked JSON, effective terminal, indicative totals and reserves persist without canonical writes", async () => {
+  const basis = { schema_version: 1, source: "Planning synthétique", verified_on: "2026-09-16", groups: [
+    { unit_ref: "beta", equipment_code: "40HQ", quantity: 2, ownership: "COC", storage_days: 8, demurrage_days: 12, provider: "DPW" },
+  ] };
+  await withTransport({ stayBasis: basis, engineLines: [{ id: "demurrage_estimate_beta", category: "Surestaries", bloc: "operationnel",
+    amount: 152200, notes: "Hypothèse distincte ; détention et TVA fournisseur non chiffrées.", source: { type: "CALCULATED", firm_eligible: false, confidence: 0.5 } }], mutate: s => {
+    s.snapshot.terminal_operation_mode = null;
+    s.facts.find(f => f.fact_key === "routing.terminal_operation_mode")!.value_text = "RORO";
+    s.facts.push({ id: "port", fact_key: "routing.destination_port", value_text: "DAKAR" }, { id: "country", fact_key: "routing.destination_country", value_text: "SN" });
+  } }, async h => {
+    await h.invoke();
+    assertEquals((h.engineBodies[0].params as Json).scenarioStay, { basis, movement_direction: "IMPORT", destination_country: "SN", discharge_port: "DAKAR", terminal_mode: "RORO" });
+    const result = h.rpcBodies[0].p_result as Json;
+    assertEquals(result.firm_total_ttc, 0); assertEquals(result.indicative_total_ttc, 152200);
+    assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_CONTAINER_STAY_ESTIMATE" && String(r.message).includes("TVA fournisseur")));
+    await h.invoke(); assertEquals(h.rpcBodies[0].p_request_fingerprint, h.rpcBodies[1].p_request_fingerprint);
+  });
+});
 
 Deno.test("scenario km: linked assumption reaches engine, trace/reservation persists, replay stable and no canonical writes", async () => {
   const basis = { schema_version: 1, origin: "Dakar Port", country: "SN", destination: "Ville test", distance_km: 300,

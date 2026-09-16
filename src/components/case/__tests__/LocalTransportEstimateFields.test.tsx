@@ -71,3 +71,12 @@ it("le raccourci ouvre les champs guidés sans JSON, sans qualifier ni enregistr
   expect(screen.getByText(/Enregistrer cette hypothèse, puis la lier/)).toBeTruthy();
   expect(scenarioPricingCodeMessage("SCENARIO_TRANSPORT_KM_ESTIMATE")).toContain("indicatif");
 });
+it("le raccourci séjour propose un formulaire sans tarif ni durée par défaut", () => {
+  render(<QuoteScenarioAssumptionsPanel caseId="11111111-1111-4111-8111-111111111111" />);
+  fireEvent.click(screen.getByRole("button", { name: "Ajouter" }));
+  fireEvent.click(screen.getByText("Préparer une hypothèse de séjour"));
+  expect(screen.getByLabelText("Source et convention de décompte du séjour")).toBeTruthy();
+  expect(screen.queryByLabelText("Valeur supposée")).toBeNull();
+  expect(screen.queryByLabelText("Propriété")).toBeNull();
+  expect(scenarioPricingCodeMessage("SCENARIO_CONTAINER_STAY_ESTIMATE")).toContain("durées distinctes");
+});

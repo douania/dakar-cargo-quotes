@@ -55,6 +55,8 @@ import {
 } from "@/components/case/AssumptionPromotionDialog";
 import { canPromote } from "@/lib/factPromotion";
 import { LocalTransportEstimateFields } from "./LocalTransportEstimateFields";
+import { ContainerStayEstimateFields } from "./ContainerStayEstimateFields";
+import { CONTAINER_STAY_KEY } from "../../../supabase/functions/_shared/container-stay-estimate";
 import { LOCAL_TRANSPORT_ESTIMATE_KEY } from "../../../supabase/functions/_shared/local-transport-estimate";
 import {
   allowedActionsForStatus,
@@ -218,9 +220,16 @@ function AssumptionForm({
 }: AssumptionFormProps) {
   const set = <K extends keyof AssumptionDraft>(key: K, value: AssumptionDraft[K]) =>
     onChange({ ...draft, [key]: value });
+  const guided = [LOCAL_TRANSPORT_ESTIMATE_KEY, CONTAINER_STAY_KEY].includes(draft.assumedFactKey);
 
   return (
     <div className="rounded-md border border-violet-200 bg-background p-3 space-y-3 text-xs">
+      {mode === "create" && !guided && <Button type="button" variant="outline" size="sm"
+        onClick={() => onChange({ ...draft, assumedFactKey: CONTAINER_STAY_KEY, assumptionType: "other", valueType: "json",
+          scopeKey: "case", valueInput: JSON.stringify({ schema_version: 1, source: "", verified_on: "", groups: [] }),
+          statement: "Séjour prévisionnel au terminal — magasinage et surestaries", sourceType: "operator_guidance", clientVisible: true })}>
+        Préparer une hypothèse de séjour
+      </Button>}
       {mode === "create" && draft.assumedFactKey !== LOCAL_TRANSPORT_ESTIMATE_KEY && <Button type="button" variant="outline" size="sm"
         onClick={() => onChange({ ...draft, assumedFactKey: LOCAL_TRANSPORT_ESTIMATE_KEY, assumptionType: "other", valueType: "json",
           scopeKey: "case", valueInput: JSON.stringify(emptyTransportEstimateBasis()),
@@ -240,7 +249,9 @@ function AssumptionForm({
         />
       </div>
 
-      {draft.assumedFactKey === LOCAL_TRANSPORT_ESTIMATE_KEY ? (
+      {draft.assumedFactKey === CONTAINER_STAY_KEY ? (
+        <ContainerStayEstimateFields value={draft.valueInput} onChange={v => set("valueInput", v)} />
+      ) : draft.assumedFactKey === LOCAL_TRANSPORT_ESTIMATE_KEY ? (
         <LocalTransportEstimateFields caseId={caseId} value={draft.valueInput} onChange={v => set("valueInput", v)} />
       ) : <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
@@ -300,7 +311,7 @@ function AssumptionForm({
         </div>
       </div>}
 
-      {mode === "create" && draft.assumedFactKey !== LOCAL_TRANSPORT_ESTIMATE_KEY ? (
+      {mode === "create" && !guided ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-[11px]">Nature</Label>

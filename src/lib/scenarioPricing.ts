@@ -110,6 +110,8 @@ export function readScenarioPricingCodes(value: unknown): string[] {
 /** Keep persisted codes stable while making the required operator action explicit. */
 export function scenarioPricingCodeMessage(code: string): string {
   switch (code) {
+    case "SCENARIO_CONTAINER_STAY_ESTIMATE":
+      return "Séjour estimé par lot : magasinage et surestaries ont des durées distinctes. Les conditions de franchise, montants calculés et frais encore non chiffrés sont précisés dans le détail ; aucun montant n’est ferme.";
     case "SCENARIO_TRANSPORT_KM_ESTIMATE":
       return "Transport estimé à partir d’une distance routière sourcée pour les lots ordinaires qualifiés. Ce calcul reste indicatif ; retour vide et autres prestations sont examinés séparément.";
     case "SCENARIO_CARGO_GROUP_ASSUMPTION":

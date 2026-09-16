@@ -2,6 +2,8 @@ import { resolveScenarioCargo, type ScenarioCargoContext } from "../_shared/scen
 import { validateScopeSnapshot } from "../_shared/quote-scenario-domain.ts";
 import { readTerminalOperationMode, resolveTerminalOperationBlockers } from "../_shared/terminal-operation-mode.ts";
 import { LOCAL_TRANSPORT_ESTIMATE_KEY } from "../_shared/local-transport-estimate.ts";
+import { CONTAINER_STAY_KEY } from "../_shared/container-stay-estimate.ts";
+import { STORAGE_POLICY } from "../_shared/storage-rate-estimate.ts";
 
 /**
  * P1-A4 — domaine pur du pricing isolé par scénario.
@@ -40,6 +42,7 @@ const REQUEST_KEYS = new Set([
  * run : elle ne peut pas influencer silencieusement un prix.
  */
 export const SCENARIO_PRICING_FACT_KEYS = new Set([
+  CONTAINER_STAY_KEY,
   LOCAL_TRANSPORT_ESTIMATE_KEY,
   "routing.origin_port",
   "routing.origin_airport",
@@ -264,6 +267,7 @@ export function buildScenarioOverlay(
 }
 
 export interface PricingInputs {
+  containerStayEstimate?: unknown;
   localTransportEstimate?: unknown;
   destinationCountry?: string;
   originPort?: string;
@@ -294,6 +298,9 @@ export function buildPricingInputs(facts: PricingFactRow[]): PricingInputs {
   for (const fact of facts ?? []) {
     const value = readFactBusinessValue(fact);
     switch (fact.fact_key) {
+      case CONTAINER_STAY_KEY:
+        if (fact.source_type === "scenario_assumption") inputs.containerStayEstimate = value;
+        break;
       case LOCAL_TRANSPORT_ESTIMATE_KEY:
         // Only an explicitly linked assumption can opt in. A similarly named
         // canonical fact must never silently enable this estimate.
@@ -431,7 +438,7 @@ export function resolveScenarioContainerTerminal(
     code: "SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM", source: "scenario_terminal_policy_v1",
     message: "Frais annexes de terminal et magasinage à confirmer séparément ; aucun montant nul ne signifie gratuité.",
   }] : [])] : [];
-  return { eligible, annexUncertain, blockers, reservations };
+  return { eligible, annexUncertain, blockers, reservations, effectiveMode: scenarioMode ?? factMode };
 }
 
 /** Keep the known THC amount/source; never transfer a DPW ancillary rate to an
@@ -446,6 +453,13 @@ export function applyScenarioContainerTerminalLines(
     const thc = String(line.id ?? "").startsWith("thc_") && category === "terminal dpw";
     if (thc) return { ...line, category: "DTHC" };
     const ancillary = ["terminal dpw", "terminal", "magasinage"].includes(category);
+    // The engine has separately checked the stay scope. Preserve its precise
+    // reason (including unpriced excess stay), never any other terminal charge.
+    const source = isPlainObject(line.source) ? line.source : {};
+    if (category === "magasinage" && source.firm_eligible === false &&
+      ((source.reference === "SCENARIO_DPW_STORAGE_FRANCHISE_V1" && line.amount === 0) ||
+        (source.reference === STORAGE_POLICY && source.type === "CALCULATED" && typeof line.amount === "number" && Number.isFinite(line.amount) && line.amount >= 0) ||
+        (source.reference === "SCENARIO_GROUP_STORAGE_CONFIRMATION" && line.amount === null))) return line;
     if (!policy.annexUncertain || !ancillary) return line;
     return { ...line, amount: null, unit_price: null, unitPrice: null, rate: null,
       category: category === "terminal dpw" ? "Frais annexes terminal" : line.category,
