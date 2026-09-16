@@ -36,6 +36,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_TITLE, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions } from "@/lib/padGapReview";
 import {
   EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
   computeSeaFreightPartnerAction,
@@ -46,6 +47,7 @@ import {
 /* ─── Types ─── */
 
 type ActionKey =
+  | "review_pad"
   | "blocking_gap"
   | "drafted_client_gap"
   | "open_client_gap"
@@ -79,6 +81,7 @@ interface ReadyAction {
 
 /* ─── Navigation targets by actionKey ─── */
 const ACTION_SCROLL_TARGETS: Partial<Record<ActionKey, string>> = {
+  review_pad: "section-pad-review",
   draft_partner: "section-external-requests",
   unsent_partner: "section-external-requests",
   pending_facts: "section-external-requests",
@@ -89,6 +92,7 @@ const ACTION_SCROLL_TARGETS: Partial<Record<ActionKey, string>> = {
 };
 
 const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
+  review_pad: "Examiner les sources et candidats PAD",
   draft_partner: "Voir les demandes",
   unsent_partner: "Voir les envois",
   pending_facts: "Voir les faits à valider",
@@ -99,7 +103,11 @@ const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
 };
 
 function scrollToSection(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const target = document.getElementById(id);
+  for (let parent = target?.parentElement; parent; parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement) parent.open = true;
+  }
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* ─── Status hierarchy (P1-A: imported from shared constants) ─── */
@@ -185,7 +193,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
             .order("is_blocking", { ascending: false }),
           supabase
             .from("client_gap_requests" as any)
-            .select("id, gap_key, status, sent_at, draft_subject, draft_body")
+            .select("id, gap_key, status, sent_at, draft_subject, draft_body, source_timeline_event_id")
             .eq("case_id", caseId)
             .in("status", ["drafted", "sent", "answered"] as string[])
             .order("created_at", { ascending: false }),
@@ -216,23 +224,28 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       const openGapKeys = new Set(gaps.map((g: any) => g.gap_key));
       // P1-CGR-FINAL: only keep client gaps whose gap_key is still open
       const clientGaps = ((clientGapsRes.data ?? []) as any[]).filter(
-        (r: any) => openGapKeys.has(r.gap_key),
+        (r: any) => openGapKeys.has(r.gap_key) && r.gap_key !== PAD_REVIEW_GAP_KEY,
       );
       const requests = reqRes.data ?? [];
       const pendingFacts = factsRes.count ?? 0;
       const hasSelectedVersion = (versionsRes.data?.length ?? 0) > 0;
+      const sourceIds = [...new Set(clientGaps.filter(r => r.status === "drafted").map(r => r.source_timeline_event_id).filter(Boolean))];
+      const sourceRes = sourceIds.length ? await supabase.from("case_timeline_events")
+        .select("id, event_data").eq("case_id", caseId).eq("event_type", "output_generated").in("id", sourceIds)
+        : { data: [], error: null };
+      if (sourceRes.error) throw sourceRes.error;
 
       // Also fetch existing drafts from timeline events
       const { data: draftEvents } = await supabase
         .from("case_timeline_events")
-        .select("event_data")
+        .select("id, event_data")
         .eq("case_id", caseId)
         .eq("event_type", "output_generated")
         .order("created_at", { ascending: false })
         .limit(10);
 
       const drafts = (draftEvents ?? [])
-        .filter((e: any) => e.event_data?.kind === "reply_draft_v1")
+        .filter((e: any) => e.event_data?.kind === "reply_draft_v1" && !isObsoletePadDraft(e.event_data))
         .map((e: any) => e.event_data);
 
       // P0-B: detect unapplied reply_analysis facts — same logic as isFactAlreadyApplied() in CaseView
@@ -262,7 +275,8 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       return {
         status,
         gaps,
-        clientGaps,
+        clientGaps: clientGaps.filter(r => isUsableClientGapRequest(r, sourceRes.data ?? [])),
+        cargoDescription: currentFacts.find(f => f.fact_key === "cargo.description")?.value_text ?? null,
         requests,
         pendingFacts,
         hasSelectedVersion,
@@ -287,6 +301,14 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     const blockingGaps = gaps.filter((g: any) => g.is_blocking);
     if (blockingGaps.length > 0) {
       for (const gap of blockingGaps) {
+        if (gap.gap_key === PAD_REVIEW_GAP_KEY) {
+          result.push({ type: "internal", actionKey: "review_pad", priority: getPriority(),
+            title: PAD_REVIEW_TITLE, reason: "Classification à valider pour le devis confirmé ; l’estimation reste disponible.",
+            message: PAD_REVIEW_FR + (data.cargoDescription ? ` Description disponible : ${data.cargoDescription}` : ""),
+            gapKey: gap.gap_key, status: "to_execute", nextStep: "Examiner les sources et les propositions par groupe ; identifier seulement les précisions réellement manquantes.",
+            icon: <Search className="h-4 w-4 text-amber-600" />, color: "amber" });
+          continue;
+        }
         if (gap.gap_key === EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY) {
           // UI-P1-PARTNER-REQUEST-STATE-LABEL-1: reflect the real freight_rate
           // request state instead of hardcoding "to_prepare".
@@ -560,7 +582,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .order("created_at", { ascending: false })
         .limit(50);
 
-      const openAction = (actionRows ?? []).find((row: any) => {
+      const openAction = latestGapActions(actionRows ?? []).find((row: any) => {
         const ed = row.event_data as Record<string, unknown> | null;
         return (
           ed?.["action_code"] === "REQUEST_CLIENT_INFO_FOR_GAPS" &&

@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback } from "react";
+import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -266,12 +267,17 @@ export default function CaseView() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("client_gap_requests" as any)
-        .select("id, gap_key, status, sent_at, matched_fact_key, created_at")
+        .select("id, gap_key, status, sent_at, matched_fact_key, created_at, source_timeline_event_id")
         .eq("case_id", caseId!)
         .in("status", ["drafted", "sent", "answered", "validated"] as string[])
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
+      const rows = (data ?? []) as unknown as Array<{ id: string; gap_key: string; status: string; source_timeline_event_id: string | null }>;
+      const ids = [...new Set(rows.filter(r => r.status === "drafted").map(r => r.source_timeline_event_id).filter((id): id is string => !!id))];
+      const sourceRes = ids.length ? await supabase.from("case_timeline_events").select("id, event_data")
+        .eq("case_id", caseId!).eq("event_type", "output_generated").in("id", ids) : { data: [], error: null };
+      if (sourceRes.error) throw sourceRes.error;
+      return rows.filter(r => isUsableClientGapRequest(r, sourceRes.data ?? []));
     },
     enabled: !!caseId,
     staleTime: 30000,
@@ -655,6 +661,7 @@ export default function CaseView() {
       const ed = e.event_data as Record<string, unknown> | null;
       const status = (ed?.["status"] as string) ?? "open";
       if (status !== "open") return false;
+      if (ed?.action_code === "REQUEST_CLIENT_INFO_FOR_GAPS" && isObsoletePadDraft(ed)) return false;
 
       // If the action references specific gap keys, check if at least one is still open
       const requestedGapKeys = Array.isArray(ed?.["requested_gap_keys"])
@@ -695,12 +702,13 @@ export default function CaseView() {
       if (e.event_type !== "output_generated") continue;
       const ed = e.event_data as Record<string, unknown> | null;
       if (ed?.["kind"] !== "reply_draft_v1") continue;
+      if (isObsoletePadDraft(ed)) continue;
       const sourceKey = ed?.["source_action_dedupe_key"] as string | undefined;
       const draft = ed?.["draft_reply"] as { subject: string; body: string } | undefined;
       const requestedGapKeys = Array.isArray(ed?.["requested_gap_keys"])
         ? (ed["requested_gap_keys"] as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0)
         : [];
-      if (sourceKey && draft) {
+      if (sourceKey && draft && !map.has(sourceKey)) {
         map.set(sourceKey, { ...draft, requestedGapKeys });
       }
     }
@@ -714,7 +722,7 @@ export default function CaseView() {
 
   const allDrafts = useMemo(() => {
     return (events ?? [])
-      .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1")
+      .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1" && !isObsoletePadDraft(e.event_data as Record<string, unknown>))
       .map(e => {
         const ed = e.event_data as Record<string, unknown>;
         const draftReply = (ed["draft_reply"] as any) ?? null;
@@ -801,7 +809,7 @@ export default function CaseView() {
 
       if (lookupErr) throw lookupErr;
 
-      const openAction = (actionRows ?? []).find((row: any) => {
+      const openAction = latestGapActions(actionRows ?? []).find((row: any) => {
         const ed = row.event_data as Record<string, unknown> | null;
         return (
           ed?.["action_code"] === "REQUEST_CLIENT_INFO_FOR_GAPS" &&
@@ -1829,7 +1837,10 @@ export default function CaseView() {
 
             return (
               <li key={g.id} className={`flex items-center gap-2 text-sm ${textColorClass}`}>
-                <span className="flex-1">{g.question_fr || g.gap_key}</span>
+                <span className="flex-1">{g.gap_key === PAD_REVIEW_GAP_KEY ? PAD_REVIEW_FR : g.question_fr || g.gap_key}</span>
+                {g.gap_key === PAD_REVIEW_GAP_KEY && (
+                  <Button size="sm" variant="outline" onClick={openScenarioReview}>Examiner les groupes et sources</Button>
+                )}
                 {isEditable && !isLocked && (
                   <div className="flex items-center gap-1.5">
                     {selectOptions ? (
@@ -1953,7 +1964,7 @@ export default function CaseView() {
 
         {/* Phase CL1: Client clarifications tracking — positioned right after gaps for visual continuity */}
         {caseId && (() => {
-          const activeClientGapReqs = (clientGapRequests as any[]).filter((r: any) => openGapKeySet.has(r.gap_key));
+          const activeClientGapReqs = (clientGapRequests as any[]).filter((r: any) => openGapKeySet.has(r.gap_key) && r.gap_key !== PAD_REVIEW_GAP_KEY);
           if (activeClientGapReqs.length === 0) return null;
           return (
           <Card className="mb-6 border-blue-200 bg-blue-50/30">
@@ -2229,6 +2240,10 @@ export default function CaseView() {
           );
         })()}
 
+        <div id="section-pad-review" className="mb-4 rounded border p-3">
+          <p className="text-sm">{PAD_REVIEW_FR}</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
+        </div>
         {/* PAD-NST-2E-C-D : Panneau Suggestions PAD-NST (assistance opérateur, frontend-only, TO_CONFIRM) */}
         {(() => {
           const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);

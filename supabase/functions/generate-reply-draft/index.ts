@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { hasPadGapReference, isCurrentGapDraft } from "../_shared/pad-gap-review.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import {
@@ -95,8 +96,26 @@ serve(async (req: Request) => {
 
   const relatedEmailId = actionEvent.related_email_id as string | null;
 
+  // Fresh eligibility BEFORE cached output lookup. Old PAD and mixed drafts
+  // must never bypass reconciliation through an idempotent response.
+  let currentClientKeys: string[] = [];
+  if (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS") {
+    if (actionData?.status !== "open") return jsonResponse({ ok: false, error: "ACTION_NOT_OPEN" }, 200);
+    if (hasPadGapReference(actionData.requested_gap_keys, actionDedupeKey)) {
+      return jsonResponse({ ok: false, error: "ACTION_REQUIRES_GAP_SYNC" }, 200);
+    }
+    const requested = new Set(Array.isArray(actionData.requested_gap_keys) ? actionData.requested_gap_keys : []);
+    const { data: openGaps, error } = await userClient.from("quote_gaps")
+      .select("gap_key").eq("case_id", caseId).eq("status", "open");
+    if (error) return jsonResponse({ ok: false, error: "GAPS_LOAD_FAILED" }, 200);
+    currentClientKeys = normalizeGapKeys((openGaps ?? []).map(g => g.gap_key)
+      .filter(key => isClientResolvableGap(key) && requested.has(key)));
+    if (!currentClientKeys.length) return jsonResponse({ ok: false, error: "NO_RELEVANT_GAPS" }, 200);
+  }
+
   // ── Idempotence check ──
-  const draftDedupeKey = `reply_draft_v1:${actionDedupeKey}`;
+  const draftDedupeKey = `reply_draft_v1:${actionDedupeKey}` +
+    (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" ? `:client-scope-v2:${currentClientKeys.join(",")}` : "");
 
   const { data: existingOutputs } = await userClient
     .from("case_timeline_events")
@@ -109,7 +128,8 @@ serve(async (req: Request) => {
   // Micro-ajustement #2: match both dedupe_key AND kind
   const existingDraft = (existingOutputs ?? []).find((e: any) => {
     const ed = e.event_data as Record<string, unknown> | null;
-    return ed?.dedupe_key === draftDedupeKey && ed?.kind === "reply_draft_v1";
+    return ed?.dedupe_key === draftDedupeKey && ed?.kind === "reply_draft_v1" &&
+      (actionCode !== "REQUEST_CLIENT_INFO_FOR_GAPS" || isCurrentGapDraft(ed, currentClientKeys));
   });
 
   if (existingDraft) {
@@ -173,36 +193,7 @@ serve(async (req: Request) => {
   // Skips AI entirely — builds draft from gap policy whitelist
   // ══════════════════════════════════════════════════════════════
   if (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS") {
-    // 1. Get requested gap keys from action event_data
-    const requestedGapKeys = (actionData?.["requested_gap_keys"] as string[]) ?? [];
-
-    // 2. Load open gaps for this case
-    const { data: openGaps, error: gapsErr } = await userClient
-      .from("quote_gaps")
-      .select("gap_key")
-      .eq("case_id", caseId)
-      .eq("status", "open");
-
-    if (gapsErr) {
-      console.error("Failed to load gaps:", gapsErr.message);
-      return jsonResponse({ ok: false, error: "GAPS_LOAD_FAILED" }, 200);
-    }
-
-    // 3. Filter: still open + client-resolvable + in requested set
-    const requestedSet = new Set(requestedGapKeys);
-    const relevantGaps = (openGaps ?? []).filter((g: Record<string, unknown>) => {
-      const key = g["gap_key"] as string;
-      return isClientResolvableGap(key) && requestedSet.has(key);
-    });
-
-    if (relevantGaps.length === 0) {
-      return jsonResponse({ ok: false, error: "NO_RELEVANT_GAPS" }, 200);
-    }
-
-    // 4. Build deterministic questions (sorted + deduped)
-    const normalizedKeys = normalizeGapKeys(
-      relevantGaps.map((g: Record<string, unknown>) => g["gap_key"] as string)
-    );
+    const normalizedKeys = currentClientKeys;
     const questions = buildClientQuestionsFromGaps(
       normalizedKeys.map((k) => ({ gap_key: k })),
       customerLanguage

@@ -443,14 +443,11 @@ export {
 // réutilisant la MÊME décision pure (resolvePadScopeBlocker) et la MÊME
 // résolution de périmètre (_shared/service-scope.ts) que run-pricing.
 // Aucune auto-classification : le gap est opérateur/pricing, fail-closed.
-const PAD_SCOPE_GAP_KEY = "pricing.pad_category";
-
-// Questions alignées mot pour mot sur ../_shared/client-gap-policy.ts
-// (GAP_QUESTION_MAP / GAP_QUESTION_MAP_EN, clé "pricing.pad_category").
-const PAD_SCOPE_GAP_QUESTION_FR =
-  "Pouvez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables.";
-const PAD_SCOPE_GAP_QUESTION_EN =
-  "Could you please specify the exact nature of the goods and the total gross weight? This information is required to determine the applicable port handling charges.";
+import {
+  PAD_REVIEW_GAP_KEY as PAD_SCOPE_GAP_KEY,
+  PAD_REVIEW_FR as PAD_SCOPE_GAP_QUESTION_FR,
+  PAD_REVIEW_EN as PAD_SCOPE_GAP_QUESTION_EN,
+} from "../_shared/pad-gap-review.ts";
 
 /** Les mêmes clés que le SELECT de scope de run-pricing (index.ts §4). */
 const PAD_SCOPE_FACT_KEYS = [
@@ -7774,7 +7771,7 @@ Deno.serve(async (req) => {
 
         const { data: existingPadGap, error: existingPadGapError } = await serviceClient
           .from("quote_gaps")
-          .select("id, is_blocking")
+          .select("id, is_blocking, question_fr, question_en")
           .eq("case_id", case_id)
           .eq("gap_key", PAD_SCOPE_GAP_KEY)
           .eq("status", "open")
@@ -7824,10 +7821,10 @@ Deno.serve(async (req) => {
                 actor_type: "system",
               });
             }
-          } else if (existingPadGap.is_blocking === false) {
+          } else if (existingPadGap.is_blocking === false || existingPadGap.question_fr !== PAD_SCOPE_GAP_QUESTION_FR || existingPadGap.question_en !== PAD_SCOPE_GAP_QUESTION_EN) {
             const { error: padGapUpgradeErr } = await serviceClient
               .from("quote_gaps")
-              .update({ is_blocking: true, priority: "high" })
+              .update({ is_blocking: true, priority: "high", question_fr: PAD_SCOPE_GAP_QUESTION_FR, question_en: PAD_SCOPE_GAP_QUESTION_EN })
               .eq("id", existingPadGap.id);
             if (padGapUpgradeErr) {
               padScopeGuardFailed = true;
@@ -7840,7 +7837,7 @@ Deno.serve(async (req) => {
                 event_type: "gap_identified",
                 event_data: {
                   gap_key: PAD_SCOPE_GAP_KEY,
-                  reason: "PAD_CATEGORY_REQUIRED — upgraded to blocking",
+                  reason: "PAD_CATEGORY_REQUIRED — internal review reconciled",
                 },
                 actor_type: "system",
               });

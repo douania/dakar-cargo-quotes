@@ -19,7 +19,6 @@ export const CLIENT_RESOLVABLE_GAP_KEYS = new Set<string>([
   "routing.destination_city",
   "routing.destination_country",
   "routing.transport_mode",
-  "pricing.pad_category",
   // COMPOSITE-CARGO-GAPS-1 — gaps de garde composites (bus + autre marchandise)
   // émis par build-case-puzzle (detectCargoConflictGuards). Sans cette entrée,
   // sync-gap-client-actions et generate-reply-draft les filtraient, et le
@@ -46,7 +45,6 @@ const GAP_QUESTION_MAP: Record<string, string> = {
   "routing.destination_city": "Quelle est la ville de destination finale des marchandises ?",
   "routing.destination_country": "Quel est le pays de destination finale ?",
   "routing.transport_mode": "Le transport se fait-il par avion, par mer ou par route ?",
-  "pricing.pad_category": "Pouvez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables.",
   // COMPOSITE-CARGO-GAPS-1 — questions client des gaps de garde composites.
   // Formulées sans jamais affirmer une hypothèse comme un fait : pas de nombre
   // de bus présupposé, pas de "15×40FR", pas de cotation antérieure citée comme
@@ -73,7 +71,6 @@ const GAP_QUESTION_MAP_EN: Record<string, string> = {
   "routing.destination_city": "What is the final destination city for the goods?",
   "routing.destination_country": "What is the final destination country?",
   "routing.transport_mode": "Is the shipment by air, sea, or road?",
-  "pricing.pad_category": "Could you please specify the exact nature of the goods and the total gross weight? This information is required to determine the applicable port handling charges.",
   // COMPOSITE-CARGO-GAPS-1 — EN parity for composite guard questions.
   // Same fact-safe framing as the FR map (no presumed bus count, no "15×40FR",
   // no prior quotation cited as source, container contents never presumed identical).

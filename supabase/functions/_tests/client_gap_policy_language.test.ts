@@ -44,16 +44,16 @@ Deno.test("2 - buildClientQuestionsFromGaps produit des questions en anglais pou
   assertEquals(questions.some((q) => q.toLowerCase().includes("weight")), true);
 });
 
-Deno.test("2b - questions anglaises pour routing et pricing", () => {
+Deno.test("2b - questions anglaises routing, PAD réservé à la revue interne", () => {
   const gaps = [
     { gap_key: "routing.transport_mode" },
     { gap_key: "pricing.pad_category" },
     { gap_key: "routing.origin_port" },
   ];
   const questions = buildClientQuestionsFromGaps(gaps, "en");
-  assertEquals(questions.length, 3);
+  assertEquals(questions.length, 2);
   assertEquals(questions.some((q) => q.toLowerCase().includes("air")), true);
-  assertEquals(questions.some((q) => q.toLowerCase().includes("port handling")), true);
+  assertEquals(questions.some((q) => q.toLowerCase().includes("port handling")), false);
   assertEquals(questions.some((q) => q.toLowerCase().includes("departure")), true);
 });
 

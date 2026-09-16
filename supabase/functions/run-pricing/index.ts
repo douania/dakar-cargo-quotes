@@ -1,4 +1,5 @@
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
+import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
 /**
  * Phase 11: run-pricing
  * Executes deterministic pricing via quotation-engine
@@ -3606,7 +3607,7 @@ Deno.serve(async (req) => {
           // Idempotent: ne pas dupliquer si gap existe déjà (ouvert)
           const { data: existingGap } = await serviceClient
             .from('quote_gaps')
-            .select('id')
+            .select('id, question_fr, question_en')
             .eq('case_id', case_id)
             .eq('gap_key', 'pricing.pad_category')
             .eq('status', 'open')
@@ -3614,18 +3615,26 @@ Deno.serve(async (req) => {
 
           if (!existingGap) {
             const weightMissing = !inputs.cargoWeight || inputs.cargoWeight <= 0;
-            const questionText = weightMissing
-              ? `Pourriez-vous préciser la nature exacte de la marchandise ainsi que le poids brut total ? Ces informations sont nécessaires pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`
-              : `Pourriez-vous préciser la nature exacte de la marchandise (ex: matériaux de construction, produits chimiques, équipements industriels, céréales, véhicules, etc.) ? Cette information est nécessaire pour déterminer les droits de passage portuaires applicables. Description reçue : "${inputs.cargoDescription}". Les tarifs PAD varient de 0 à 28 100 FCFA/t selon la catégorie.`;
+            const questionText = PAD_REVIEW_FR;
             await serviceClient.from('quote_gaps').insert({
               case_id,
               gap_key: 'pricing.pad_category',
               gap_category: 'pricing',
               question_fr: questionText,
+              question_en: PAD_REVIEW_EN,
               is_blocking: true,
               status: 'open',
             });
             console.log(`[PAD-GAP] Gap bloquant créé: pricing.pad_category (description="${inputs.cargoDescription}", weightMissing=${weightMissing})`);
+          } else if (existingGap.question_fr !== PAD_REVIEW_FR || existingGap.question_en !== PAD_REVIEW_EN) {
+            const { error: reconcileError } = await serviceClient.from('quote_gaps')
+              .update({ question_fr: PAD_REVIEW_FR, question_en: PAD_REVIEW_EN })
+              .eq('id', existingGap.id).eq('case_id', case_id).eq('status', 'open');
+            if (reconcileError) throw reconcileError;
+            await serviceClient.from('case_timeline_events').insert({
+              case_id, event_type: 'gap_identified', actor_type: 'system',
+              event_data: { gap_key: 'pricing.pad_category', reason: 'PAD_INTERNAL_REVIEW_RECONCILED' },
+            });
           } else {
             console.log(`[PAD-GAP] Gap pricing.pad_category déjà ouvert (id=${existingGap.id}) — skip`);
           }

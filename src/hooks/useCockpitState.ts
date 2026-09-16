@@ -5,6 +5,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { PAD_REVIEW_GAP_KEY, isUsableClientGapRequest } from "@/lib/padGapReview";
 import { supabase } from "@/integrations/supabase/client";
 import {
   TERMINAL_STATUSES,
@@ -20,6 +21,7 @@ export interface CockpitState {
 
   // Gaps
   blockingGapsCount: number;
+  padReviewCount: number;
 
   // Partner requests
   totalPartnerRequests: number;
@@ -69,7 +71,6 @@ export function useCockpitState(caseId: string | undefined) {
         reqRes,
         factsRes,
         clientGapKeyRes,
-        clientGapDraftedKeyRes,
         clientGapsTotalRes,
         versionsRes,
       ] = await Promise.all([
@@ -87,7 +88,7 @@ export function useCockpitState(caseId: string | undefined) {
         // All open gaps (not just blocking) — needed for client gap intersection
         supabase
           .from("quote_gaps")
-          .select("gap_key")
+          .select("gap_key, is_blocking")
           .eq("case_id", caseId!)
           .eq("status", "open"),
         supabase
@@ -102,14 +103,9 @@ export function useCockpitState(caseId: string | undefined) {
         // P1-CGR: fetch gap_key + status instead of count HEAD
         supabase
           .from("client_gap_requests")
-          .select("gap_key, status")
+          .select("gap_key, status, source_timeline_event_id")
           .eq("case_id", caseId!)
           .in("status", ["drafted", "sent", "answered"] as string[]),
-        supabase
-          .from("client_gap_requests")
-          .select("gap_key")
-          .eq("case_id", caseId!)
-          .eq("status", "drafted"),
         supabase
           .from("client_gap_requests")
           .select("id", { count: "exact", head: true })
@@ -122,18 +118,22 @@ export function useCockpitState(caseId: string | undefined) {
 
       const status = (caseRes.data?.status as string) ?? "INTAKE";
       const blockingGapsCount = gapsRes.count ?? 0;
+      const padReviewCount = (allOpenGapsRes.data ?? []).filter(g => g.gap_key === PAD_REVIEW_GAP_KEY && g.is_blocking).length;
       const totalClientGaps = clientGapsTotalRes.count ?? 0;
 
       // P1-CGR-FINAL: intersection with open gaps for true "active" count
       const openGapKeys = new Set(
-        (allOpenGapsRes.data ?? []).map((g: { gap_key: string }) => g.gap_key),
+        (allOpenGapsRes.data ?? []).filter(g => g.gap_key !== PAD_REVIEW_GAP_KEY).map((g: { gap_key: string }) => g.gap_key),
       );
-      const clientGapRows = (clientGapKeyRes.data ?? []) as Array<{ gap_key: string; status: string }>;
-      const activeClientGapRows = clientGapRows.filter((r) => openGapKeys.has(r.gap_key));
+      const clientGapRows = (clientGapKeyRes.data ?? []) as Array<{ gap_key: string; status: string; source_timeline_event_id: string | null }>;
+      const ids = [...new Set(clientGapRows.filter(r => r.status === "drafted").map(r => r.source_timeline_event_id).filter((id): id is string => !!id))];
+      const sourceRes = ids.length ? await supabase.from("case_timeline_events").select("id, event_data")
+        .eq("case_id", caseId!).eq("event_type", "output_generated").in("id", ids) : { data: [], error: null };
+      if (sourceRes.error) throw sourceRes.error;
+      const activeClientGapRows = clientGapRows.filter((r) => openGapKeys.has(r.gap_key) && isUsableClientGapRequest(r, sourceRes.data ?? []));
       const activeClientGaps = activeClientGapRows.length;
       const openClientGaps = activeClientGaps; // aligned: active = gap still open
-      const draftedClientGapRows = (clientGapDraftedKeyRes.data ?? []) as Array<{ gap_key: string }>;
-      const draftedClientGaps = draftedClientGapRows.filter((r) => openGapKeys.has(r.gap_key)).length;
+      const draftedClientGaps = activeClientGapRows.filter(r => r.status === "drafted").length;
       const answeredClientGaps = activeClientGapRows.filter((r) => r.status === "answered").length;
 
       // P2-A: build per-request pending facts map
@@ -219,6 +219,7 @@ export function useCockpitState(caseId: string | undefined) {
         status,
         isTerminal: TERMINAL_STATUSES.has(status),
         blockingGapsCount,
+        padReviewCount,
         totalPartnerRequests,
         draftPartnerRequests,
         unsentPartnerRequests,

@@ -42,6 +42,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   const {
     status,
     blockingGapsCount,
+    padReviewCount = 0,
     openPartnerRequests,
     totalPartnerRequests,
     pendingPartnerFacts,
@@ -70,7 +71,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   // 2. Résoudre les gaps bloquants
   allSteps.push({
     id: "gaps",
-    label: "Résoudre les gaps bloquants",
+    label: padReviewCount > 0 && padReviewCount === blockingGapsCount ? "Valider la classification PAD en interne" : "Résoudre les points du devis confirmé",
     status: blockingGapsCount === 0 ? "done" : "blocked",
     group: "communication",
   });
@@ -251,7 +252,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
               )}
               {blockingGapsCount > 0 && (
                 <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 bg-red-50">
-                  {blockingGapsCount} gaps bloquants
+                  {padReviewCount > 0 && padReviewCount === blockingGapsCount ? "Revue PAD interne" : `${blockingGapsCount} points avant devis confirmé`}
                 </Badge>
               )}
               {answeredClientGaps > 0 && (

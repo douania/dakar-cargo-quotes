@@ -11,6 +11,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { isObsoletePadDraft, latestGapActions, PAD_REVIEW_GAP_KEY } from "../_shared/pad-gap-review.ts";
 import {
   isClientResolvableGap,
   normalizeGapKeys,
@@ -70,18 +71,10 @@ serve(async (req: Request) => {
     return errorResponse("Failed to load gaps", 500);
   }
 
-  if (!gaps?.length) {
-    return jsonResponse({ created: false, reason: "no_open_gaps" });
-  }
-
   // ── Filter client-resolvable gaps ──
-  const clientGaps = gaps.filter((g: Record<string, unknown>) =>
+  const clientGaps = (gaps ?? []).filter((g: Record<string, unknown>) =>
     isClientResolvableGap(g["gap_key"] as string)
   );
-
-  if (!clientGaps.length) {
-    return jsonResponse({ created: false, reason: "no_client_resolvable_gaps" });
-  }
 
   const gapKeys = normalizeGapKeys(
     clientGaps.map((g: Record<string, unknown>) => g["gap_key"] as string)
@@ -103,9 +96,48 @@ serve(async (req: Request) => {
     return errorResponse("Failed to load existing actions", 500);
   }
 
+  // Reconcile before ANY early return/dedupe: the last client gap may now be
+  // an internal PAD review. Old append-only "open" entries must not resurrect.
+  const latestActions = latestGapActions(existingActions ?? []);
+  const openGapKeySet = new Set(gapKeys);
+  for (const evt of latestActions) {
+    const ed = evt.event_data as Record<string, unknown>;
+    if (ed.status !== "open" || !Array.isArray(ed.requested_gap_keys)) continue;
+    const keys = ed.requested_gap_keys as string[];
+    if (keys.length && !keys.every(key => openGapKeySet.has(key))) {
+      const { error } = await serviceClient.from("case_timeline_events").insert({
+        case_id: caseId, event_type: "manual_action", actor_type: "system",
+        event_data: { ...ed, status: "done", done_at: new Date().toISOString(),
+          done_reason: "client_gap_scope_reconciled" },
+      });
+      if (error) return errorResponse("Failed to reconcile obsolete action", 500);
+      ed.status = "done";
+    }
+  }
+
+  // Invalidate whole unsent mixed drafts too; never edit their bodies or
+  // cancel a sent/answered request. Their original timeline remains intact.
+  const { data: outputs, error: outputsErr } = await userClient.from("case_timeline_events")
+    .select("id, event_data").eq("case_id", caseId).eq("event_type", "output_generated");
+  const { data: drafts, error: draftsErr } = await userClient.from("client_gap_requests")
+    .select("id, gap_key, source_timeline_event_id").eq("case_id", caseId).eq("status", "drafted");
+  if (outputsErr || draftsErr) return errorResponse("Failed to inspect obsolete drafts", 500);
+  const obsoleteSourceIds = new Set((outputs ?? []).filter(e =>
+    isObsoletePadDraft(e.event_data as Record<string, unknown>)).map(e => e.id));
+  const staleIds = (drafts ?? []).filter(r => r.gap_key === PAD_REVIEW_GAP_KEY ||
+    obsoleteSourceIds.has(r.source_timeline_event_id)).map(r => r.id);
+  if (staleIds.length) {
+    const { error } = await serviceClient.from("client_gap_requests").update({ status: "cancelled" })
+      .eq("case_id", caseId).eq("status", "drafted").in("id", staleIds);
+    if (error) return errorResponse("Failed to retire obsolete PAD drafts", 500);
+  }
+  if (!clientGaps.length) {
+    return jsonResponse({ created: false, reason: "no_client_resolvable_gaps" });
+  }
+
   // Check 1: exact dedupe_key match — but only block if latest status is NOT "done"
   // This allows re-creation after a previous action was closed/done
-  const exactMatch = (existingActions ?? []).find((e: Record<string, unknown>) => {
+  const exactMatch = latestActions.find((e: Record<string, unknown>) => {
     const ed = e["event_data"] as Record<string, unknown> | null;
     return ed?.["dedupe_key"] === dedupeKey;
   });
@@ -120,7 +152,7 @@ serve(async (req: Request) => {
   }
 
   // Check 2: open action with same action_code and same gap keys (legacy robustness)
-  const equivalentOpen = (existingActions ?? []).find((e: Record<string, unknown>) => {
+  const equivalentOpen = latestActions.find((e: Record<string, unknown>) => {
     const ed = e["event_data"] as Record<string, unknown> | null;
     if (!ed) return false;
     if (ed["action_code"] !== "REQUEST_CLIENT_INFO_FOR_GAPS") return false;
@@ -138,38 +170,6 @@ serve(async (req: Request) => {
 
   if (equivalentOpen) {
     return jsonResponse({ created: false, reason: "equivalent_open_action_exists" });
-  }
-
-  // ── P1-CGR-SYNC: Close obsolete open actions whose gap keys are all resolved ──
-  const openGapKeySet = new Set(gapKeys);
-  for (const evt of (existingActions ?? [])) {
-    const ed = evt["event_data"] as Record<string, unknown> | null;
-    if (!ed) continue;
-    if (ed["action_code"] !== "REQUEST_CLIENT_INFO_FOR_GAPS") continue;
-    if (ed["status"] !== "open") continue;
-
-    const actionGapKeys = ed["requested_gap_keys"] as string[] | undefined;
-    if (!actionGapKeys?.length) continue;
-
-    // Check if ALL requested gap keys in this action are still open
-    const hasOpenGap = actionGapKeys.some((k) => openGapKeySet.has(k));
-    if (!hasOpenGap) {
-      // All gaps for this action are resolved — close it
-      await serviceClient
-        .from("case_timeline_events")
-        .insert({
-          case_id: caseId,
-          event_type: "manual_action",
-          actor_type: "system",
-          event_data: {
-            ...ed,
-            status: "done",
-            done_at: new Date().toISOString(),
-            done_reason: "all_gaps_resolved",
-          },
-        });
-      console.log(`[sync-gap-client-actions] Closed obsolete action: ${ed["dedupe_key"]}`);
-    }
   }
 
   // ── Insert action ──

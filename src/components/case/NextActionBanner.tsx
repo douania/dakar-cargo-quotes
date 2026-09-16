@@ -6,6 +6,7 @@
  */
 
 import { useCockpitState } from "@/hooks/useCockpitState";
+import { PAD_REVIEW_TITLE } from "@/lib/padGapReview";
 import { TERMINAL_STATUSES, statusBelow } from "@/lib/cockpitStatusConstants";
 import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
 import { useQuery } from "@tanstack/react-query";
@@ -115,7 +116,7 @@ export function NextActionBanner({ caseId }: Props) {
 
 /* ─── Decision hierarchy — first match wins ─── */
 function computeAction(d: {
-  status: string; blockingGapsCount: number; draftPartnerRequests: number;
+  status: string; blockingGapsCount: number; padReviewCount?: number; draftPartnerRequests: number;
   unsentPartnerRequests: number; pendingPartnerFacts: number; draftedClientGaps: number;
   openClientGaps: number; hasSelectedVersion: boolean; hasPdf: boolean;
   hasDraftEmail: boolean; hasSelectedPartner: boolean; hasExploitableRequests: boolean;
@@ -144,6 +145,10 @@ function computeAction(d: {
     };
   }
 
+  if (d.padReviewCount && d.padReviewCount === d.blockingGapsCount) return {
+    action: PAD_REVIEW_TITLE, blocker: "Validation PAD du devis confirmé, pas une attente automatique de réponse client.",
+    icon: <Search className="h-4 w-4 text-amber-600" />, color: "amber",
+  };
   if (d.blockingGapsCount > 0) return {
     action: `Résoudre ${d.blockingGapsCount} gap(s) bloquant(s)`,
     blocker: `${d.blockingGapsCount} gap(s) bloquant(s)`,

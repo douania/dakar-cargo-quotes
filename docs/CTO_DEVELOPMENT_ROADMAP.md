@@ -1349,6 +1349,31 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Aucun commit/push/déploiement/SQL/envoi ; rollback local par retrait des seuls diffs UI/tests du lot, note PAD préservée. Suite : GO distinct commit/push work + preview privée et recette authentifiée, sans redéploiement Edge ni migration. Prestations encore non chiffrées hors lot.
 - GO de livraison utilisateur reçu le 15/09 : commit, push work, preview privée et recette authentifiée uniquement, sans migration/redéploiement Edge/envoi ; 416 tests et typecheck rejoués PASS avant commit. Résultat de livraison à consigner après vérification.
 
+#### Livraison cockpit estimation — 15 septembre 2026 — PASS preview et recette authentifiée
+
+- GO utilisateur : commit/push work, mise à jour preview privée et recette, sans migration/Edge/envoi. Exécutant Codex, auto-revue UI proportionnée ; aucun nouveau périmètre moteur.
+- Repo douania/dakar-cargo-quotes, work d1250f82 → 58752e3168629d36e25179ac7b89a9eaa8a57400 ; GitHub/Lovable alignés. Commit8 fichiers +460/-174 (7 UI/tests + roadmap, clôture PAD précédente conservée). Tree supabase inchangé7d3135256a377a495011390108d298af3628f932.
+- 416 tests frontend/25 fichiers et typecheck rejoués PASS avant commit ; build rejoué PASS après push. Lint du lot737/16 = PASS_WITH_BASELINE, diff-check PASS ; CI complète/Deno/live NOT_RUN, aucun serveur modifié.
+- Chrome Lovable : mise à jour de l’aperçu puis recette authentifiée sur preview active ; estimation principale, montants/date et6 familles à compléter lisibles ; ouverture groupes/PAD sans mutation, lien transport ouvre les14 lignes/sources, devis confirmé séparé et repliable, sans lancement canonique.
+- Relance unique : GoTrans scénario sélectionné ed060b67, exécution3 →4 le15/09 à18:24:53 UTC ; HT12317662/TTC12416662 XOF inchangés, nouveau résultat affiché sans refus IMO global. Sous-total toujours partiel, faits/catégories non confirmés non promus.
+- Contrôle18:23→18:26 UTC : facts1409/md5 393ff8e6bcdf748f3b61b329a2441d9e et tarifs219/md5 235a655bf711e7ad8fc6c917f6419fee inchangés ; ledger203, scénarios2 et versions9 stables ; seules exécutions scénario8→9.
+- Aperçu privé direct id-preview rechargé : nouveau cockpit et bouton Actualiser visibles également ; is_published=false. Lovable confirme ensuite (umsg_01m2k54p2tejj9k1kgb10d8m61, réponse completed) build Vite22,51s/code0, HEAD/tree/worktree inchangés, aucune édition/Edge ; cause de l’ancienne alerte non prouvée (journal absent), non assimilée à un blocage actuel.
+- Aucun SQL d’écriture, migration, fait/tarif/Auth/RLS, déploiement Edge ni envoi. Retour arrière par revert ciblé58752e3 et resynchronisation preview ; exécution auditable conservée. Prestations non chiffrées hors lot. Note de clôture locale non commitée.
+
+#### Réconciliation PAD / actions / brouillons — 16 septembre 2026 — PASS_WITH_BASELINE local, publication NOT_RUN
+
+- GO utilisateur : exception ciblée gaps dans build-case-puzzle/run-pricing FROZEN, synchronisation actions/brouillons et restitution, tests/contre-revue ; aucun changement calcul/barème/fait, migration ou publication.
+- Exécutant unique Codex ; contre-revue indépendante lecture seule : deux constats UI corrigés (source de brouillon hors fenêtre, suivi sent/answered mixte), clôture PASS et 23 tests dédiés rejoués indépendamment.
+- Repo douania/dakar-cargo-quotes, work/HEAD 58752e3168629d36e25179ac7b89a9eaa8a57400 inchangé ; distant aligné au préflight, dernier ls-remote indisponible (connexion GitHub). Aucun commit/push ; note de livraison cockpit préexistante conservée.
+- PAD devient une revue opérateur interne : messages producteurs/UI alignés, retrait de la whitelist client, navigation vers groupes/sources ; gap confirmé maintenu ouvert tant que ses critères canoniques manquent. Aucune catégorie supposée n'est promue.
+- Synchronisation : réduction des historiques append-only avant déduplication, clôture des anciennes actions client, annulation des seuls brouillons non envoyés PAD/mixtes ; historique et suivis légitimes sent/answered conservés. Génération/cache/marquage envoyé refusent les anciens brouillons PAD ; les vrais gaps client restent demandables.
+- UI : sources exactes chargées par identifiant et case_id, sans dépendance à la fenêtre historique ; source inconnue d'un brouillon non envoyé refusée. Compteurs/bannière/plan/actions distinguent revue PAD et attente client. Idempotence séquentielle testée, aucune nouvelle garantie de concurrence transactionnelle revendiquée.
+- Diff fonctionnel : cinq handlers Edge (build-case-puzzle, run-pricing, sync-gap-client-actions, generate-reply-draft, mark-client-gap-request-sent), politique client + helper pur, cinq fichiers UI + re-export, quatre fichiers de tests ; roadmap uniquement en documentation. Quotation-engine et moteurs scénario inchangés.
+- Validation : Vitest 439/28 PASS dont 23 nouveaux ; Deno complet 1439 PASS/1 FAIL SIFB Intake:193/6 ignorés. Intake/test inchangés vs origin/work ; assertion LF fausse sur CRLF, vraie après normalisation en mémoire : échec baseline, pas CI brute verte.
+- Types frontend/build/config94/bundles isolés/diff-check PASS ; gate types Deno49/5 et lint737/16 inchangés = PASS_WITH_BASELINE. Recette Lovable et test:deno:live NOT_RUN.
+- Aucun impact Cloud actuel, SQL/migration/Auth/RLS/faits/barèmes/envoi ; seules les transitions de coordination décrites sont prévues au déploiement. Rollback local : retrait des seuls diffs de ce lot en préservant la note antérieure ; historique runtime futur conservé, sans restauration de brouillons obsolètes.
+- GO de livraison utilisateur reçu le 16/09 : commit/push work + preview privée + cinq déploiements Edge coordonnés + recette sans envoi/migration, arrêt au premier échec. Préflight Git/GitHub/Lovable aligné 58752e3, types frontend et 23 tests ciblés rejoués PASS. Avant livraison 09:32:14 UTC : ledger203, faits1409/md5 393ff8e6bcdf748f3b61b329a2441d9e, tarifs219/md5 235a655bf711e7ad8fc6c917f6419fee. Résultat runtime à consigner après recette ; contrôles PAD confirmé et prestations non chiffrées non supprimés.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

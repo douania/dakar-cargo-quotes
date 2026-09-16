@@ -12,6 +12,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { isObsoletePadDraft, PAD_REVIEW_GAP_KEY } from "../_shared/pad-gap-review.ts";
 
 Deno.serve(async (req: Request) => {
   const corsResp = handleCors(req);
@@ -59,11 +60,15 @@ Deno.serve(async (req: Request) => {
         skipped++;
         continue;
       }
+      if (gapKey === PAD_REVIEW_GAP_KEY) {
+        skipped++;
+        continue;
+      }
 
       // Find row with status = 'drafted'
       const { data: row, error: findErr } = await serviceClient
         .from("client_gap_requests")
-        .select("id, status")
+        .select("id, status, source_timeline_event_id")
         .eq("case_id", case_id)
         .eq("gap_key", gapKey)
         .in("status", ["drafted", "sent", "answered"])
@@ -86,10 +91,20 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      // A mixed historical email may contain the retired PAD question even
+      // when this row belongs to another gap. Fail closed on unavailable source.
+      const { data: source, error: sourceErr } = await userClient.from("case_timeline_events")
+        .select("event_data").eq("case_id", case_id).eq("id", row.source_timeline_event_id)
+        .eq("event_type", "output_generated").maybeSingle();
+      if (sourceErr || !source || isObsoletePadDraft(source.event_data as Record<string, unknown>)) {
+        skipped++;
+        continue;
+      }
+
       const { error: updateErr } = await serviceClient
         .from("client_gap_requests")
         .update({ status: "sent", sent_at: new Date().toISOString() })
-        .eq("id", row.id);
+        .eq("id", row.id).eq("case_id", case_id).eq("status", "drafted");
 
       if (updateErr) {
         console.warn(`[mark-client-gap-request-sent] Update failed for ${gapKey}:`, updateErr.message);
