@@ -14,6 +14,13 @@
  * suppression, tout calcul de prix ou de total.
  */
 
+import { LOCAL_TRANSPORT_ESTIMATE_KEY, transportEstimateBasisError } from "../../supabase/functions/_shared/local-transport-estimate";
+
+export function emptyTransportEstimateBasis() {
+  return { schema_version: 1, origin: "Dakar Port", country: "SN", destination: "", distance_km: null,
+    distance_source: "", verified_on: "", groups: [] };
+}
+
 export const ASSUMPTION_OPERATIONS = [
   "create",
   "revise",
@@ -306,6 +313,10 @@ export function buildAssumptionRequestBody(
 
   const parsedValue = parseAssumptionValueInput(draft.valueType, draft.valueInput);
   if (!parsedValue.ok) return { ok: false, message: parsedValue.message };
+  if (draft.assumedFactKey === LOCAL_TRANSPORT_ESTIMATE_KEY) {
+    const invalid = transportEstimateBasisError(parsedValue.value);
+    if (draft.valueType !== "json" || invalid) return { ok: false, message: invalid ?? "Valeur structurée requise pour le transport." };
+  }
 
   const body: Record<string, unknown> = {
     case_id: caseId,

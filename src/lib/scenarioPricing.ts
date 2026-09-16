@@ -110,6 +110,8 @@ export function readScenarioPricingCodes(value: unknown): string[] {
 /** Keep persisted codes stable while making the required operator action explicit. */
 export function scenarioPricingCodeMessage(code: string): string {
   switch (code) {
+    case "SCENARIO_TRANSPORT_KM_ESTIMATE":
+      return "Transport estimé à partir d’une distance routière sourcée pour les lots ordinaires qualifiés. Ce calcul reste indicatif ; retour vide et autres prestations sont examinés séparément.";
     case "SCENARIO_CARGO_GROUP_ASSUMPTION":
       return "La répartition de la marchandise entre les groupes est une hypothèse à vérifier.";
     case "SCENARIO_CARGO_ASSUMPTIONS":

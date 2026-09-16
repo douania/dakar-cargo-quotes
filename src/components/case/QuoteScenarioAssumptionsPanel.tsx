@@ -54,8 +54,11 @@ import {
   type PromotableAssumption,
 } from "@/components/case/AssumptionPromotionDialog";
 import { canPromote } from "@/lib/factPromotion";
+import { LocalTransportEstimateFields } from "./LocalTransportEstimateFields";
+import { LOCAL_TRANSPORT_ESTIMATE_KEY } from "../../../supabase/functions/_shared/local-transport-estimate";
 import {
   allowedActionsForStatus,
+  emptyTransportEstimateBasis,
   ASSUMPTION_RISK_LEVELS,
   ASSUMPTION_SOURCE_LABELS,
   ASSUMPTION_SOURCE_TYPES,
@@ -195,6 +198,7 @@ const hasObjectKeys = (v: unknown): boolean =>
   !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length > 0;
 
 interface AssumptionFormProps {
+  caseId: string;
   mode: "create" | "revise";
   draft: AssumptionDraft;
   onChange: (draft: AssumptionDraft) => void;
@@ -204,6 +208,7 @@ interface AssumptionFormProps {
 }
 
 function AssumptionForm({
+  caseId,
   mode,
   draft,
   onChange,
@@ -216,6 +221,12 @@ function AssumptionForm({
 
   return (
     <div className="rounded-md border border-violet-200 bg-background p-3 space-y-3 text-xs">
+      {mode === "create" && draft.assumedFactKey !== LOCAL_TRANSPORT_ESTIMATE_KEY && <Button type="button" variant="outline" size="sm"
+        onClick={() => onChange({ ...draft, assumedFactKey: LOCAL_TRANSPORT_ESTIMATE_KEY, assumptionType: "other", valueType: "json",
+          scopeKey: "case", valueInput: JSON.stringify(emptyTransportEstimateBasis()),
+          statement: "Estimation kilométrique transport ordinaire hors barème", sourceType: "operator_guidance", clientVisible: true })}>
+        Préparer une estimation transport hors barème
+      </Button>}
       <div className="space-y-1">
         <Label htmlFor="assumption-statement" className="text-[11px]">
           Énoncé de l'hypothèse
@@ -229,11 +240,14 @@ function AssumptionForm({
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {draft.assumedFactKey === LOCAL_TRANSPORT_ESTIMATE_KEY ? (
+        <LocalTransportEstimateFields caseId={caseId} value={draft.valueInput} onChange={v => set("valueInput", v)} />
+      ) : <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-[11px]">Type de valeur</Label>
           <Select
             value={draft.valueType}
+            disabled={draft.assumedFactKey === LOCAL_TRANSPORT_ESTIMATE_KEY}
             onValueChange={(v) =>
               onChange({ ...draft, valueType: v as AssumptionValueType, valueInput: v === "boolean" ? false : "" })
             }
@@ -284,9 +298,9 @@ function AssumptionForm({
             />
           )}
         </div>
-      </div>
+      </div>}
 
-      {mode === "create" ? (
+      {mode === "create" && draft.assumedFactKey !== LOCAL_TRANSPORT_ESTIMATE_KEY ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-[11px]">Nature</Label>
@@ -326,6 +340,7 @@ function AssumptionForm({
             </Label>
             <Input
               id="assumption-fact-key"
+              disabled={draft.assumedFactKey === LOCAL_TRANSPORT_ESTIMATE_KEY}
               value={draft.assumedFactKey}
               onChange={(e) => set("assumedFactKey", e.target.value)}
               placeholder="cargo.weight_kg"
@@ -586,8 +601,8 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
               </Badge>
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Ce sont des hypothèses, pas des facts confirmés : aucune n'entre dans un calcul
-              de prix. Une promotion en fact reste possible, mais jamais automatique — un geste
+              Ce sont des hypothèses, pas des faits confirmés : celles liées à un scénario peuvent
+              alimenter son estimation isolée, jamais automatiquement le devis ferme. Une promotion en fait reste possible seulement pour les clés autorisées — un geste
               explicite et attesté, hypothèse par hypothèse.
             </p>
           </div>
@@ -611,6 +626,7 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
       <CardContent className="py-2 px-4 space-y-2">
         {formMode === "create" ? (
           <AssumptionForm
+            caseId={caseId}
             mode="create"
             draft={draft}
             onChange={setDraft}
@@ -642,6 +658,7 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
           if (formMode === "revise" && reviseTargetId === a.id) {
             return (
               <AssumptionForm
+                caseId={caseId}
                 key={a.id}
                 mode="revise"
                 draft={draft}

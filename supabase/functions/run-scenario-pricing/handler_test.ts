@@ -52,6 +52,8 @@ function fixture(air = false) {
 }
 
 interface Options {
+  transportBasis?: Json;
+  engineLines?: Json[];
   v3Catalog?: boolean;
   incompleteCatalog?: boolean;
   air?: boolean;
@@ -116,7 +118,7 @@ async function withTransport(options: Options, check: (h: {
         if (options.engineFailure === "json") return reply({ success: true, lines: "invalid" });
         return reply({ success: true, ...(options.legacyEngine ? {} : { metadata: {
           estimate_mode: "DAP_SERVICES_ONLY", duties_excluded: true, caf: null,
-        } }), lines: [
+        } }), lines: options.engineLines ?? [
           { id: "alpha-fee", unit_ref: "alpha", category: "DTHC", amount: 100, source: { type: "OFFICIAL" } },
           { id: "beta-fee", unit_ref: "beta", category: "TRUCKING", amount: 200, source: { type: "OFFICIAL" } },
           { id: "common-fee", category: "AGENCY", amount: 50, source: { type: "OFFICIAL" } },
@@ -171,10 +173,12 @@ async function withTransport(options: Options, check: (h: {
       }
       if (req.method === "GET" && path === "/rest/v1/quote_scenario_links") {
         assertEquals(url.searchParams.get("scenario_id"), `eq.${SCENARIO}`);
-        return reply(options.linkedAssumption ? [{ assumption_id: "synthetic-assumption", reserve_code: null, open_point_key: null }] : []);
+        return reply(options.linkedAssumption || options.transportBasis ? [{ assumption_id: "synthetic-assumption", reserve_code: null, open_point_key: null }] : []);
       }
-      if (req.method === "GET" && path === "/rest/v1/quote_scenario_assumptions" && options.linkedAssumption) {
+      if (req.method === "GET" && path === "/rest/v1/quote_scenario_assumptions" && (options.linkedAssumption || options.transportBasis)) {
         assertEquals(url.searchParams.get("id"), "in.(synthetic-assumption)");
+        if (options.transportBasis) return reply([{ id: "synthetic-assumption", status: "active", assumed_fact_key: "routing.local_transport_estimate",
+          assumed_value_type: "json", assumed_value: options.transportBasis, statement: "Transport ordinaire estimé", basis: "Qualification opérateur" }]);
         return reply([{ id: "synthetic-assumption", status: "active", assumed_fact_key: "cargo.value",
           assumed_value_type: "number", assumed_value: 250000, statement: "Synthetic value assumption", basis: "operator_expertise" }]);
       }
@@ -198,6 +202,35 @@ async function withTransport(options: Options, check: (h: {
     envKeys.forEach((key, i) => saved[i] === undefined ? Deno.env.delete(key) : Deno.env.set(key, saved[i]!));
   }
 }
+
+Deno.test("scenario km: linked assumption reaches engine, trace/reservation persists, replay stable and no canonical writes", async () => {
+  const basis = { schema_version: 1, origin: "Dakar Port", country: "SN", destination: "Ville test", distance_km: 300,
+    distance_source: "Carte et itinéraire test", verified_on: "2026-09-16", groups: [{ unit_ref: "alpha", equipment_code: "20hq", quantity: 4,
+      weight_per_container_kg: 18000, max_payload_kg: 20000, ordinary_transport: true, qualification_source: "Documents TC et véhicule" }] };
+  await withTransport({ transportBasis: basis, engineLines: [{ id: "transport_km_alpha", category: "Transport", bloc: "operationnel",
+    amount: 1685040, notes: "Estimation non ferme, source distance et capacité test ; retour vide distinct.",
+    source: { type: "CALCULATED", reference: "SN_NORMAL_CONTAINER_KM_V1", firm_eligible: false, confidence: 0.5 } }], mutate: s => {
+      s.facts.find(f => f.fact_key === "routing.destination_city")!.value_text = "Ville test";
+      s.snapshot.cargo_units = [group("alpha", { dangerous_goods: false, un_number: null })];
+      s.facts.push({ id: "port", fact_key: "routing.destination_port", value_text: "DAKAR" },
+        { id: "country", fact_key: "routing.destination_country", value_text: "SN" });
+    } }, async h => {
+      await h.invoke();
+      assertEquals((h.engineBodies[0].params as Json).scenarioLocalTransport, {
+        basis, movement_direction: "IMPORT", destination_country: "SN", discharge_port: "DAKAR",
+      });
+      const result = h.rpcBodies[0].p_result as Json;
+      assertEquals(result.status, "success");
+      assertEquals(result.firm_total_ttc, 0);
+      assertEquals(result.indicative_total_ttc, 1685040);
+      assert((result.reservations as Json[]).some(r => r.code === "SCENARIO_TRANSPORT_KM_ESTIMATE" && String(r.message).includes("source distance")));
+      await h.invoke();
+      assertEquals(h.rpcBodies[0].p_request_fingerprint, h.rpcBodies[1].p_request_fingerprint);
+      const replay = h.rpcBodies[1].p_result as Json;
+      for (const key of ["reservations", "tariff_lines", "indicative_total_ht", "engine_request", "facts_snapshot"])
+        assertEquals(result[key], replay[key]);
+    });
+});
 
 Deno.test("scenario actual handler: v2 groups -> one engine call -> isolated persisted result", async () => {
   await withTransport({}, async h => {

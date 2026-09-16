@@ -12,6 +12,9 @@
  *     exceptions) est un contrôle de cohérence de barème. Elle est délibérément
  *     ABSENTE de ce module : aucun montant runtime ne doit pouvoir en dériver.
  *     Elle est encodée dans la migration de promotion et dans les tests.
+ *   * GO 2026-09-16 : dérogation scénario isolé dans local-transport-estimate.ts,
+ *     après échec de ce résolveur exact. Ce module et le pricing canonique
+ *     restent sans extrapolation.
  *
  * Règles de matching, sans exception :
  *   * normalisation déterministe (accents / casse / ponctuation / espaces) ;

@@ -1,6 +1,7 @@
 import { resolveScenarioCargo, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
 import { validateScopeSnapshot } from "../_shared/quote-scenario-domain.ts";
 import { readTerminalOperationMode, resolveTerminalOperationBlockers } from "../_shared/terminal-operation-mode.ts";
+import { LOCAL_TRANSPORT_ESTIMATE_KEY } from "../_shared/local-transport-estimate.ts";
 
 /**
  * P1-A4 — domaine pur du pricing isolé par scénario.
@@ -39,11 +40,13 @@ const REQUEST_KEYS = new Set([
  * run : elle ne peut pas influencer silencieusement un prix.
  */
 export const SCENARIO_PRICING_FACT_KEYS = new Set([
+  LOCAL_TRANSPORT_ESTIMATE_KEY,
   "routing.origin_port",
   "routing.origin_airport",
   "routing.destination_port",
   "routing.destination_airport",
   "routing.destination_city",
+  "routing.destination_country",
   "routing.incoterm",
   "routing.terminal_operation_mode",
   "cargo.containers",
@@ -261,6 +264,8 @@ export function buildScenarioOverlay(
 }
 
 export interface PricingInputs {
+  localTransportEstimate?: unknown;
+  destinationCountry?: string;
   originPort?: string;
   originAirport?: string;
   destinationPort?: string;
@@ -289,6 +294,12 @@ export function buildPricingInputs(facts: PricingFactRow[]): PricingInputs {
   for (const fact of facts ?? []) {
     const value = readFactBusinessValue(fact);
     switch (fact.fact_key) {
+      case LOCAL_TRANSPORT_ESTIMATE_KEY:
+        // Only an explicitly linked assumption can opt in. A similarly named
+        // canonical fact must never silently enable this estimate.
+        if (fact.source_type === "scenario_assumption") inputs.localTransportEstimate = value;
+        break;
+      case "routing.destination_country": inputs.destinationCountry = asString(value); break;
       case "routing.origin_port": inputs.originPort = asString(value); break;
       case "routing.origin_airport": inputs.originAirport = asString(value); break;
       case "routing.destination_port": inputs.destinationPort = asString(value); break;
@@ -492,6 +503,7 @@ function dependencyKeysForLine(
 
 function sourceAllowsFirm(line: ScenarioTariffLine): boolean {
   const source = isPlainObject(line.source) ? line.source : {};
+  if (source.firm_eligible === false) return false;
   const type = normalizeText(source.type);
   if (!type || type === "to_confirm" || type === "historical_only" || type === "observed") {
     return false;

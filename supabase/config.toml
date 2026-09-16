@@ -292,3 +292,6 @@ verify_jwt = false
 
 [functions.simulate-fee-lines]
 verify_jwt = false
+
+[functions.propose-road-distance]
+verify_jwt = false

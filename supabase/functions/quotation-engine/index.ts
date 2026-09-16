@@ -15,6 +15,7 @@ import {
 import { normalizeDpwDthcFamily, resolveContainerProfile, resolveDpwDthcTariff } from "../_shared/dpw-dthc-tariff.ts";
 import { assertImoGoodsPlan, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
 import { assertScenarioCargoContext, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
+import { estimateUnlistedContainerTransport } from "../_shared/local-transport-estimate.ts";
 import {
   resolveDemurrageEquipment,
   resolveDemurragePendingProvenance,
@@ -382,6 +383,7 @@ interface ContainerInfo {
 }
 
 interface QuotationRequest {
+  scenarioLocalTransport?: { basis: unknown; movement_direction?: string; destination_country?: string; discharge_port?: string };
   // Opt-in réservé au calcul isolé v2 ; aucune relaxation du devis canonique.
   scenarioPricingMode?: 'DAP_SERVICES_ONLY';
   scenarioCargoContext?: ScenarioCargoContext;
@@ -1902,6 +1904,18 @@ export async function generateQuotationLines(
         .eq('is_active', true)
         .in('evidence_level', [...LOCAL_TRANSPORT_EVIDENCE_WHITELIST]);
 
+      // Scenario-only opt-in. Complete, UNFILTERED catalog proves absence;
+      // inactive/expired rows must not be bypassed by the fallback.
+      const transportBasis = request.scenarioLocalTransport;
+      const kmEligible = servicesOnly && scenarioPlan && transportBasis && request.isTransit !== true &&
+        request.isReefer !== true && transportBasis.movement_direction === 'IMPORT' &&
+        ['SN', 'SENEGAL', 'SÉNÉGAL'].includes(String(transportBasis.destination_country).trim().toUpperCase()) &&
+        ['DAKAR', 'DAKAR PORT', 'PORT DE DAKAR', 'DKR', 'SNDKR'].includes(String(transportBasis.discharge_port).trim().toUpperCase());
+      const kmCatalog = kmEligible ? await supabase.from('local_transport_rates')
+        .select('*', { count: 'exact' }).limit(2001) : null;
+      const kmCatalogComplete = !!kmCatalog && !kmCatalog.error && kmCatalog.count !== null &&
+        kmCatalog.count <= 2000 && kmCatalog.count === kmCatalog.data?.length;
+
       // TRUCKING-22T : poids marchandise par boîte — fait explicite, sinon poids
       // total ÷ nombre de boîtes si un seul type canonique — jamais inventé.
       // Le résolveur ajoute la tare de référence et sert le tarif 40' au-delà
@@ -1944,7 +1958,18 @@ export async function generateQuotationLines(
           continue;
         }
 
-        // Pas de tarif exact : l'historique est consultable mais ne chiffre plus.
+        const kmEstimate = kmEligible ? estimateUnlistedContainerTransport(kmCatalog?.data ?? [], {
+          basis: transportBasis.basis, destination: request.finalDestination,
+          unit: request.scenarioCargoContext!.cargo_units.find(u => u.unit_ref === container.unit_ref) ?? {},
+          clientCode: request.clientCode, asOfDate: localTransportAsOf, catalogComplete: kmCatalogComplete,
+        }) : null;
+        if (kmEstimate?.line) {
+          lines.push(kmEstimate.line);
+          warnings.push(kmEstimate.line.notes);
+          continue;
+        }
+
+        // Pas de tarif exact ni estimation admissible : historique non chiffrant.
         const transportMatch = await matchHistoricalTariff(supabase, historicalTariffs, {
           destination: request.finalDestination,
           cargoType: request.cargoType,
@@ -1968,7 +1993,7 @@ export async function generateQuotationLines(
             reference: `${localTransport.code} — ${localTransport.reason}`,
             confidence: 0
           },
-          notes: `${localTransport.message} Confirmation humaine requise. Contacter transporteur.${historicalHint}`,
+          notes: `${localTransport.message} ${kmEstimate?.reason ?? (transportBasis ? 'Estimation kilométrique hors périmètre : import Sénégal via Dakar et scénario DAP requis.' : '')} Confirmation humaine requise. Contacter transporteur.${historicalHint}`,
           isEditable: true
         });
         warnings.push(`Transport ${container.type} → ${request.finalDestination}: ${localTransport.message} (${localTransport.reason})`);

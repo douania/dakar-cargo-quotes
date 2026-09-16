@@ -468,6 +468,10 @@ async function handleRequest(req: Request): Promise<Response> {
         ...buildEngineRequest(inputs, transportMode),
         ...(cargoContext ? { scenarioCargoContext: cargoContext } : {}),
         ...(servicesOnly ? { scenarioPricingMode: "DAP_SERVICES_ONLY" } : {}),
+        ...(servicesOnly && inputs.localTransportEstimate !== undefined ? { scenarioLocalTransport: {
+          basis: inputs.localTransportEstimate, movement_direction: movementDirection,
+          destination_country: inputs.destinationCountry, discharge_port: inputs.destinationPort,
+        } } : {}),
         includeCustomsClearance: effectiveServiceKeys.includes("CUSTOMS_DAKAR"),
         includeLocalTransport: effectiveServiceKeys.includes("TRUCKING"),
       };
@@ -546,6 +550,9 @@ async function handleRequest(req: Request): Promise<Response> {
             reservations.push(...tariffLines.filter(line => servicesOnly && String(line.id).startsWith("thc_") &&
               asObject(line.source).type === "CALCULATED").map(line => ({ code: "SCENARIO_THC_BASE_ESTIMATE",
                 source: "scenario_thc_policy", message: line.notes })));
+            reservations.push(...tariffLines.filter(line => String(line.id).startsWith("transport_km_")).map(line => ({
+              code: "SCENARIO_TRANSPORT_KM_ESTIMATE", source: "SN_NORMAL_CONTAINER_KM_V1", message: line.notes,
+            })));
             const missingLines = buildMissingServiceReserveLines(
               effectiveServiceKeys,
               inferCoveredServices(tariffLines),
