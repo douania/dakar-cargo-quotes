@@ -81,8 +81,12 @@ export function estimateUnlistedContainerTransport(rates: readonly LocalTranspor
   const weight = typeof u.gross_weight_kg === "number" && typeof u.quantity === "number" && u.quantity > 0 &&
     ["total", "per_unit"].includes(String(u.weight_basis))
     ? u.gross_weight_kg / (u.weight_basis === "total" ? u.quantity : 1) : null;
+  // Scenario references use lowercase; qualification fields may use uppercase.
+  // Ignore case only: do not collapse distinct equipment into a tariff-size family.
+  const sameEquipment = typeof u.equipment_code === "string" && !!g &&
+    u.equipment_code.toUpperCase() === g.equipment_code.toUpperCase();
   if (!g || u.unit_kind !== "CONTAINER" || u.dangerous_goods !== false || u.temperature_control_required !== false ||
-    u.equipment_code !== g.equipment_code || u.quantity !== g.quantity || weight !== g.weight_per_container_kg ||
+    !sameEquipment || u.quantity !== g.quantity || weight !== g.weight_per_container_kg ||
     u.destination_ref != null) return refuse("Lot non qualifié, modifié, dangereux, température dirigée ou poids inconnu : transport à confirmer.");
   const type = resolveCanonicalLocalTransportContainerType(g.equipment_code)!;
   const weightRule = assessLocalTransportWeightRule(type, weight);

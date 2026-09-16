@@ -143,3 +143,31 @@ Deno.test("km: engine refuses incomplete catalog, unsupported route, unknown wei
   const legacy = await generateQuotationLines(db(), { ...canonical, cargoValue: 10000 });
   assert(!legacy.lines.some(l => l.id.startsWith("transport_km_")));
 });
+
+Deno.test("km: UI lowercase equipment and uppercase qualification reach the real engine without mutation", async () => {
+  const req = request();
+  req.scenarioCargoContext.cargo_units[0].equipment_code = "20gp";
+  req.scenarioCargoContext.cargo_units[0].quantity = 1;
+  req.scenarioLocalTransport.basis.groups[0].quantity = 1;
+  req.scenarioLocalTransport.basis.distance_km = 480.9;
+  req.containers = resolveScenarioCargo(req.scenarioCargoContext).containers;
+  const before = JSON.stringify(req);
+  const result = await generateQuotationLines(db(), req);
+  const transport = result.lines.filter(l => l.category === "Transport");
+  assertEquals(transport.map(l => l.amount), [634722]);
+  assertEquals(transport[0].source.type, "CALCULATED");
+  assertEquals(JSON.stringify(req), before);
+});
+
+Deno.test("km: equipment comparison ignores case only, not size or equipment changes", () => {
+  for (const [scenarioCode, basisCode, allowed] of [
+    ["20gp", "20GP", true], ["20GP", "20gp", true], ["40hq", "40HQ", true],
+    ["20hc", "20GP", false], ["40gp", "20GP", false],
+    ["20fl", "20GP", false], ["20rf", "20GP", false],
+    [null, "20GP", false], [20, "20GP", false],
+  ] as const) {
+    const i = input(); Object.assign(i.unit, { equipment_code: scenarioCode });
+    i.basis.groups[0].equipment_code = basisCode;
+    assertEquals(estimateUnlistedContainerTransport(rates(), i).line !== null, allowed);
+  }
+});

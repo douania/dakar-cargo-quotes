@@ -510,9 +510,10 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
       setFormMode("none");
       setReviseTargetId(null);
       setDraft(emptyDraft());
-      await queryClient.invalidateQueries({
-        queryKey: ["quote-scenario-assumptions", caseId],
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["quote-scenario-assumptions", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["quote-scenario-linkable-assumptions", caseId] }),
+      ]);
     },
     onError: (err: unknown) => {
       toast.error(errorMessage(err) ?? "Mutation refusée");

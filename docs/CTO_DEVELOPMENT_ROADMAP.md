@@ -1455,6 +1455,48 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Contre-revue indépendante ciblée PASS,22Deno rejoués personnellement ; aucun nouveau blocage local. Aucun secret consulté, commit/push/déploiement/migration/écritureCloud/envoi ; faits/barèmes/Auth/RLS inchangés.
 - Retour arrière : retirer uniquement ce défaut et ses libellés/tests, rétablissant l'exigence de configuration explicite. Suite : GO de publication regroupé du lot km+TomTom puis recette réelle privée, sans migration ni envoi client.
 
+#### Livraison privée km + TomTom — 16 septembre 2026 — PARTIAL ; recette authentifiée NOT_RUN
+
+- GO utilisateur regroupé : commit/push work, preview privée, quotation-engine → run-scenario-pricing → propose-road-distance, puis recette ; aucune migration ni envoi client.
+- Git work4577dd8→567b936c2f471a4691f0b5610fa7e3ba9a667c8d poussé ;20 fichiers,+879/-10 ; tree supabase be5aaea236fac1db3d0287df42de71cee59718f3. Coupure réseau transitoire résolue à la reprise ; identité ponctuelle Codex identique aux commits précédents.
+- Vérifications fraîches :49Deno ciblés avec typecheck+9UI PASS,95config et bundles40/48/34+contrôle négatif PASS, diff-check PASS. Suites globales : résultats historiques PASS_WITH_BASELINE ci-dessus, non rejouées intégralement pendant livraison.
+- Lovable message umsg_01m2n2w0fgf1xtn7x8sth225tr : succès des3déploiements dans l'ordre ; SHA/tree/propreté vérifiés après chacun ; OPTIONS200/POST sans auth401 chacun. Empreinte bundle runtime NOT_VERIFIED ; preuve = sources+outil déploiement+sondes.
+- get_project confirme567b936, ready,is_published=false ; preview HTTP200 rapporté par Lovable. Aucune édition automatique ni correction de dette Deno par Lovable.
+- Recette navigateur via computer-use : preview /login, connexion utilisateur requise ; aucun appel TomTom réel ni chiffrage authentifié ce tour. Routabilité du départ approximatif et validité de la clé restent NOT_RUN, pas PASS.
+- Aucun changement DB/Auth/RLS, fait client, barème, secret, migration ou envoi. Note de clôture locale non commitée (pas de commit docs-only).
+- Retour arrière : revert ciblé567b936 puis preview/redéploiement coordonné ; nouvelle fonction à ne plus appeler après retour. Suite sous même GO : connexion utilisateur puis recette distance et estimation ordinaire, sans qualifier les55t comme TC ordinaires.
+
+#### Recette authentifiée TomTom — 16 septembre 2026 — PARTIAL ; proposition distance FAIL
+
+- work567b936 local/GitHub alignés, seule note roadmap locale préexistante ; aucun nouveau commit/push/déploiement.
+- Chrome connecté : après rechargement, nouveau formulaire et avertissement départ approximatif visibles. Proposition N'Dioum → « Service cartographique indisponible. La saisie manuelle reste possible. » ; distance/source/date non remplies, brouillon annulé,0 hypothèse affichée. Estimation GoTrans existante inchangée, aucun calcul55t ordinaire effectué.
+- Diagnostic Lovable lecture seule umsg_01m2n3qrqwez6taqdqjhrd9bpb : nom TOMTOM_API_KEY présent, TOMTOM_DAKAR_ORIGIN absent (défaut prévu) ; journaux boot/shutdown seuls ; sonde géocodage via secret disponible dans sandbox HTTP401 Unauthorized, aucune valeur secrète affichée.
+- Refus authentification fournisseur prouvé dans sandbox ; identité secret sandbox/runtime Edge NOT_VERIFIED, cause précise de la clé refusée inconnue. Ne pas attribuer l'échec au point de départ ni annoncer une recette positive.
+- Aucun fait/barème/DB/Auth/RLS modifié, aucune hypothèse/scénario enregistré, aucun envoi. Tests locaux précédents restent PASS_WITH_BASELINE ; recette calcul km positif runtime et routabilité réelle restent NOT_RUN.
+- Suite : vérifier/corriger l'identifiant TomTom enregistré et ses droits sans partager la clé dans le chat, puis reprendre même recette. Pas de nouveau correctif code déduit du seul401. Note locale non commitée.
+
+#### Recette TC ordinaire hors barème — 16 septembre 2026 — FAIL ciblé ; TomTom PASS
+
+- GO utilisateur : création dossier fictif/scénarios puis reprise authentifiée ; work567b936 local/GitHub alignés, note roadmap préexistante seule. Aucun code, commit/push, migration ou déploiement ce tour.
+- Dossier TEST-KM-20260916 `450cb321-8da6-4323-a579-187800d09e45`, sans email ; 5 hypothèses actives, scénario révisé3 `abbf33ca-2a8e-49b8-9e65-f665165dbe85` sélectionné, package DAP et SOC synthétiques. Aucun fait réel GoTrans modifié, aucune promotion ni envoi.
+- TomTom a proposé480,9km avec source/date conservées ; capacité20t fictive et poids10t explicitement réservés au test. Les hypothèses nouvellement créées deviennent liables après rechargement : cache `quote-scenario-linkable-assumptions` non invalidé par le panneau de création.
+- Run initial rev2 bloqué par ownership/package manquants dans le fixture ; compléments UI autorisés, puis run `a9e386a6-2f10-4cd0-b19f-f92afef8ef85` success technique mais transport non chiffré. Sous-total155000XOF = THC uniquement, aucune preuve de PASS km.
+- Cause vérifiée via engine_request et garde `_shared/local-transport-estimate.ts:84-86` : scénario `equipment_code=20gp`, hypothèse `20GP`, comparaison stricte ; les autres critères de cette garde concordent. Le parcours normal révèle une incompatibilité de casse non couverte par la preuve locale antérieure.
+- STOP recette positive ; cas négatifs et priorité tarif exact runtime NOT_RUN. Correction moteur FROZEN non effectuée ; demander exception ciblée normalisation + test de bout en bout, regrouper avec invalidation cache UI. Publication distincte.
+- Artefacts TEST conservés pour reproduction ; reprise sans recréer le dossier. Aucun montant forcé. Note locale non commitée ; Auth/RLS/barèmes inchangés.
+
+#### Correctif casse équipement + cache hypothèses — 16 septembre 2026 — PASS local et contre-revue ; GO livraison reçu
+
+- GO local explicite reçu, exception pricing ciblée ; work567b936 inchangé. Périmètre : `_shared/local-transport-estimate.ts`, son test Deno, `QuoteScenarioAssumptionsPanel.tsx`, nouveau test UI associé ; roadmap préexistante préservée.
+- Comparaison équipement insensible à la casse seulement, sans fusion20GP/20HC ni20/40 ni équipements spéciaux ; aucune mutation des entrées. Après création/révision/confirmation/réfutation, invalidation des deux caches du dossier concerné, sans calcul automatique.
+- Preuve rouge/vert : 2 nouveaux tests Deno et4UI échouent sur code antérieur puis passent après patch. Moteur réel local + catalogue simulé :20gp/20GP,1TC10t,480,9km→634722XOF TTC fournisseur ; ce n'est pas une preuve runtime.
+- Tests exécutés :29Deno ciblés avec typecheck PASS (priorité tarif exact, refus55t/DG/frigo/capacité et changements équipement compris),17UI ciblés PASS, suite456Vitest PASS, typecheck frontend PASS, build PASS (avertissements dépendances/taille), diff-check PASS. CI globale/Deno globale/lint non rejoués : NOT_RUN.
+- Auto-revue diff effectuée ; contre-revue indépendante requise avant publication encore NOT_RUN. Aucun commit/push/déploiement/migration/écriture Cloud, aucun impact Auth/RLS/faits/barèmes ; runtime conserve le défaut jusqu'à livraison autorisée.
+- Retour arrière local : retirer seulement ces4diffs applicatifs/tests et cette note, préserver autres notes. Suite : contre-revue ciblée puis GO de publication distinct et reprise du même dossier TEST, sans envoi.
+- Contre-revue indépendante Codex `review_case_equipment_fix` sous GO utilisateur : GO technique ciblé, aucun bloquant ;29Deno et4UI rejoués PASS. Réserve non bloquante : test cache mocké, actualisation navigateur à prouver en recette privée. Aucun avis attribué à Claude.
+- Contrôles supplémentaires : bundles isolés40/48/34 + contrôle négatif PASS, configuration95 PASS, lint737/16 et typesDeno49/5 PASS_WITH_BASELINE. Git toujours567b936 ; aucun changement Cloud. Publication proposée :4fichiers applicatifs/tests + roadmap, preview privée, quotation-engine puis run-scenario-pricing ; sans migration, tarif, fait client ni envoi ; arrêt au premier échec et reprise dossier TEST existant.
+- GO livraison utilisateur reçu : commit/push work, preview privée, quotation-engine puis run-scenario-pricing, recette TEST ; sans migration ni envoi, arrêt au premier échec. Préflight Git/GitHub/Lovable alignés567b936, preview non publiée ; résultat runtime à consigner après exécution.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
