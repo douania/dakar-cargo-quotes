@@ -4568,6 +4568,8 @@ export type Database = {
           source_reference: string
           total_weight_kg: number | null
           unit_ref: string
+          weight_basis: string
+          weight_reservation: string
           weight_source_reference: string
         }
         Insert: {
@@ -4586,6 +4588,8 @@ export type Database = {
           source_reference: string
           total_weight_kg?: number | null
           unit_ref: string
+          weight_basis?: string
+          weight_reservation?: string
           weight_source_reference: string
         }
         Update: {
@@ -4604,6 +4608,8 @@ export type Database = {
           source_reference?: string
           total_weight_kg?: number | null
           unit_ref?: string
+          weight_basis?: string
+          weight_reservation?: string
           weight_source_reference?: string
         }
         Relationships: [
