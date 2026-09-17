@@ -4551,6 +4551,78 @@ export type Database = {
           },
         ]
       }
+      pad_group_confirmations: {
+        Row: {
+          action: string
+          case_id: string
+          category: string | null
+          context_hash: string
+          created_at: string
+          decided_by: string
+          decision_version: number
+          id: string
+          idempotency_key: string
+          request_fingerprint: string
+          scenario_id: string
+          scope_hash: string
+          source_reference: string
+          total_weight_kg: number | null
+          unit_ref: string
+          weight_source_reference: string
+        }
+        Insert: {
+          action: string
+          case_id: string
+          category?: string | null
+          context_hash: string
+          created_at?: string
+          decided_by: string
+          decision_version: number
+          id?: string
+          idempotency_key: string
+          request_fingerprint: string
+          scenario_id: string
+          scope_hash: string
+          source_reference: string
+          total_weight_kg?: number | null
+          unit_ref: string
+          weight_source_reference: string
+        }
+        Update: {
+          action?: string
+          case_id?: string
+          category?: string | null
+          context_hash?: string
+          created_at?: string
+          decided_by?: string
+          decision_version?: number
+          id?: string
+          idempotency_key?: string
+          request_fingerprint?: string
+          scenario_id?: string
+          scope_hash?: string
+          source_reference?: string
+          total_weight_kg?: number | null
+          unit_ref?: string
+          weight_source_reference?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pad_group_confirmations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pad_group_confirmations_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pad_nst_recommendation_rules: {
         Row: {
           confidence: number
@@ -8041,6 +8113,16 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_pad_group_pricing: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_heads: Json
+          p_result: Json
+          p_run_id: string
+        }
+        Returns: undefined
+      }
       create_scenario_quotation_version: {
         Args: {
           p_actor_user_id: string
@@ -8329,6 +8411,7 @@ export type Database = {
         Args: { p_case_id: string }
         Returns: Json
       }
+      read_pad_group_context: { Args: { p_case_id: string }; Returns: Json }
       record_maritime_fee_decision: {
         Args: {
           p_actor_user_id: string
@@ -8351,6 +8434,10 @@ export type Database = {
           p_source_reference: string
           p_suggested_amount_xof: number
         }
+        Returns: Json
+      }
+      record_pad_group_confirmation: {
+        Args: { p_actor: string; p_case_id: string; p_request: Json }
         Returns: Json
       }
       record_quote_scenario_pricing_run: {
@@ -8408,6 +8495,16 @@ export type Database = {
           p_value_text?: string
         }
         Returns: string
+      }
+      sync_pad_group_gap: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_heads: Json
+          p_question: string
+          p_ready: boolean
+        }
+        Returns: undefined
       }
       upsert_cargo_equipment: {
         Args: {
