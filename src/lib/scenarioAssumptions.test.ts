@@ -23,6 +23,13 @@ const CASE_ID = "11111111-1111-1111-1111-111111111111";
 const ASSUMPTION_ID = "22222222-2222-2222-2222-222222222222";
 const KEY = "idem-key-0001";
 
+it.each(["create", "revise"] as const)("preserves storage proposal evidence on %s without promoting a fact", operation => {
+  const metadata = { storage_designation_proposals: { "lot-1": "Code 414 proposé, source et justification, tarif à corroborer" } };
+  const result = buildAssumptionRequestBody(CASE_ID, operation, KEY, draft({ metadata }), ASSUMPTION_ID);
+  expect(result.ok).toBe(true); expect(result.body?.metadata).toEqual(metadata);
+  expect(result.body).not.toHaveProperty("promoted_fact_id");
+});
+
 function draft(overrides: Partial<AssumptionDraft> = {}): AssumptionDraft {
   return {
     statement: "Poids brut estimé à 12 tonnes",

@@ -1,8 +1,10 @@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { StorageDesignationProposal } from "./StorageDesignationProposal";
 
 /** Draft only. No arbitrary default duration, tariff or carrier. */
-export function ContainerStayEstimateFields({ value, onChange }: { value: string | boolean; onChange: (v: string) => void }) {
+export function ContainerStayEstimateFields({ value, onChange, caseId, onAdopt, proposalRevision }: { value: string | boolean; onChange: (v: string) => void;
+  caseId?: string; proposalRevision?: string; onAdopt?: (value: string, evidence: string, unitRef: string) => void }) {
   let data: Record<string, unknown>;
   try { const parsed = JSON.parse(String(value)); data = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}; }
   catch { data = {}; }
@@ -31,6 +33,8 @@ export function ContainerStayEstimateFields({ value, onChange }: { value: string
         {field("Code équipement exact", "equipment_code", g, update)}
         {field("Nombre de conteneurs", "quantity", g, update, "number")}
         {field("Jours magasinage terminal, franchise comprise", "storage_days", g, update, "number")}
+        {caseId && onAdopt && <StorageDesignationProposal key={`${caseId}:${JSON.stringify(data)}:${proposalRevision ?? ""}`} caseId={caseId} group={g}
+          onAdopt={(code, evidence) => onAdopt(JSON.stringify({ ...data, groups: groups.map((row, n) => n === i ? { ...g, storage_p1_code: code } : row) }), evidence, String(g.unit_ref))} />}
         <label className="block">Code magasinage retenu sous hypothèse<select aria-label="Code magasinage retenu sous hypothèse"
           value={String(g.storage_p1_code ?? "")} onChange={e => update({ storage_p1_code: e.target.value || null })}>
           <option value="">Non déterminé — ne pas chiffrer au-delà de la franchise</option>

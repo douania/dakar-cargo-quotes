@@ -143,6 +143,7 @@ function draftFromAssumption(a: QuoteScenarioAssumption): AssumptionDraft {
 
   return {
     statement: a.statement,
+    metadata: a.metadata && typeof a.metadata === "object" && !Array.isArray(a.metadata) ? a.metadata as Record<string, unknown> : undefined,
     basis: a.basis ?? "",
     // Périmètre hérité côté serveur : ces champs ne sont pas envoyés en révision.
     assumptionType: a.assumption_type as AssumptionType,
@@ -250,7 +251,15 @@ function AssumptionForm({
       </div>
 
       {draft.assumedFactKey === CONTAINER_STAY_KEY ? (
-        <ContainerStayEstimateFields value={draft.valueInput} onChange={v => set("valueInput", v)} />
+        <ContainerStayEstimateFields proposalRevision={JSON.stringify(draft)} caseId={caseId} value={draft.valueInput} onChange={v => {
+          const metadata = { ...draft.metadata }; delete metadata.storage_designation_proposals;
+          onChange({ ...draft, valueInput: v, metadata });
+        }} onAdopt={(v, evidence, unitRef) => {
+          const previous = draft.metadata?.storage_designation_proposals;
+          onChange({ ...draft, valueInput: v, metadata: { ...draft.metadata, storage_designation_proposals: {
+            ...(previous && typeof previous === "object" && !Array.isArray(previous) ? previous : {}), [unitRef]: evidence,
+          } } });
+        }} />
       ) : draft.assumedFactKey === LOCAL_TRANSPORT_ESTIMATE_KEY ? (
         <LocalTransportEstimateFields caseId={caseId} value={draft.valueInput} onChange={v => set("valueInput", v)} />
       ) : <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

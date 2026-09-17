@@ -1559,6 +1559,33 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Tests ciblés31PASS ; suite frontend463/463PASS ; typecheck/build et diff-check PASS. Build avec avertissements non bloquants. Auto-revue proportionnée au seul libellé ; aucun calcul/composant FROZEN modifié.
 - Aucun commit/push, déploiement, migration, recalcul, envoi ou changement DB/Auth/RLS/barèmes/faits. Recette du nouveau libellé Lovable NOT_RUN ; GO de publication distinct requis (frontend uniquement). Retour arrière : rétablir l'ancien libellé et ses tests, sans restauration de données.
 
+#### Livraison résumé magasinage — 17 septembre 2026 — PASS privé
+
+- GO utilisateur commit/push work/preview privée/recette, sans migration ni Edge. Préflight local/GitHub/Lovable69f1658 aligné ; commit0cc375b81ca2d66300623acb3f5798eba5237baa poussé et confirmé distant (4fichiers,+58/-4, notes de clôture précédentes incluses). Aucun changement sous supabase/.
+- Lovable umsg_01m2qaafjbedhrqbf37tdmh2j7/main : réponse terminée, HEAD attendu avant/après, worktree propre, build19,7s et preview200 ; aucun fichier/Edge/DB modifié. Deux diagnostics Deno TS2345 historiques signalés sans correction, hors lot.
+- Chrome authentifié dossier TEST450cb321 : nouveau résumé visible après rechargement, magasinage7880FCFA et réserve « à corroborer sur facture » conservés, sous-total797602FCFA et exécution08:55:27 inchangés ; aucun recalcul ni mutation métier.
+- Tests locaux du lot463PASS/types/build PASS au tour précédent, pas de rejeu ce tour (sources inchangées). Aucun envoi/publication publique/migration/Edge/Auth/RLS/barème/fait modifié. Retour arrière : revert ciblé0cc375b et reconstruction frontend seulement. Note finale locale non commitée.
+
+#### Proposition désignation magasinage par lot — 17 septembre 2026 — PASS local, non publié
+
+- GO utilisateur serveur/interface/tests/contre-revue, sans migration/Auth/RLS/barème/fait/publication. Préflight work local/GitHub0cc375b aligné ; note de livraison précédente préservée, HEAD inchangé.
+- Nouveau service propose-storage-designation : requireUser et SELECT sous JWT appelant/RLS existante, sans service_role ; lot rapproché au scénario sélectionné (référence/équipement/quantité/propriété), description scenario_basis et contexte des autres lots. Aucun nouvel extracteur e-mail ; source explicitement hypothétique.
+- Alias validé exact puis désignation normalisée exacte ; sinon IA limitée aux IDs catalogue. Codes/libellés/unités/provenance repris du référentiel, pas des champs inventés par IA. Catalogue incomplet/inaccessible refusé. Aucun choix automatique, tarif ou montant calculé ; plusieurs correspondances conservées.
+- UI séjour : proposition sur demande, libellé/code/unité/source documentaire/justification visibles, adoption explicite après relecture fraîche scénario/hash/description/candidat. Seuls410–419 tonne_per_day adoptables, autres signalés ; choix DPW sous hypothèse, validité tarifaire distincte/à corroborer. Métadonnées existantes conservent justification par lot ; modification manuelle du séjour invalide ces preuves.
+- Contrat de calcul séjour/moteurs FROZEN inchangés. Configuration nouvelle fonction selon standard existant verify_jwt=false+requireUser ; aucune règle Auth/RLS modifiée. Persistance via API hypothèses existante uniquement après enregistrement opérateur.
+- Contre-revue indépendante review_storage_proposal : risque callback ancien écrasant saisie corrigé par invalidation de la seule proposition sur empreinte complète du brouillon ; focus conservé. B1 levé,7tests UI rejoués par relecteur ; source documentaire ajoutée. Limite non bloquante : texte descriptif long passe davantage par IA qu'alias exact.
+- Tests finaux :471frontend PASS,7Deno ciblés PASS, types frontend et deno check nouvelle Edge PASS, configuration96fonctions/build/diff-check PASS. Suite Deno générale/CI complète et recette Lovable/IA réelle NOT_RUN. Un premier hook de test retournait le mock et expirait, corrigé avec bloc sans retour ; Deno retrouvé dans cache npm, dépendances inchangées.
+- Périmètre11fichiers applicatifs/config/tests + roadmap ; aucun commit/push/déploiement/écriture Cloud/envoi. Retour arrière local ciblé du lot ; publication future frontend+nouvelle Edge uniquement, sans migration. Validation fonctionnelle sur données réelles nécessaire avant revendication de couverture métier.
+
+#### Renforcement contextuel désignation magasinage — 17 septembre 2026 — PASS local, recette réelle NOT_RUN
+
+- GO utilisateur ciblé : contexte des lots avant correspondance, test GoTrans et contre-exemple mobilier ; sans publication. work0cc375b local/GitHub alignés, lot local antérieur préservé.
+- propose-storage-designation transmet les champs structurés propres à chaque lot (ONU, poids/base, équipement, propriété, quantité, danger et description) ; tout alias exact passe désormais par validation IA. Panne IA : aucun alias non contrôlé renvoyé.
+- Filtre conservateur propre au lot cible : indices électriques/UN3536 excluent mobilier et armoires génériques, pas les armoires électriques ; ni poids seul ni lot voisin ne définissent cette exclusion. Aucun code dérivé de la seule classe IMO, candidats limités au catalogue.
+- UI informe de la transmission systématique du contexte hypothétique ; e-mails originaux/photos non relus. La compréhension exhaustive des sources n'est pas revendiquée. Choix manuel conservé ; filtre lexical peut sur-exclure en cas de négation.
+- Tests :11Deno ciblés et6UI PASS, deno check Edge/tests et typecheck frontend PASS, diff-check PASS. Contre-revue indépendante ciblée favorable ; notice UI corrigée. IA réelle/Lovable et CI complète NOT_RUN ce tour.
+- Diff complémentaire :4fichiers du nouveau service, notice StorageDesignationProposal.tsx et roadmap. Moteurs/barèmes/faits/Auth/RLS/DB inchangés, aucun commit/push/Cloud. Retour arrière local limité à ce complément ; GO publication distinct toujours requis.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

@@ -248,6 +248,7 @@ export function isValidScopeKey(scopeKey: string): boolean {
 }
 
 export interface AssumptionDraft {
+  metadata?: Record<string, unknown>;
   statement: string;
   basis: string;
   assumptionType: AssumptionType;
@@ -335,6 +336,7 @@ export function buildAssumptionRequestBody(
     source_type: draft.sourceType,
   };
   if (basis !== "") body.basis = basis;
+  if (draft.metadata) body.metadata = draft.metadata;
 
   if (operation === "revise") {
     // Le périmètre est hérité de l'hypothèse révisée : ne rien envoyer d'autre,

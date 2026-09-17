@@ -295,3 +295,6 @@ verify_jwt = false
 
 [functions.propose-road-distance]
 verify_jwt = false
+
+[functions.propose-storage-designation]
+verify_jwt = false
