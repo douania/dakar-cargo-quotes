@@ -1651,6 +1651,38 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Préflight Cloud SELECT du 17 septembre 16:31UTC : ledger203, version20260917120000/registre/quatre RPC absents ; 190colonnes et contraintes des tables ciblées identiques à la répétition locale. Helpers d'accès présents : lecture authentifiée, écriture créateur/assigné ; aucune permission existante modifiée.
 - Permissions par défaut postgres/public Cloud relevées (anon/authenticated/service/sandbox) puis reproduites localement en transaction : réinstallation migration et fixture PASS, refus d'accès table/quatreRPC pour les deux sandbox/anon/authenticated PASS, ROLLBACK local complet. Trigger client_gap_requests et empreinte de fonction identiques. Préflight borné favorable ; recette Cloud toujours NOT_RUN, livraison exige GO distinct et recontrôle frais.
 
+#### Livraison PAD par groupe — 17 septembre 2026 — livraison PASS borné, recette PARTIAL
+
+- GO utilisateur migration/commit/push/preview/3Edge/recette, arrêt premier échec. Accès GitHub rétabli ; identité ponctuelle Codex <noreply@openai.com> explicitement autorisée après refus initial du commit, configuration globale inchangée.
+- SQL via query_database 16:39UTC : 20260917120000 appliquée et ledger203→204 atomiquement ; source15362octets SHA2565fafe4d212d9d4f8e84e157e0a9c8cf71c139446b179fb1ef8c922480cfafba8 transportée/relevée identique ; registre0, RLS active, quatreRPC postgres/service_role seulement, table service SELECT/INSERT seulement.
+- Git work504915c→533467af01270b9678bb4b17d5d7f04d019d27ae poussé :19fichiers+1087/-25. Lovable types générés seuls+97lignes, examinés puis fast-forward local vers ed5a8a83f4750b97f2d597a7d84aa715dc39b938 ; arbre supabase56af1818a6d6484c3ec19607362f16016266a258 identique.
+- Lovable umsg_01m2r3vq7be4r9m8fyn7e19s4f : manage-pad-group-confirmation→run-pricing→build-case-puzzle déployées avec succès annoncé, contrôle arbre après chacune ; OPTIONS200/POSTsansauth401 ; build16,8s/preview200, aucune migration rejouée ni publication publique. Bundle runtime non exposé : preuve sources/déploiement/sondes, pas empreinte du bundle.
+- Chrome authentifié TEST450cb321 : nouveau panneau visible, actualisation fonctionne ; scénario sélectionnév2 => parcours historique conservé. Confirmation+pricing positif du nouveau parcours NOT_RUN : fixture v3 avec allocation canonique complète nécessaire, sans utiliser un dossier réel pour l'inventer.
+- Chrome GoTrans : trois groupes affichés séparément, propositions T02 distinctes des décisions attendues ; lien du gap ouvre/focalise le premier groupe et son formulaire, bouton désactivé sans sources/attestation. Historique replié. Aucun formulaire soumis, aucun pricing recalculé.
+- Contrôle poids GoTrans :2145000+234000+45000=2424000kg du scénario, contre2361000kg du fait courant ; message explicite de désaccord conservé. Pas de validation métier ni correction de fait implicite ; autres exigences IMO/terminal inchangées.
+- Intégrité16:46UTC : registre0, ledger204, quote_facts MD5 52f9d333c52925d86e6634fe368e22cf et port_tariffs235a655bf711e7ad8fc6c917f6419fee identiques à l'avant migration ; aucun envoi. Retour SQL possible uniquement registrevide avec accusé, ledger conservé ; aucune restauration effectuée.
+- Suite : préparer fixture synthétique compatible et terminer confirmation→calcul→fermeture gap ; examiner séparément la source du total GoTrans avant tout changement de fait. Livraison technique ne vaut pas recette métier complète. Note de clôture locale non commitée.
+
+#### Recette PAD et source poids — 17 septembre 2026 — PARTIAL
+
+- GO utilisateur : adapter TEST450cb321 puis examiner poids GoTrans en lecture seule. HEAD work ed5a8a83 inchangé ; aucun code, commit, push, déploiement ou migration.
+- TEST : révision5 v3 créée/sélectionnée via Chrome authentifié, anciennes versions conservées. Allocation1x20GP SOC/10000kg et neuf autres entrées fictives renseignées par supersede_fact, provenance TEST explicite ; aucune donnée GoTrans changée.
+- Gap pricing.pad_category initialisé ouvert via RPC existante pour la fixture. Confirmation UI authentifiée754653e2-aecf-4207-9143-673a22f058cb T02/10000kg persistée ; gap resolved et panneau « Classification PAD exploitable » vérifiés. Aucun fait global cargo.pad_category créé.
+- Tarif applicable lu : T02 import CONTENEUR PAD9678XOF/t, attendu96780XOF pour10t ; calcul canonique NOT_RUN (zéro pricing_runs TEST), ne pas présenter ce montant attendu comme calcul exécuté.
+- Analyse UI TEST refusée : job failed « No emails or documents found for this case ». Aucun statut forcé. Fichier synthétique hors dépôt C:/Users/DELL/.codex/TEST_PAD_20260917.txt préparé pour compléter la source ; upload Chrome refusé « Not allowed », zéro document enregistré. Reprise après accès fichiers extension ou upload manuel ; nouvelle confirmation si contexte périmé.
+- GoTrans : e-mail afe8910c-e09f-4f59-be05-3e4c6917bca9 décodé confirme39x55t +13x18t +3x10–15t =2409–2424t. Fait courant2361000kg ai_extraction incompatible avec sa propre source ;2424000kg scénario est borne haute, pas total client exact. Aucun fait corrigé.
+- Intégrité finale : registre1 (TEST seulement), barèmes MD5 235a655bf711e7ad8fc6c917f6419fee inchangés, poids GoTrans2361000kg inchangé, aucun envoi. Rollback SQL registre-vide désormais interdit ; décision à préserver. Note locale non commitée.
+
+#### Assistance aux confirmations PAD — 17 septembre 2026 — PASS local borné, non livré
+
+- GO utilisateur : préremplir les justifications disponibles, exposer extrait/calcul et blocages ; aucune correction automatique du poids GoTrans ni confirmation implicite. work ed5a8a83 local/origin alignés, notes précédentes préservées.
+- Périmètre : PadGroupConfirmationsPanel et test ; manage-pad-group-confirmation/index, nouveau helper evidence et test. Proposition PAD modifiable explicitement qualifiée ; attestation jamais précochée, changement catégorie efface justification/attestation.
+- Assistance source en lecture seule sous droits appelant : fil complet borné, identité client, rapprochement quantité/équipement/propriété/poids/référence ; empreinte SHA256 identique à l'enveloppe de proposition, contexte frais recontrôlé. Échec/ambiguïté => aucun extrait prérempli, saisie sourcée manuelle conservée.
+- Extrait client et formule lisibles ; référence technique repliée. Fourchette => poids exact non confirmé et champ source du poids laissé vide. Conflit affiche poids dossier/total scénario ; groupe sans poids => total indéterminé, jamais zéro implicite.
+- Tests exécutés :19Deno avec vérification types PASS,6UI PASS,typecheck frontend PASS,build PASS,diff-check PASS. Contre-revue indépendante : empreinte source et total incomplet corrigés puis levés ;3tests provenance rejoués PASS. CI complète et recette Lovable NOT_RUN.
+- Aucun changement DB/Auth/RLS/barème/fait/moteur/runtime, aucun commit/push/envoi. GoTrans2361000kg n'est pas corrigé par ce lot ; fourchette2409–2424t demeure à rapprocher explicitement avant devis confirmé.
+- Livraison distincte à autoriser : commit/push work, preview privée et manage-pad-group-confirmation seule, recette sans confirmation réelle ni envoi. Rollback applicatif par revert ciblé/rebuild/redéploiement, registre conservé ; aucune migration.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

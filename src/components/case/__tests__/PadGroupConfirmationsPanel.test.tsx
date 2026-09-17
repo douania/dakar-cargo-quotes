@@ -46,3 +46,37 @@ it("missing weight prevents confirmation and service failure exposes no usable c
   expect(await screen.findByRole("alert")).toHaveTextContent("Lecture des confirmations indisponible");
   expect(screen.queryByRole("button", { name: "Confirmer pour le devis" })).not.toBeInTheDocument();
 });
+
+it("prefills editable proposals, never attests, clears category evidence on category change", async () => {
+  const s = { ...state(), assistance: { a: { excerpt: "2 transformers, 18t/unit", reference: "mail-test", calculation: "2 × 18 000 kg = 36 000 kg", weightDraft: "Mail-test : 2 x 18t, allocation à vérifier", warnings: [] } } };
+  io.invoke.mockResolvedValue({ data: s, error: null }); mount();
+  expect(await screen.findByText(/Extrait client : 2 transformers/)).toBeInTheDocument();
+  expect(screen.getByLabelText("Source et justification de la catégorie")).toHaveValue("Proposition à vérifier (T02) : Équipements électriques");
+  expect(screen.getByLabelText("Source du poids et de l’allocation du groupe")).toHaveValue(s.assistance.a.weightDraft);
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeDisabled();
+  const user = userEvent.setup(); await user.click(screen.getByRole("checkbox"));
+  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeEnabled();
+  await user.selectOptions(screen.getByLabelText("Catégorie PAD"), "T03");
+  expect(screen.getByLabelText("Source et justification de la catégorie")).toHaveValue("");
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(io.invoke).toHaveBeenCalledTimes(1);
+});
+
+it("explains dossier conflict and does not manufacture a source for a range", async () => {
+  const s = { ...state(), dossier_weight_kg: 35000, issues: [{ unit_ref: "", code: "PAD_GROUP_WEIGHT_CONFLICT" }],
+    assistance: { a: { excerpt: "10–18t/unit", reference: "mail", calculation: "2 × 18 000 kg = 36 000 kg", weightDraft: "", warnings: ["Borne haute, poids exact non confirmé"] } } };
+  io.invoke.mockResolvedValue({ data: s, error: null }); mount();
+  expect(await screen.findByRole("alert")).toHaveTextContent(/35.*000 kg/);
+  expect(screen.getByRole("alert")).toHaveTextContent("Remplir les justifications ne résout pas cet écart");
+  expect(screen.getByLabelText("Source du poids et de l’allocation du groupe")).toHaveValue("");
+  await userEvent.click(screen.getByRole("checkbox"));
+  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeDisabled();
+});
+it("never presents a partial sum as a total when a group weight is unknown", async () => {
+  const s = state(); s.context.groups[0].total_weight_kg = null as unknown as number;
+  s.issues = [{ unit_ref: "", code: "PAD_GROUP_WEIGHT_CONFLICT" }];
+  io.invoke.mockResolvedValue({ data: s, error: null }); mount();
+  expect(await screen.findByRole("alert")).toHaveTextContent("non déterminé (poids manquant)");
+  expect(screen.getByRole("alert")).not.toHaveTextContent("scénario : 0 kg");
+});

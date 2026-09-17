@@ -2,6 +2,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
 import { handleCors, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { loadPadGroupState, syncPadGroupGap } from "../_shared/pad-group-store.ts";
+import { groupEvidence } from "./evidence.ts";
+import { proposalFingerprint } from "../_shared/scenario-proposal-domain.ts";
 
 const deps = { authenticate: requireUser, client: createClient };
 export async function handleRequest(req: Request, dependencies = deps): Promise<Response> {
@@ -29,7 +31,38 @@ export async function handleRequest(req: Request, dependencies = deps): Promise<
     }
     const state = await loadPadGroupState(service, body.case_id);
     if (body.action === "record") await syncPadGroupGap(service, body.case_id, state);
-    return jsonResponse(state);
+    // Optional read-only assistance, scoped to the authenticated caller. Never
+    // use an unavailable or changed source as evidence for a confirmation.
+    let assistance = {};
+    let dossierWeight: number | null = null;
+    if (state.context) {
+      try {
+        const current = await service.rpc("read_pad_group_context", { p_case_id: body.case_id });
+        if (current.error || current.data?.context_hash !== state.context.context_hash) throw new Error("changed");
+        const facts = current.data.facts ?? [];
+        const weight = facts.filter((f: { key: string }) => f.key === "cargo.weight_kg");
+        const n = weight.length === 1 ? Number(weight[0].number ?? weight[0].text) : NaN;
+        dossierWeight = Number.isFinite(n) && n > 0 ? n : null;
+        const record = await caller.from("quote_cases").select("thread_id,request_type").eq("id", body.case_id).single();
+        if (record.error) throw new Error("case");
+        if (record.data.thread_id) {
+          const [thread, emails] = await Promise.all([
+            caller.from("email_threads").select("client_email").eq("id", record.data.thread_id).single(),
+            caller.from("emails").select("id,from_address,body_text,sent_at", { count: "exact" }).eq("thread_ref", record.data.thread_id).order("id").limit(201),
+          ]);
+          if (thread.error || emails.error || emails.count === null || emails.count > 200 || emails.count !== emails.data?.length) throw new Error("source");
+          const scope = facts.filter((f: { key: string }) => ["routing.transport_mode", "routing.movement_direction", "service.package", "contacts.client_email"].includes(f.key))
+            .map((f: { key: string; text: unknown; json: unknown; number: unknown }) => ({ fact_key: f.key, value_text: f.text, value_json: f.json, value_number: f.number }))
+            .sort((a: { fact_key: string }, b: { fact_key: string }) => a.fact_key.localeCompare(b.fact_key));
+          const fingerprint = await proposalFingerprint({ case_id: body.case_id, thread_id: record.data.thread_id,
+            request_type: record.data.request_type, client: thread.data.client_email, scope }, emails.data);
+          assistance = groupEvidence(state.context.groups, thread.data.client_email, scope, emails.data, fingerprint);
+        }
+        const fresh = await service.rpc("read_pad_group_context", { p_case_id: body.case_id });
+        if (fresh.error || fresh.data?.context_hash !== state.context.context_hash) throw new Error("changed");
+      } catch { assistance = {}; dossierWeight = null; }
+    }
+    return jsonResponse({ ...state, assistance, dossier_weight_kg: dossierWeight });
   } catch { return errorResponse("Confirmation PAD indisponible ; aucune validation ne doit être présumée.", 503); }
 }
 if (import.meta.main) Deno.serve(req => handleRequest(req));
