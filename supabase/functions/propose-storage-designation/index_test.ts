@@ -1,8 +1,10 @@
 import { assertEquals } from "jsr:@std/assert";
 import { handleRequest } from "./index.ts";
+import { proposeGroups } from "../_shared/scenario-proposal-domain.ts";
+const sourceMail = { id: "22222222-2222-4222-8222-222222222222", from_address: "client@example.com", body_text: "1.1 transformers: 18t/unit, 20GP SOC" };
 const body = { case_id: "11111111-1111-4111-8111-111111111111", unit_ref: "lot-1", equipment_code: "20GP", quantity: 1, ownership: "SOC" };
 const req = (b: unknown = body) => new Request("https://test.invalid", { method: "POST", body: JSON.stringify(b) });
-function fixture(options: { denied?: boolean; alias?: boolean; incomplete?: boolean; different?: boolean; gotrans?: boolean } = {}) {
+function fixture(options: { denied?: boolean; alias?: boolean; incomplete?: boolean; different?: boolean; gotrans?: boolean; version?: number; sourced?: boolean; sourceIncomplete?: boolean } = {}) {
   const tables: string[] = []; let aiCalls = 0;
   const deps = {
     authenticate: async () => ({ token: "test", userId: "u" }),
@@ -11,17 +13,21 @@ function fixture(options: { denied?: boolean; alias?: boolean; incomplete?: bool
       return { from(table: string) {
         tables.push(table);
         let value: unknown;
-        if (table === "quote_cases") value = options.denied ? null : { id: body.case_id };
+        if (table === "quote_cases") value = options.denied ? null : { id: body.case_id, thread_id: options.sourced ? "thread" : null };
+        if (table === "email_threads") value = { client_email: sourceMail.from_address };
+        if (table === "emails") value = [sourceMail];
+        if (table === "quote_facts") value = [];
         if (table === "quote_scenario_selections") value = { scenario_id: "s" };
         if (table === "quote_scenarios") value = { id: "s", scope_hash: "h", status: "draft", scope_snapshot: {
-          schema_version: 2, transport_mode: "MARITIME", movement_direction: "IMPORT", cargo_units: [
+          schema_version: options.version ?? 2, transport_mode: "MARITIME", movement_direction: "IMPORT", cargo_units: [
             { ...body, quantity: options.different ? 2 : 1, unit_kind: "CONTAINER", scenario_basis: options.gotrans ? "storage cabinets" : "transformers",
               un_number: options.gotrans ? "UN3536" : null, gross_weight_kg: options.gotrans ? 55000 : 18000, weight_basis: "per_unit" },
             { unit_ref: "spares", scenario_basis: "spare parts", un_number: null, dangerous_goods: null }],
         } };
+        if (table === "quote_scenarios" && options.sourced) (value as {scope_snapshot: {cargo_units: unknown}}).scope_snapshot.cargo_units = proposeGroups(sourceMail.from_address, [sourceMail]).groups.map(g => ({ ...body, unit_kind: "CONTAINER", scenario_basis: `e-mail ${sourceMail.id}; SHA256 test`, gross_weight_kg: g.weight_kg, weight_basis: g.weight_basis, un_number: g.un_number, imo_class: g.imo_class, dangerous_goods: g.dangerous }));
         if (table === "terminal_designations") value = [{ id: "d", designation_label: "Transformateurs", storage_code_p1: "414", unit_basis: "tonne_per_day" }];
         if (table === "terminal_designation_aliases") value = options.alias ? [{ terminal_designation_id: "d", normalized_term: "transformers", is_validated: true }] : [];
-        const response = { data: value, error: null, count: options.incomplete ? 1002 : Array.isArray(value) ? value.length : null };
+        const response = { data: value, error: null, count: options.incomplete || (options.sourceIncomplete && table === "emails") ? 1002 : Array.isArray(value) ? value.length : null };
         const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain, limit: () => chain,
           maybeSingle: () => Promise.resolve(response), then: (resolve: (v: unknown) => unknown) => Promise.resolve(response).then(resolve) };
         return chain;
@@ -41,6 +47,20 @@ Deno.test("AI unavailable never falls back to an unchecked exact alias", async (
   const f = fixture({ alias: true }); f.deps.ai = async () => new Response("", { status: 503 });
   const data = await (await handleRequest(req(), f.deps)).json();
   assertEquals(data.candidates, []);
+});
+Deno.test("versions 2 and 3 accepted, unknown future version rejected", async () => {
+  for (const version of [2, 3, 4]) {
+    const f = fixture({ version });
+    assertEquals((await handleRequest(req(), f.deps)).status, version === 4 ? 422 : 200);
+  }
+});
+Deno.test("v3 endpoint replaces email reference by sourced excerpt; incomplete email set fails before AI", async () => {
+  const f = fixture({ version: 3, sourced: true });
+  const res = await handleRequest(req(), f.deps); const data = await res.json();
+  assertEquals(res.status, 200); assertEquals(data.description, sourceMail.body_text);
+  assertEquals(data.source.includes(sourceMail.id), true); assertEquals(data.source_fingerprint.length, 64);
+  const bad = fixture({ version: 3, sourced: true, sourceIncomplete: true });
+  assertEquals((await handleRequest(req(), bad.deps)).status, 422); assertEquals(bad.aiCalls(), 0);
 });
 Deno.test("context payload includes target UN and weight but never assigns them to spare parts", async () => {
   const f = fixture({ gotrans: true });

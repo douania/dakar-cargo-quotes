@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import type { Candidate } from "../../../supabase/functions/propose-storage-designation/domain";
-type Proposal = { scenario_id: string; scope_hash: string; unit_ref: string; description: string; source: string;
+type Proposal = { scenario_id: string; scope_hash: string; source_fingerprint?: string; unit_ref: string; description: string; source: string;
   qualification: "PROPOSAL_ONLY"; generated_at: string; candidates: Candidate[]; warning: string | null };
 export function StorageDesignationProposal({ caseId, group, onAdopt }: {
   caseId: string; group: Record<string, unknown>; onAdopt: (code: string, evidence: string) => void;
@@ -25,16 +25,16 @@ export function StorageDesignationProposal({ caseId, group, onAdopt }: {
       const fresh = await load(); if (!alive.current) return;
       if (!choice) { setProposal(fresh); return; }
       const match = fresh.candidates.find(c => c.id === choice.id && c.code === choice.code && c.label === choice.label && c.unit === choice.unit && c.applicable);
-      if (!proposal || fresh.scenario_id !== proposal.scenario_id || fresh.scope_hash !== proposal.scope_hash || fresh.description !== proposal.description || !match) {
+      if (!proposal || fresh.scenario_id !== proposal.scenario_id || fresh.scope_hash !== proposal.scope_hash || fresh.source_fingerprint !== proposal.source_fingerprint || fresh.description !== proposal.description || !match) {
         setProposal(fresh); throw new Error("Le lot ou la proposition a changé. Examinez les nouvelles propositions avant de choisir.");
       }
       if (typeof match.code !== "string" || !/^41[0-9]$/.test(match.code) || match.unit !== "tonne_per_day") throw new Error("Code ou unité hors périmètre.");
-      onAdopt(match.code, `Lot ${fresh.unit_ref} : ${match.label} (code ${match.code}, ${match.unit}), proposition ${match.method} retenue par opérateur. ${fresh.source} Document : ${match.document ?? "non renseigné"}, preuve ${match.evidence ?? "non renseignée"}, date ${match.effective_date ?? "non renseignée"}. Scénario ${fresh.scenario_id}, empreinte ${fresh.scope_hash}, ${fresh.generated_at}. Description : ${fresh.description}. Justification : ${match.justification}. Classification hypothétique ; tarif distinct à corroborer.`);
+      onAdopt(match.code, `Lot ${fresh.unit_ref} : ${match.label} (code ${match.code}, ${match.unit}), proposition ${match.method} retenue par opérateur. ${fresh.source} Document : ${match.document ?? "non renseigné"}, preuve ${match.evidence ?? "non renseignée"}, date ${match.effective_date ?? "non renseignée"}. Scénario ${fresh.scenario_id}, empreinte ${fresh.scope_hash}, source ${fresh.source_fingerprint ?? "non disponible"}, ${fresh.generated_at}. Description : ${fresh.description}. Justification : ${match.justification}. Classification hypothétique ; tarif distinct à corroborer.`);
     } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : "Proposition indisponible"); }
     finally { inFlight.current = false; if (alive.current) setBusy(false); }
   };
   return <div className="space-y-2 border rounded p-2">
-    <p>Reconnaissance contextuelle depuis les descriptions et caractéristiques des lots du scénario sélectionné, transmises au service IA configuré. Même un alias exact est vérifié dans ce contexte. E-mails originaux et photos non relus ici. Aucun fait confirmé ni montant créé.</p>
+    <p>Reconnaissance contextuelle : extraits marchandises des e-mails client rapprochés au scénario, ou description hypothétique pour un dossier sans fil source. Ces extraits et les caractéristiques des lots sont transmis au service IA configuré, même pour un alias exact. Photos non analysées. Aucun fait confirmé ni montant créé.</p>
     <Button type="button" variant="outline" disabled={busy || !group.unit_ref} onClick={() => void act()}>{busy ? "Vérification…" : "Proposer une désignation magasinage"}</Button>
     {error && <p role="alert">{error}</p>}
     {proposal && <>

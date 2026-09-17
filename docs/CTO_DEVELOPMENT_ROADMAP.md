@@ -1586,6 +1586,24 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Tests :11Deno ciblés et6UI PASS, deno check Edge/tests et typecheck frontend PASS, diff-check PASS. Contre-revue indépendante ciblée favorable ; notice UI corrigée. IA réelle/Lovable et CI complète NOT_RUN ce tour.
 - Diff complémentaire :4fichiers du nouveau service, notice StorageDesignationProposal.tsx et roadmap. Moteurs/barèmes/faits/Auth/RLS/DB inchangés, aucun commit/push/Cloud. Retour arrière local limité à ce complément ; GO publication distinct toujours requis.
 
+#### Livraison proposition magasinage — 17 septembre 2026 — PARTIAL
+
+- GO utilisateur commit/push/preview/nouvelle Edge/recette, sans migration ni envoi. work0cc375b→d8e563ddf126a13d5241523ffef99f01066b99c9 ;12fichiers+406/-2. Push initial réseau FAIL, nouvelle tentative PASS ; identité ponctuelle Codex identique aux commits antérieurs, aucun réglage global.
+- GitHub/Lovable alignés ; build local et471frontend PASS,11Deno ciblés PASS, configuration96fonctions PASS. CI complète NOT_RUN. Lovable message umsg_01m2qcdj7cee3tg5s0dfpfzndw confirme rebuild et déploiement unique propose-storage-designation ; OPTIONS200/POST sans auth401, arbre supabase8dcabf7b936ee0a863951271a4adf7ae6d23438c inchangé. Bundle runtime NOT_VERIFIED.
+- Recette authentifiée Chrome TEST450cb321 : bouton présent, réponse IA avec désignation419 générique et source2014 ; proposition non retenue car description synthétique non spécifique. Aucun code/hypothèse enregistré, montant antérieur inchangé, brouillon annulé.
+- GoTrans5e9cd222 : essai lot-1/20hq/39/SOC refusé. Diagnostic SELECT : scénario sélectionné baabd809 est schema_version3, actif/import/maritime ; garde nouvelle Edge n'accepte que2. Autre limite : scenario_basis contient références email/hash mais pas les libellés marchandises. Reconnaissance GoTrans non validée.
+- Arrêt recette au refus ; brouillon GoTrans annulé, UI confirme aucune hypothèse enregistrée. Aucun fait/barème/Auth/RLS/migration/pricing/envoi modifié. Suite : compatibilité scénario3 et rattachement des descriptions sources, puis tests et nouvelle recette ciblée ; ne pas présenter le lot comme achevé métier.
+- Retour arrière : revert ciblé d8e563d et rebuild preview ; fonction nouvelle inutilisée par ancien frontend, retrait éventuel sous GO distinct. Note de clôture locale non commitée, pas de commit documentaire seul.
+
+#### Correctif proposition magasinage v3 et sources — 17 septembre 2026 — PASS local, non publié
+
+- GO utilisateur correction v3/descriptions/tests/reprise recette ; base work d8e563d alignée GitHub, note de livraison précédente préservée. Aucun commit ni publication ce tour.
+- Nouvelle Edge accepte versions2/3, refuse versions futures ; lit sous JWT appelant le fil du dossier, l'identité client et les emails complets bornés. Réutilise parser source historique et extracteur de groupes par partage mécanique dans _shared ; façades recommend-pad-category inchangées fonctionnellement, sans import inter-Edge.
+- Rapprochement strict de tous les lots : référence/quantité/équipement/propriété/poids/base/ONU/classe/danger et bon email, ou extrait identique si aucune référence. Source inaccessible, révisée, ambiguë ou discordante : refus avant IA, pas de remplacement silencieux.
+- IA reçoit seulement extraits marchandises masqués et caractéristiques par lot, pas emails entiers/photos. Empreinte source comparée à l'adoption et conservée dans preuve ; aucun fait ni code automatiquement enregistré.
+- Tests86Deno ciblés PASS dont70de non-régression parser/proposition existants ; UI ciblée7PASS ; types frontend/deno Edge+tests et build PASS. Contre-revue indépendante : deux points provenance/identité descriptive corrigés et levés. CI complète et recette Cloud nouveau code NOT_RUN.
+- Périmètre10fichiers applicatifs/tests (dont4partage/façades) + roadmap. Aucun moteur gelé/barème/fait/Auth/RLS/migration modifié. Déploiement futur nouvelle version propose-storage-designation et preview uniquement ; rollback revert ciblé + redéploiement. Reconnaissance GoTrans runtime toujours non validée tant que ce correctif n'est pas livré.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

@@ -27,6 +27,13 @@ it("refuses adoption after selected scenario changes", async () => {
   fireEvent.click(await screen.findByRole("button", { name: /Retenir sous hypothèse/ }));
   expect(await screen.findByRole("alert")).toHaveTextContent("a changé"); expect(adopt).not.toHaveBeenCalled();
 });
+it("refuses adoption when email context changed with identical scenario and designation", async () => {
+  invoke.mockResolvedValueOnce({ data: { ...result(), source_fingerprint: "before" } }).mockResolvedValueOnce({ data: { ...result(), source_fingerprint: "after" } });
+  const adopt = vi.fn(); render(<StorageDesignationProposal caseId="case" group={group} onAdopt={adopt} />);
+  fireEvent.click(screen.getByText("Proposer une désignation magasinage"));
+  fireEvent.click(await screen.findByRole("button", { name: /Retenir sous hypothèse/ }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("a changé"); expect(adopt).not.toHaveBeenCalled();
+});
 it("unsupported designation remains visible but not adoptable", async () => {
   const data = result(); data.candidates[0].applicable = false; invoke.mockResolvedValue({ data });
   render(<StorageDesignationProposal caseId="case" group={group} onAdopt={vi.fn()} />);
