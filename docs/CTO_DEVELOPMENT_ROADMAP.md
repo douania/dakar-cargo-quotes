@@ -1683,6 +1683,39 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Aucun changement DB/Auth/RLS/barème/fait/moteur/runtime, aucun commit/push/envoi. GoTrans2361000kg n'est pas corrigé par ce lot ; fourchette2409–2424t demeure à rapprocher explicitement avant devis confirmé.
 - Livraison distincte à autoriser : commit/push work, preview privée et manage-pad-group-confirmation seule, recette sans confirmation réelle ni envoi. Rollback applicatif par revert ciblé/rebuild/redéploiement, registre conservé ; aucune migration.
 
+#### Livraison assistance PAD — 17 septembre 2026 — PASS borné
+
+- GO publication utilisateur : commit/push work, preview privée, manage-pad-group-confirmation seule et recette sans confirmation réelle ni envoi.
+- Git ed5a8a83 → 59dcc4d40663221ef4064cf8c05593308430c253, origine alignée ; six fichiers +191/-9. Arbre supabase fdebbef95190c74c77f3d627f2bdc728ffcfaf56 inchangé après déploiement selon Lovable.
+- Lovable : déploiement unique réussi, OPTIONS200 / POST sans auth401, build Vite20,2s et previewHTTP200. Bundle runtime non exposé : NOT_VERIFIED ; aucune correction automatique de dette Deno.
+- Tests rejoués :6UI +19Deno stricts PASS, check:function-config97 PASS, check:scenario-bundles PASS (PATH Deno local rétabli), diff-check PASS ; CI complète NOT_RUN.
+- Recette Chrome authentifiée GoTrans en lecture seule : extraits des trois lignes client visibles ; sources et calculs2145000/234000kg préremplis ; lot3 fourchette10–15t explicite, source poids exact vide ; attestations décochées et motifs de désactivation affichés.
+- Conflit2424000kg scénario /2361000kg dossier visible. Aucun fait corrigé, aucune confirmation soumise, aucun recalcul ni envoi. Le calcul complet du TEST demeure NOT_RUN, distinct de cette recette UI.
+- Intégrité avant/après : registre1 ; faits MD5 8cc3268243897737ca5e5126378e5658 et tarifs MD5 235a655bf711e7ad8fc6c917f6419fee identiques. Aucune migration/Auth/RLS.
+- Suite : rapprocher le poids extrait GoTrans avec sa source et traiter la fourchette sans confirmation arbitraire. Rollback applicatif par revert ciblé/rebuild/redéploiement unique ; préserver registre. Note de clôture locale non commitée.
+
+#### Base de poids révisable — 17 septembre 2026 — PASS local borné, non livré
+
+- GO utilisateur local registre/calcul run-pricing/sorties/UI, migration préparée localement/tests/contre-revue ; sans écriture Cloud/publication/barème/fait GoTrans. work59dcc4d local/origin alignés après retry réseau ; note de livraison précédente conservée.
+- Contrat PAD distingue confirmed/provisional ; réserve obligatoire en provisoire, choix humain et attestation explicites, aucune promotion en fait. Migration20260917180000 ajoute deux colonnes et remplace writer en préservant CAS/acteur/idempotence/ACL ; défaut confirmé compatible ancien registre.
+- Calcul PAD conserve montants et traçabilité ; base unitaire affichée uniquement si per_unit déclaré, produit quantité/poids contrôlé. Qualification jamais ferme avec poids provisoire ; snapshot conserve source et réserve dans les lignes immuables.
+- PDF et brouillon portent base unitaire/total/réserve sans troncature au nombre de motifs ; mail déterministe pour ce parcours (pas de réécriture IA). Rendu PDF synthétique3×15t inspecté en PNG, lisible ; aucun document client créé.
+- Tests finaux :42Deno stricts +7UI PASS ; typecheck frontend/build PASS, checks config97/bundles PASS, diff-check PASS. Trois sorties Deno check PASS ; run-pricing check conserve2TS2345 historiques aux guards communication/partenaire (aucun correctif hors lot). CI complète NOT_RUN.
+- SQL Docker isolé réseau none, base pad_confirmation_test : migration et fixture provisoire/replay/réserve/changement vers exact/historique PASS ; fixture legacy CAS/poids/ACL/finalisation PASS. Rollback sans provisoire puis réapplication PASS ; rollback avec historique provisoire refusé explicitement, fixtures annulées.
+- Contre-revue indépendante : affichage unitaire ajouté, risque total ferme/perte réserve dans mail corrigé puis LEVÉ ; tests17Deno et mail rejoués par relecteur. SQL et PDF vérifiés par exécutant uniquement.
+- Limites : poids contradictoires/allocation/IMO/autres contrôles restent bloquants ; GoTrans2361000kg non corrigé. Ce lot ne crée pas de procédure de réouverture des dossiers envoyés et ne prouve pas une révision complète post-envoi ; historique des décisions et versions existantes préservé.
+- Aucun commit/push/Cloud/envoi. Rollback local préparé interdit dès historique provisoire ; correction en avant ensuite. Avant livraison : préflight Cloud schéma/ACL/ledger en lecture seule et GO distinct migration/commit/push/preview/Edge coordonnés/recette ; aucune décision pendant fenêtre de versions mixtes.
+
+#### Préflight poids révisable — 17 septembre 2026 — PASS lecture seule
+
+- GO limité aux contrôles Cloud et préparation livraison. Local/origin/Lovable59dcc4d alignés, projet prêt privé/non publié ; lot local attendu présent, note précédente conservée. Aucun code modifié/test relancé ce tour.
+- Ledger204, migration20260917180000 absente, colonnes weight_basis/weight_reservation et contrainte nouvelles absentes.16colonnes/17contraintes existantes conformes au schéma local testé ; writer Cloud corps identique à migration20260917120000 (normalisation CRLF seulement).
+- Trois helpers non modifiés identiques Cloud/local par md5(pg_get_functiondef) ; propriétaire postgres, SECURITY DEFINER/search_path fixé, EXECUTE postgres/service_role uniquement. Registre RLS actif, SELECT/INSERT service_role uniquement hors propriétaire.
+- Registre3 désormais : TEST1 + GoTrans lot2/lot1 enregistrés à17:42UTC, à préserver. Empreinte décisions62d4e86e13a137695e7206886ad4026c ; après ajout colonnes comparer projection retirant les deux nouveaux champs. Aucun changement de décision exécuté par Codex.
+- Faits8cc3268243897737ca5e5126378e5658 et tarifs235a655bf711e7ad8fc6c917f6419fee inchangés ; poidsGoTrans2361000kg inchangé. Migration locale SHA256 f42e48742469b3ca83cf0db1566c86f73893da4c811807e70585be118387ad57.
+- Livraison proposée sous GO distinct : préflight frais, migration+ledger204→205, commit/push/preview privée, sorties generate-quotation-version/export-quotation-version-pdf/create-quotation-email-draft puis run-pricing puis manage-pad-group-confirmation ; contrôle sources/sondes et recette TEST synthétique, GoTrans lecture seule.
+- Pendant fenêtre aucune confirmation/recalcul/version/brouillon utilisateur. Aucun envoi ; aucune correction du poidsGoTrans. Rollback SQL uniquement sans historique provisional, sinon correction en avant/préservation décisions ; pas de retrait automatique des validations existantes. Note locale non commitée.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

@@ -16,6 +16,7 @@ import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
+import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import {
   buildScenarioEmailBody,
   buildScenarioEmailSubject,
@@ -74,7 +75,12 @@ function mergeReasonIfMissing(
  */
 // deno-lint-ignore no-explicit-any
 function resolveQuoteQualification(snapshot: any): QuoteQualification {
-  const meta = snapshot?.meta;
+  const weightNotices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
+  const meta = weightNotices.length ? { ...snapshot?.meta, quoteQualification: {
+    ...snapshot?.meta?.quoteQualification,
+    level: snapshot?.meta?.quoteQualification?.level === "partial" ? "partial" : "provisional",
+    reasons: snapshot?.meta?.quoteQualification?.reasons ?? [],
+  } } : snapshot?.meta;
   const hasToConfirm = hasToConfirmRawLines(snapshot);
 
   if (
@@ -150,7 +156,9 @@ function buildReserveBlock(qualification: QuoteQualification): string[] {
 }
 
 // deno-lint-ignore no-explicit-any
-function buildDeterministicBody(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotSummaryLines: string[], hasPdf: boolean, qualification: QuoteQualification): string {
+export function buildDeterministicBody(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotSummaryLines: string[], hasPdf: boolean, qualification: QuoteQualification): string {
+  const weightNotices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
+  if (weightNotices.length) qualification = { ...qualification, level: qualification.level === "partial" ? "partial" : "provisional", firmTotalPolicy: "all_included" };
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
   const inputsBlock = snapshot?.inputs as Record<string, unknown> | undefined;
   const totalsBlock = snapshot?.totals as Record<string, unknown> | undefined;
@@ -233,6 +241,7 @@ function buildDeterministicBody(snapshot: Record<string, any> | null, versionNum
 
   // Reserve block
   parts.push(...buildReserveBlock(qualification));
+  if (weightNotices.length) parts.push("", "Bases de poids retenues — cotation révisable :", ...weightNotices);
 
   // Multi-lot summary
   if (isMultiLot && lotSummaryLines.length > 0) {
@@ -328,7 +337,7 @@ Le body_text doit commencer par une salutation et finir par "Cordialement,\\nL'�
 
 // ── Main handler ─────────────────────────────────────────────────────────────
 
-Deno.serve(async (req: Request) => {
+if (import.meta.main) Deno.serve(async (req: Request) => {
   const corsResp = handleCors(req);
   if (corsResp) return corsResp;
 
@@ -525,7 +534,9 @@ Deno.serve(async (req: Request) => {
   let finalBody = deterministicBody;
   let generationMode: "ai" | "deterministic" = "deterministic";
 
-  if (useAiEnrichment) {
+  // For a reserved weight basis, keep the deterministic commercial wording.
+  // An AI marker alone cannot guarantee preservation of the exact reservation.
+  if (useAiEnrichment && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0) {
     const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {

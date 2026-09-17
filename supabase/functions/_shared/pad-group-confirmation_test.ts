@@ -17,6 +17,18 @@ const tariff = (classification: string, amount: number): Record<string, unknown>
 const tariffs = () => [tariff("T02", 100), tariff("T03", 200)];
 const run = (heads = decisions(), rates = tariffs(), c = context()) => resolveConfirmedPadGroups(c, heads, rates, "2026-09-17");
 
+Deno.test("provisional PAD weight retains amount and reservation without confirming client weight", () => {
+  const heads = decisions(); heads[1].weight_basis = "provisional";
+  heads[1].weight_reservation = "Base haute retenue, révisable selon documents définitifs";
+  const before = JSON.stringify(heads);
+  assertEquals(run(heads).total, 5000);
+  assertEquals(run(heads).lines[1].weight_basis, "provisional");
+  assertEquals(run(heads).lines[1].weight_reservation, heads[1].weight_reservation);
+  assertEquals(JSON.stringify(heads), before);
+  heads[1].weight_reservation = "";
+  assertEquals(run(heads).issues[0].code, "PAD_WEIGHT_BASIS_INVALID");
+});
+
 Deno.test("confirmed PAD: two same-equipment groups retain distinct categories and weight bases", () => {
   const c = context(); const ds = decisions(); const ts = tariffs(); const before = JSON.stringify([c, ds, ts]);
   const result = run(ds, ts, c);

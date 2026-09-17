@@ -1,6 +1,7 @@
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
 import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
 import { loadPadGroupState, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
+import { weightBasisNotice, quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 /**
  * Phase 11: run-pricing
  * Executes deterministic pricing via quotation-engine
@@ -3711,10 +3712,12 @@ Deno.serve(async (req) => {
           if (confirmedGroups) {
             for (const line of confirmedGroups) engineLines.push(canonicalizeLine({
               category: 'PAD_DROIT_PASSAGE', label: `Droit de passage PAD ${line.category} — ${line.unit_ref}`,
-              description: `Catégorie et poids confirmés pour le groupe ${line.unit_ref}`,
+              description: weightBasisNotice(line.unit_ref, line.quantity * 1000, line) ?? `Catégorie et poids confirmés pour le groupe ${line.unit_ref}`,
               amount: line.amount, currency: 'FCFA', unit: 'tonne', quantity: line.quantity, unitPrice: line.unit_price,
               source: { type: 'OFFICIAL', reference: line.tariff_source, table: 'port_tariffs', tariff_id: line.tariff_id,
-                decision_id: line.decision_id, unit_ref: line.unit_ref, context_hash: line.context_hash, confidence: 1 },
+                decision_id: line.decision_id, unit_ref: line.unit_ref, context_hash: line.context_hash, confidence: 1,
+                weight_basis: line.weight_basis ?? "confirmed", weight_reservation: line.weight_reservation ?? "",
+                weight_container_count: line.weight_container_count, weight_per_container_kg: line.weight_per_container_kg },
               isEditable: false,
             }, { origin_layer: 'enrichment_pad' }));
           } else engineLines.push(officialPadLine);
@@ -4601,6 +4604,15 @@ ${JSON.stringify(refPayload)}`;
       };
     }
 
+    const weightNotices = quotationWeightNotices(tariffLines);
+    if (weightNotices.length) {
+      const previous = (outputsJson as any).quoteQualification;
+      (outputsJson as any).quoteQualification = {
+        level: previous?.level === "partial" ? "partial" : "provisional",
+        reasons: [...(previous?.reasons ?? []), ...weightNotices.map(message => ({ code: "PROVISIONAL_WEIGHT_BASIS", message }))],
+        firmTotalPolicy: previous?.firmTotalPolicy ?? "all_included",
+      };
+    }
     const durationMs = Date.now() - startTime;
 
     // 13. Update pricing_run with results

@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import type { PadGroup, PadGroupContext, PadGroupDecision } from "../../../supabase/functions/_shared/pad-group-confirmation";
 import type { GroupEvidence } from "../../../supabase/functions/manage-pad-group-confirmation/evidence";
+import { validWeightBasis, type WeightBasis } from "../../../supabase/functions/_shared/quotation-weight-basis";
 
 type State = {
   mode: "legacy" | "groups"; context: PadGroupContext | null; heads: PadGroupDecision[]; ready: boolean;
@@ -32,6 +33,8 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, onSav
     ? `Proposition à vérifier (${group.proposed_category ?? "catégorie à choisir"}) : ${group.proposed_basis}`.slice(0, 2000) : "");
   const [weightSource, setWeightSource] = useState(evidence?.weightDraft.slice(0, 2000) ?? "");
   const [attested, setAttested] = useState(false);
+  const [weightBasis, setWeightBasis] = useState<WeightBasis>(head?.weight_basis ?? "confirmed");
+  const [reservation, setReservation] = useState(head?.weight_reservation ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmed = head?.action === "confirm" && head.context_hash === context.context_hash;
@@ -40,7 +43,8 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, onSav
     ...(!category ? ["Choisissez une catégorie PAD."] : []),
     ...(group.total_weight_kg === null ? ["Précisez le poids du groupe."] : []),
     ...(source.trim().length < 3 ? ["Renseignez la source et la justification de la catégorie."] : []),
-    ...(weightSource.trim().length < 3 ? ["Renseignez la source du poids exact et de son allocation."] : []),
+    ...(weightSource.trim().length < 3 ? [weightBasis === "provisional" ? "Renseignez la source de la base de poids retenue et de son allocation." : "Renseignez la source du poids exact et de son allocation."] : []),
+    ...(!validWeightBasis({ weight_basis: weightBasis, weight_reservation: reservation }) ? ["Précisez la réserve de poids (10 caractères minimum)."] : []),
     ...(!attested ? ["Vérifiez les sources puis cochez la validation explicite."] : []),
   ];
   async function record(action: "confirm" | "revoke") {
@@ -49,6 +53,7 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, onSav
       const result = await supabase.functions.invoke("manage-pad-group-confirmation", { body: {
         case_id: context.case_id, action: "record", decision: { unit_ref: group.unit_ref, action,
           category: action === "confirm" ? category : null, source_reference: source.trim(), weight_source_reference: weightSource.trim(),
+          weight_basis: action === "confirm" ? weightBasis : "confirmed", weight_reservation: action === "confirm" ? reservation : "",
           expected_context_hash: context.context_hash, expected_head_id: head?.id ?? null, idempotency_key: crypto.randomUUID() },
       } });
       if (result.error) throw result.error;
@@ -60,7 +65,7 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, onSav
     <h4 className="font-medium">{group.unit_ref} — {group.quantity} × {group.equipment_code} {group.ownership}</h4>
     <p className="text-sm">Poids total : {group.total_weight_kg === null ? "à préciser" : `${group.total_weight_kg.toLocaleString("fr-FR")} kg`}</p>
     <p className="text-sm">Estimation : {group.proposed_category ? `catégorie proposée ${group.proposed_category}` : "catégorie non retenue"}. {group.proposed_basis}</p>
-    <p className="text-sm">Devis confirmé : {confirmed ? `${head.category} — décision enregistrée` : "décision attendue"}.</p>
+    <p className="text-sm">Base du devis : {confirmed ? `${head.category} — ${head.weight_basis === "provisional" ? "poids provisoire retenu avec réserve" : "poids confirmé"}` : "décision attendue"}.</p>
     {issues.map(code => <p className="text-sm text-amber-700" key={code}>{messages[code] ?? "Confirmation non exploitable : revoir ce groupe et ses sources."}</p>)}
     <details>
       <summary className="cursor-pointer text-sm">{confirmed ? "Revoir ou retirer la confirmation" : "Confirmer la catégorie pour le devis"}</summary>
@@ -73,6 +78,22 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, onSav
       </div> : <p className="text-sm text-amber-700">Aucun extrait client rattaché sans ambiguïté à ce groupe. Renseignez une source vérifiée ; le poids affiché reste celui du scénario.</p>}
       <details className="text-xs break-words mb-2"><summary>Références et base du scénario</summary>{evidence?.reference}<p>{group.description}</p></details>
       <div className="grid gap-2 sm:grid-cols-2">
+        <label className="text-sm">Nature du poids retenu
+          <select className="block w-full border rounded p-2 bg-background" value={weightBasis} disabled={pending || readOnly}
+            onChange={e => {
+              const basis = e.target.value as WeightBasis; setWeightBasis(basis); setAttested(false);
+              setReservation(basis === "provisional" ? "Poids retenu pour la cotation ; prestations dépendant du poids révisables selon les documents définitifs et les conditions tarifaires applicables." : "");
+              if (basis === "provisional" && evidence) setWeightSource(`${evidence.reference} : ${evidence.excerpt}. Base de cotation : ${evidence.calculation}. Allocation à vérifier.`.slice(0, 2000));
+              else setWeightSource(evidence?.weightDraft.slice(0, 2000) ?? "");
+            }}>
+            <option value="confirmed">Poids confirmé par une source</option>
+            <option value="provisional">Base de cotation révisable — avec réserve</option>
+          </select>
+        </label>
+        {weightBasis === "provisional" && <label className="text-sm">Réserve à reproduire dans la cotation
+          <textarea className="block w-full border rounded p-2 bg-background" value={reservation} maxLength={2000} disabled={pending || readOnly}
+            onChange={e => { setReservation(e.target.value); setAttested(false); }} />
+        </label>}
         <label className="text-sm">Catégorie PAD
           <select className="block w-full border rounded p-2 bg-background" value={category} onChange={e => { setCategory(e.target.value); setSource(""); setAttested(false); }} disabled={pending || readOnly}>
             <option value="">Choisir</option>
@@ -87,10 +108,10 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, onSav
         </label>
       </div>
       <label className="flex items-start gap-2 my-3 text-sm"><input type="checkbox" checked={attested} onChange={e => setAttested(e.target.checked)} disabled={pending} />
-        Je valide explicitement la catégorie, le poids total et leur rattachement à ce groupe, après vérification des sources.
+        {weightBasis === "provisional" ? "Je retiens explicitement cette base de cotation et sa réserve, sans confirmer un poids définitif." : "Je valide explicitement la catégorie, le poids total et leur rattachement à ce groupe, après vérification des sources."}
       </label>
       <div className="flex gap-2">
-        <Button size="sm" disabled={readOnly || pending || !attested || !category || group.total_weight_kg === null || source.trim().length < 3 || weightSource.trim().length < 3} onClick={() => record("confirm")}>Confirmer pour le devis</Button>
+        <Button size="sm" disabled={pending || missing.length > 0} onClick={() => record("confirm")}>{weightBasis === "provisional" ? "Retenir avec réserve pour le devis" : "Confirmer pour le devis"}</Button>
         {head?.action === "confirm" && <Button size="sm" variant="outline" disabled={readOnly || pending || !attested || source.trim().length < 3 || weightSource.trim().length < 3} onClick={() => record("revoke")}>Retirer la confirmation</Button>}
       </div>
       {missing.length > 0 && <ul className="text-sm text-amber-700 list-disc pl-5" aria-label="À compléter avant confirmation">{missing.map(m => <li key={m}>{m}</li>)}</ul>}

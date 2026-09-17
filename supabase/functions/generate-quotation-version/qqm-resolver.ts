@@ -7,6 +7,7 @@
  * Module isolé (sans Deno.serve, sans import jsr/supabase) pour tests unitaires fiables.
  */
 
+import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 export type QQLevel = "firm" | "provisional" | "partial";
 export type QQReason = { code: string; message: string; field?: string };
 export type QQ = {
@@ -55,6 +56,12 @@ export function resolveSnapshotQualification(
   outputsQQ: any,
   tariffLines: any[],
 ): QQ {
+  const notices = quotationWeightNotices(Array.isArray(tariffLines) ? tariffLines : []);
+  if (notices.length) outputsQQ = {
+    ...outputsQQ, level: outputsQQ?.level === "partial" ? "partial" : "provisional",
+    reasons: [...(Array.isArray(outputsQQ?.reasons) ? outputsQQ.reasons.filter((r: QQReason) => r.code !== "PROVISIONAL_WEIGHT_BASIS") : []),
+      ...notices.map(message => ({ code: "PROVISIONAL_WEIGHT_BASIS", message }))],
+  };
   const hasToConfirm = hasToConfirmLine(tariffLines);
   const incomingLevel: QQLevel | null =
     outputsQQ && typeof outputsQQ === "object" && ["firm", "provisional", "partial"].includes(outputsQQ.level)

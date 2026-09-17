@@ -80,3 +80,17 @@ it("never presents a partial sum as a total when a group weight is unknown", asy
   expect(await screen.findByRole("alert")).toHaveTextContent("non déterminé (poids manquant)");
   expect(screen.getByRole("alert")).not.toHaveTextContent("scénario : 0 kg");
 });
+
+it("range can be retained explicitly with reserve, never automatically attested", async () => {
+  const s = { ...state(), assistance: { a: { excerpt: "10–18t/container", reference: "mail", calculation: "2 × 18 000 kg = 36 000 kg", weightDraft: "", warnings: [] } } };
+  io.invoke.mockResolvedValue({ data: s, error: null }); mount();
+  await screen.findByText(/Extrait client/);
+  const user = userEvent.setup();
+  await user.selectOptions(screen.getByLabelText("Nature du poids retenu"), "provisional");
+  expect((screen.getByLabelText("Source du poids et de l’allocation du groupe") as HTMLTextAreaElement).value).toContain("Base de cotation");
+  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Retenir avec réserve pour le devis" })).toBeDisabled();
+  await user.click(screen.getByRole("checkbox"));
+  await user.click(screen.getByRole("button", { name: "Retenir avec réserve pour le devis" }));
+  await waitFor(() => expect(io.invoke).toHaveBeenCalledWith("manage-pad-group-confirmation", { body: expect.objectContaining({ action: "record", decision: expect.objectContaining({ weight_basis: "provisional", weight_reservation: expect.stringContaining("révisables") }) }) }));
+});

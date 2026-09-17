@@ -16,6 +16,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { handleCors } from "../_shared/cors.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
+import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import {
   isScenarioOutputSnapshot,
   readScenarioOutputContext,
@@ -149,7 +150,13 @@ function mergeReasonIfMissing(
  */
 // deno-lint-ignore no-explicit-any
 function resolveQuoteQualification(snapshot: any): QuoteQualification {
-  const meta = snapshot?.meta;
+  const notices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
+  const meta = notices.length ? { ...snapshot?.meta, quoteQualification: {
+    ...snapshot?.meta?.quoteQualification,
+    level: snapshot?.meta?.quoteQualification?.level === "partial" ? "partial" : "provisional",
+    reasons: [...(snapshot?.meta?.quoteQualification?.reasons ?? []).filter((r: {code: string}) => r.code !== "PROVISIONAL_WEIGHT_BASIS"),
+      { code: "PROVISIONAL_WEIGHT_BASIS", message: "Poids retenus sous réserve ; détail ci-dessous." }],
+  } } : snapshot?.meta;
   const hasToConfirm = hasToConfirmRawLines(snapshot);
 
   if (
@@ -207,6 +214,7 @@ function resolveQuoteQualification(snapshot: any): QuoteQualification {
 }
 
 function getTotalLabel(q: QuoteQualification): string {
+  if (q.reasons.some(r => r.code === "PROVISIONAL_WEIGHT_BASIS")) return "TOTAL HT INDICATIF (poids sous reserve)";
   if (q.level === "firm") return "TOTAL HT";
   if (q.level === "partial") return "TOTAL HT PARTIEL";
   // provisional
@@ -219,7 +227,7 @@ function getTotalLabel(q: QuoteQualification): string {
 // ============================================================================
 
 // deno-lint-ignore no-explicit-any
-async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Array> {
+export async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -429,6 +437,19 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
     drawScenarioList('Hypotheses appliquees', scenarioContext.assumptions);
     drawScenarioList('Elements sous reserve', scenarioContext.reservations);
     drawScenarioList('Elements exclus du socle documente', scenarioContext.exclusions);
+    y -= sectionGap / 2;
+  }
+
+  const weightNotices = quotationWeightNotices(Array.isArray(snapshot.raw_lines) ? snapshot.raw_lines : []);
+  if (weightNotices.length) {
+    ensureSpace(lineHeight * 3);
+    currentPage.drawText('BASES DE POIDS RETENUES - COTATION REVISABLE', { x: margin, y, size: 10, font: fontBold, color: amberColor });
+    y -= lineHeight;
+    for (const notice of weightNotices) for (const line of wrapPdfText(notice)) {
+      ensureSpace(lineHeight);
+      currentPage.drawText(line, { x: margin, y, size: 9, font, color: black });
+      y -= lineHeight;
+    }
     y -= sectionGap / 2;
   }
 
@@ -642,7 +663,7 @@ async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Arr
 // HANDLER
 // ============================================================================
 
-Deno.serve(async (req) => {
+if (import.meta.main) Deno.serve(async (req) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 

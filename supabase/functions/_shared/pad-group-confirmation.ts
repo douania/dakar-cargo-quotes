@@ -4,6 +4,7 @@
  */
 import { isApplicableScenarioPadTariff } from "./scenario-pad-tariff.ts";
 import { normalizeDthcContainerType } from "./dpw-dthc-tariff.ts";
+import { validWeightBasis, type WeightBasisDecision } from "./quotation-weight-basis.ts";
 
 export type PadGroup = {
   unit_ref: string;
@@ -12,6 +13,7 @@ export type PadGroup = {
   ownership: "SOC" | "COC";
   description: string;
   total_weight_kg: number | null;
+  declared_per_container_kg?: number;
   proposed_category?: string | null;
   proposed_basis?: string;
 };
@@ -22,7 +24,7 @@ export type PadGroupContext = {
   context_hash: string;
   groups: PadGroup[];
 };
-export type PadGroupDecision = {
+export type PadGroupDecision = WeightBasisDecision & {
   id: string;
   case_id: string;
   scenario_id: string;
@@ -38,7 +40,9 @@ export type PadGroupDecision = {
   created_at: string;
 };
 export type PadGroupIssue = { unit_ref: string; code: string };
-export type ConfirmedPadLine = {
+export type ConfirmedPadLine = WeightBasisDecision & {
+  weight_container_count?: number;
+  weight_per_container_kg?: number;
   unit_ref: string;
   category: string;
   quantity: number;
@@ -105,7 +109,8 @@ export function padGroupsFromSnapshot(snapshot: Record<string, unknown>): PadGro
       ownership: u.ownership as "SOC" | "COC", description: u.scenario_basis,
       proposed_category: choice && categoryPattern.test(String(choice.category)) ? String(choice.category) : null,
       proposed_basis: typeof choice?.basis === "string" ? choice.basis : "",
-      total_weight_kg: positiveWeight(weight) ? weight : null };
+      total_weight_kg: positiveWeight(weight) ? weight : null,
+      ...(u.weight_basis === "per_unit" && positiveWeight(u.gross_weight_kg) ? { declared_per_container_kg: u.gross_weight_kg } : {}) };
   });
 }
 
@@ -135,6 +140,7 @@ export function resolveConfirmedPadGroups(
       d.scope_hash !== context.scope_hash || d.context_hash !== context.context_hash) code = "PAD_CONFIRMATION_STALE";
     else if (!text(d.id) || !text(d.decided_by) || !text(d.created_at) ||
       !text(d.source_reference) || !text(d.weight_source_reference) || !categoryPattern.test(d.category ?? "")) code = "PAD_CONFIRMATION_INVALID";
+    else if (!validWeightBasis(d)) code = "PAD_WEIGHT_BASIS_INVALID";
     else if (!positiveWeight(g.total_weight_kg) || d.total_weight_kg !== g.total_weight_kg) code = "PAD_WEIGHT_CONFIRMATION_REQUIRED";
     if (code) { issues.push({ unit_ref: g.unit_ref, code }); continue; }
     const rates = tariffs.filter(t => isApplicableScenarioPadTariff(t, d.category, today));
@@ -150,7 +156,9 @@ export function resolveConfirmedPadGroups(
     }
     lines.push({ unit_ref: g.unit_ref, category: d.category!, quantity, unit_price: Number(rate.amount), amount,
       tariff_id: String(rate.id), tariff_source: String(rate.source_document), decision_id: d.id,
-      context_hash: context.context_hash });
+      context_hash: context.context_hash,
+      ...(d.weight_basis === "provisional" ? { weight_basis: d.weight_basis, weight_reservation: d.weight_reservation,
+        ...(g.declared_per_container_kg ? { weight_container_count: g.quantity, weight_per_container_kg: g.declared_per_container_kg } : {}) } : {}) });
   }
   if (heads.some(d => !context.groups.some(g => g.unit_ref === d.unit_ref))) {
     issues.push({ unit_ref: "", code: "PAD_DECISION_OUTSIDE_SCOPE" });

@@ -25,7 +25,7 @@ export function groupEvidence(groups: PadGroup[], client: unknown, facts: Row[],
     const calculation = `${g.quantity} × ${g.weight_kg!.toLocaleString("fr-FR")} kg = ${group.total_weight_kg!.toLocaleString("fr-FR")} kg`;
     result[group.unit_ref] = { excerpt: g.excerpt, reference, calculation,
       weightDraft: range ? "" : `${reference} : ${g.excerpt}. Calcul : ${calculation}. Allocation au groupe à vérifier.`,
-      warnings: [...g.assumptions, ...(range ? ["La borne haute du scénario n’est pas un poids exact confirmé. Précisez une source de poids exact avant le devis."] : [])] };
+      warnings: [...g.assumptions, ...(range ? ["La borne haute du scénario n’est pas un poids exact confirmé. Retenez-la explicitement comme base révisable avec réserve, ou justifiez un poids exact."] : [])] };
   }
   return result;
 }
