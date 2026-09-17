@@ -73,4 +73,3 @@ $$;
 alter table public.pad_group_confirmations drop constraint pad_weight_basis_check,
  drop column weight_basis, drop column weight_reservation;
 commit;
-

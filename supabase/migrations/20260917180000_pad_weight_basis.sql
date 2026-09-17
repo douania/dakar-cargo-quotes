@@ -80,4 +80,3 @@ end;
 $$;
 -- CREATE OR REPLACE preserves the existing owner and execute ACL.
 commit;
-

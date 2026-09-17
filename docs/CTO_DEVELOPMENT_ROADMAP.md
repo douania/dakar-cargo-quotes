@@ -1716,6 +1716,21 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Livraison proposée sous GO distinct : préflight frais, migration+ledger204→205, commit/push/preview privée, sorties generate-quotation-version/export-quotation-version-pdf/create-quotation-email-draft puis run-pricing puis manage-pad-group-confirmation ; contrôle sources/sondes et recette TEST synthétique, GoTrans lecture seule.
 - Pendant fenêtre aucune confirmation/recalcul/version/brouillon utilisateur. Aucun envoi ; aucune correction du poidsGoTrans. Rollback SQL uniquement sans historique provisional, sinon correction en avant/préservation décisions ; pas de retrait automatique des validations existantes. Note locale non commitée.
 
+#### Livraison poids révisable — 17 septembre 2026 — PARTIAL, arrêt avant push
+
+- GO utilisateur livraison regroupée avec arrêt au premier échec. Préflight frais local/origin/Lovable59dcc4d, schéma/ACL et trois décisions identiques.
+- Migration20260917180000 appliquée avec enregistrement atomique ledger204→205 ; garde writer/ledger/décisions avant écriture et projection des anciennes décisions après ajout colonnes. Accusé PAD_WEIGHT_BASIS_APPLIED.
+- Contrôle après écriture : RLS/ACL/propriétaires inchangés, trois décisions conservées confirmed ; empreintes décisions62d4e86e13a137695e7206886ad4026c, faits8cc3268243897737ca5e5126378e5658, tarifs235a655bf711e7ad8fc6c917f6419fee inchangées. Writer MD5 pg_get_functiondef0101cece8985a0a0fb53c38e93a9baec.
+- Commit local5a52309 :17fichiers +461/-18. git diff --cached --check a signalé trois lignes vides EOF dans migration/rollback/fixture ; commande PowerShell non conditionnée a malheureusement poursuivi le commit malgré cet échec. Arrêt avant push, aucune modification corrective ni amend automatique.
+- Push/preview/cinq déploiements/recette NOT_RUN. Runtime Edge et UI restent anciens ; migration additive compatible, aucune décision provisoire créée. Tests applicatifs non relancés ce tour, preuves locales précédentes conservées.
+- Suite : traiter explicitement ce défaut de contrôle de format avant reprise ; ne pas changer la source déjà enregistrée au ledger sans documenter sa différence purement textuelle. Aucun tarif/fait/confirmation GoTrans modifié, aucun envoi. Retour SQL toujours soumis à absence d'historique provisional. Cette note de clôture reste locale non commitée.
+
+#### Reprise livraison poids révisable — 17 septembre 2026
+
+- GO utilisateur correction EOF et reprise livraison/recette. Écart Git expliqué : commit local5a52309 non poussé, origin/Lovable59dcc4d ; ledger205 confirmé, trois décisions et empreintes faits/tarifs inchangées, aucun provisional.
+- Correctif strict : une ligne vide EOF supprimée dans migration, rollback et fixture ; aucune instruction SQL changée. Source historique exécutée conservée au ledger sans réécriture ; différence textuelle finale documentée, aucune migration rejouée.
+- diff-check PASS après correction ; commandes de reprise conditionnées aux codes de sortie. Tests métier précédents restent la preuve du code inchangé ; recette runtime à poursuivre après cinq déploiements coordonnés, sans envoi ni correction GoTrans.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
