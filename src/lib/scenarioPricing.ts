@@ -155,7 +155,7 @@ export function scenarioPricingCodeMessage(code: string): string {
     case "SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT":
       return "Manutention conteneurs : barème homologué retenu indépendamment de l’opérateur, sans déduire le mode terminal.";
     case "SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM":
-      return "Frais annexes terminal et magasinage à confirmer : non chiffrés, et non considérés comme gratuits.";
+      return "Magasinage et frais annexes terminal : consulter le détail par lot pour les montants calculés et les réserves. Seuls les postes non chiffrés sont exclus du sous-total ; ils ne sont pas considérés comme gratuits. Les montants estimés restent non fermes.";
     case "SCENARIO_TERMINAL_FACT_INVALID":
       return "Mode terminal renseigné mais non reconnu : vérifier cette information avant calcul.";
     default:

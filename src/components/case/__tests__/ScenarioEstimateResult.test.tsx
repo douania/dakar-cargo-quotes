@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { ScenarioEstimateResult, type SelectedScenarioEstimate } from "../ScenarioEstimateResult";
 afterEach(cleanup);
 it("distinguishes an ownership exclusion from a free service and shows the priced-base qualification", () => {
@@ -73,3 +73,35 @@ it("opens the exact service details from an unpriced transport action",async()=>
   await userEvent.click(screen.getByRole('link',{name:'Consulter les postes et tarifs manquants'}));
   expect(screen.getByText(/Détail des prestations et sources/).closest('details')).toHaveAttribute('open');
 });
+
+it.each(["calculated", "unpriced", "mixed", "zero"] as const)(
+  "keeps the terminal summary consistent with %s storage without changing the result",
+  (state) => {
+    const e = estimate();
+    const priced = { id: "storage-a", category: "Magasinage", description: "Magasinage lot A",
+      amount: state === "zero" ? 0 : 7880, source: { type: "CALCULATED", reference: "STORAGE_P1_OPERATOR_1111_20260916" },
+      notes: "P1 estimé par coefficient opérateur ×1,111, à corroborer sur facture." };
+    const unpriced = { id: "storage-b", category: "Magasinage", description: "Magasinage lot B",
+      amount: null, source: { type: "TO_CONFIRM" }, notes: "Durée de séjour à préciser" };
+    e.run!.tariff_lines = state === "unpriced" ? [unpriced] : state === "mixed" ? [priced, unpriced] : [priced];
+    e.run!.indicative_total_ht = e.run!.indicative_total_ttc = state === "unpriced" || state === "zero" ? 0 : 7880;
+    e.run!.reservations = [{ code: "SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM" }];
+    const before = JSON.stringify(e);
+    render(<ScenarioEstimateResult estimate={e} />);
+    expect(screen.queryByText(/Frais annexes terminal et magasinage à confirmer : non chiffrés/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Seuls les postes non chiffrés sont exclus du sous-total/)).toBeInTheDocument();
+    if (state !== "unpriced") {
+      expect(screen.getByText(priced.notes)).toBeInTheDocument();
+      const row = screen.getByText("Magasinage lot A").closest("tr")!;
+      expect(within(row).queryByText("À confirmer")).not.toBeInTheDocument();
+      expect(row).toHaveTextContent(state === "zero" ? /0\s+F/ : /7\s*880/);
+    }
+    if (state === "unpriced" || state === "mixed") {
+      expect(within(screen.getByRole("region", { name: "Postes à compléter" })).getByText(/Magasinage lot B — 1 poste non chiffré/)).toBeInTheDocument();
+      expect(screen.getByText("Durée de séjour à préciser")).toBeInTheDocument();
+    } else {
+      expect(screen.queryByRole("region", { name: "Postes à compléter" })).not.toBeInTheDocument();
+    }
+    expect(JSON.stringify(e)).toBe(before);
+  },
+);

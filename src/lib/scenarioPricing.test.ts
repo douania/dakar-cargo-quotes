@@ -54,7 +54,11 @@ describe("scenarioPricing P1-A4", () => {
   it("explique la base THC et les annexes non chiffrées sans masquer un fait terminal invalide", () => {
     expect(scenarioPricingCodeMessage("SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT")).toContain("indépendamment de l’opérateur");
     expect(scenarioPricingCodeMessage("SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT")).toContain("sans déduire le mode terminal");
-    expect(scenarioPricingCodeMessage("SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM")).toContain("non chiffrés, et non considérés comme gratuits");
+    const terminalMessage = scenarioPricingCodeMessage("SCENARIO_TERMINAL_ANCILLARIES_TO_CONFIRM");
+    expect(terminalMessage).toContain("détail par lot pour les montants calculés et les réserves");
+    expect(terminalMessage).toContain("Seuls les postes non chiffrés sont exclus du sous-total");
+    expect(terminalMessage).toContain("pas considérés comme gratuits");
+    expect(terminalMessage).toContain("non fermes");
     expect(scenarioPricingCodeMessage("SCENARIO_TERMINAL_FACT_INVALID")).toContain("vérifier cette information avant calcul");
   });
   it("conserve le run de séquence la plus récente par scénario", () => {

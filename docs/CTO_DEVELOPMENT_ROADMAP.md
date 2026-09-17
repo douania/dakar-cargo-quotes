@@ -1539,7 +1539,25 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - GO utilisateur « publier dans lovable avec la remarque à corroborer » : commit/push work, preview privée, quotation-engine puis run-scenario-pricing ; aucune migration, publication publique ou envoi client.
 - Blocage frontend levé sans patch applicatif : dépendances locales Deno hors package-lock (Radix2.3.7 vs2.2.5, user-event14.6.7 vs14.6.1, Vitest3.2.7 vs3.2.4). npm ci restaure les versions verrouillées ;459/459tests PASS, typecheck/build PASS. Les anciens échecs ne sont pas une régression démontrée du lot.
 - Préflight Git/GitHub/Lovable89ee9a0 aligné, projet workspace_edit/is_published=false. Réserve P1 non officielle et montants non fermes conservés. Dépendances suivies inchangées ; Auth/RLS/catalogues/faits inchangés.
-- Contrôles runtime et recette à compléter après livraison ; retour arrière par revert ciblé du lot et redéploiement coordonné des deux fonctions, sans rollback SQL.
+- Livraison69f1658ad9bd2e1f74c1d6a32b311a5926176fae poussée sur work (16fichiers,+596/-15). Lovable umsg_01m2npp6mcfaxvakq9y7bb83q0 confirme build24,98s/preview200, puis quotation-engine et run-scenario-pricing successifs «Successfully deployed» ; OPTIONS200/POST sans auth401 chacun, HEAD/tree supabase36b3ef590caf33f4ad532c49e39b21a7431d1b87 inchangés. Bundle runtime non exposé/NOT_VERIFIED.
+- Contrôle Chrome authentifié : formulaire séjour présent, mention P1×1,111/412-419observés/autres à corroborer/P2-P3historiques visible. Formulaire annulé, aucune hypothèse enregistrée, aucun pricing lancé ni fait modifié. Recette de calcul complète NOT_RUN ; livraison privée PASS, recette PARTIAL.
+- Retour arrière par revert ciblé69f1658 et redéploiement coordonné des deux fonctions, sans rollback SQL. Note de résultat finale locale non commitée (pas de commit docs-only).
+
+#### Recette séjour/P1 — 17 septembre 2026 — calcul PASS, restitution PARTIAL
+
+- GO utilisateur sur recette avec hypothèse de séjour ; work69f1658 inchangé et Lovable sur ce SHA. GitHub inaccessible (connexion443), aucun commit/push/déploiement ce tour ; note précédente préservée.
+- Chrome authentifié : dossier synthétique TEST-KM-20260916 (450cb321-8da6-4323-a579-187800d09e45), ajout hypothèse pricing.container_stay_estimate 12j DPW/code414, lot SOC20GP10t ; révision4 sélectionnée (19e1fa6c-22a6-4eae-81a3-88f821bca09c), six hypothèses liées. Aucune promotion en faits ni action GoTrans.
+- Run isolé8bae0b9a-e029-489f-92ef-d6ec81b210ed terminé08:55:27UTC, status success/qualification partial, confirmé UI et SELECT Lovable : P1 355×1,111 arrondi394, franchise10j, 2j×10t×394=7880FCFA. THC155000 et transport634722 inchangés ; sous-total indicatif797602XOF, aucun montant ferme éligible.
+- Source STORAGE_P1_OPERATOR_1111_20260916 et réserve « à corroborer sur facture » visibles/persistées ; P2/P3 historiques signalés, hors frais annexes. Hypothèse et run TEST conservés pour audit ; aucun envoi, changement de barème, migration ou modification Auth/RLS.
+- Défaut de restitution constaté : résumé générique annonce encore magasinage non chiffré, alors que sa ligne7880 est calculée. Aucun correctif hors GO ; prochaine action proposée : adapter ce libellé au résultat effectif. Surestaries COC et autres paliers runtime NOT_RUN ce tour.
+
+#### Résumé magasinage — 17 septembre 2026 — PASS local, non publié
+
+- GO utilisateur sur contradiction du résumé ; préflight local/GitHub work69f1658 aligné, notes locales précédentes préservées. HEAD inchangé.
+- Correctif strictement présentation : src/lib/scenarioPricing.ts remplace le libellé fixe « magasinage non chiffré » par un renvoi aux montants/réserves par lot ; seuls les postes non chiffrés sont annoncés exclus, absence de gratuité et caractère non ferme conservés. Helper partagé par cockpit et panneau scénarios, codes persistés inchangés.
+- Diff du lot : une chaîne applicative, test helper et quatre cas UI (calculé7880, absent, mixte, zéro calculé), plus cette note. Tests vérifient réserve à corroborer, postes manquants et absence de mutation du résultat.
+- Tests ciblés31PASS ; suite frontend463/463PASS ; typecheck/build et diff-check PASS. Build avec avertissements non bloquants. Auto-revue proportionnée au seul libellé ; aucun calcul/composant FROZEN modifié.
+- Aucun commit/push, déploiement, migration, recalcul, envoi ou changement DB/Auth/RLS/barèmes/faits. Recette du nouveau libellé Lovable NOT_RUN ; GO de publication distinct requis (frontend uniquement). Retour arrière : rétablir l'ancien libellé et ses tests, sans restauration de données.
 
 #### Suite canonique P1-A
 
