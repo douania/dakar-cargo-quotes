@@ -1291,6 +1291,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["quote-scenarios", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["pad-group-confirmations", caseId] }),
         queryClient.invalidateQueries({ queryKey: ["quote-scenario-links", caseId] }),
         queryClient.invalidateQueries({ queryKey: ["quote-scenario-selections", caseId] }),
       ]);

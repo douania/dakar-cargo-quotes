@@ -298,3 +298,6 @@ verify_jwt = false
 
 [functions.propose-storage-designation]
 verify_jwt = false
+
+[functions.manage-pad-group-confirmation]
+verify_jwt = false

@@ -108,6 +108,12 @@ function scrollToSection(id: string) {
     if (parent instanceof HTMLDetailsElement) parent.open = true;
   }
   target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (id === "section-pad-review") {
+    const group = target?.querySelector<HTMLElement>('[data-pad-needs-review="true"]');
+    const decision = group?.querySelector("details");
+    if (decision) decision.open = true;
+    group?.focus({ preventScroll: true });
+  }
 }
 
 /* ─── Status hierarchy (P1-A: imported from shared constants) ─── */

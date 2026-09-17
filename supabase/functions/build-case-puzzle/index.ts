@@ -6,6 +6,7 @@
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { loadPadGroupState, syncPadGroupGap, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
 import {
   IMO_GOODS_EVENT, IMO_GOODS_GAP, imoGoodsEvidenceId, syncImoGoodsRecognition, type ImoGoodsAssessment,
   imoGoodsSourceFingerprint, resolveImoGoodsPricing, imoGoodsQuestion, type ImoGoodsPricingPlan,
@@ -482,7 +483,7 @@ function resolvePadScopeGapState(facts: PadScopeFact[]): {
     servicePackage,
     readOverridesFromFacts(rows),
   );
-  const blocker = resolvePadScopeBlocker({
+  const blocker = !padGroupScopeRequired(rows, effectiveServiceKeys) ? null : resolvePadScopeBlocker({
     facts: rows,
     servicePackage,
     effectiveServiceKeys,
@@ -7768,6 +7769,26 @@ Deno.serve(async (req) => {
         );
       } else {
         const padScopeState = resolvePadScopeGapState((padScopeFacts || []) as PadScopeFact[]);
+        let padGroupHandled = false;
+        if (padGroupScopeRequired((padScopeFacts || []) as PadScopeFact[], padScopeState.effectiveServiceKeys)) {
+          try {
+            const groups = await loadPadGroupState(serviceClient, case_id);
+            if (groups.mode === "groups" && groups.context) {
+              await syncPadGroupGap(serviceClient, case_id, groups);
+              padGroupHandled = true;
+            }
+            if (groups.mode === "groups") padScopeState.blocker = groups.ready ? null : {
+              pricing_blockers: ["PAD_CATEGORY_REQUIRED"], message: PAD_SCOPE_GAP_QUESTION_FR,
+              scope_debug: { servicePackage: padScopeState.servicePackage, incoterm: padScopeState.incoterm,
+                effectiveServiceKeys: padScopeState.effectiveServiceKeys },
+            };
+          } catch {
+            padScopeGuardFailed = true;
+            padScopeState.blocker = { pricing_blockers: ["PAD_CATEGORY_REQUIRED"], message: PAD_SCOPE_GAP_QUESTION_FR,
+              scope_debug: { servicePackage: padScopeState.servicePackage, incoterm: padScopeState.incoterm,
+                effectiveServiceKeys: padScopeState.effectiveServiceKeys } };
+          }
+        }
 
         const { data: existingPadGap, error: existingPadGapError } = await serviceClient
           .from("quote_gaps")
@@ -7777,7 +7798,10 @@ Deno.serve(async (req) => {
           .eq("status", "open")
           .maybeSingle();
 
-        if (existingPadGapError) {
+        if (padGroupHandled) {
+          // The group writer already reconciled this one gap atomically against
+          // the same context and decision heads. Do not close it again from facts.
+        } else if (existingPadGapError) {
           padScopeGuardFailed = true;
           console.error(
             `[PAD-SCOPE-GAP] Failed to read existing gap for case ${case_id}: ${existingPadGapError.message}`

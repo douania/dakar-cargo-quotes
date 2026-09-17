@@ -41,7 +41,8 @@ for (const match of source.matchAll(/import (.+) from "(@\/components\/(?:case|p
       useEffect(()=>{onSelectedEstimateChange(hasSelection ? {caseId:fixtureCaseId,title:'Scénario test',run,pending:false,error:null}:null);},[fixtureCaseId,onSelectedEstimateChange]);
       useImperativeHandle(actionRef,()=>({estimateSelected:estimateAction}));
       return <p>Groupes de test à vérifier</p>;
-    } : ()=> <p>{path.split('/').pop()}</p>])));
+    } : path.endsWith('/PadGroupConfirmationsPanel') ? ({onChanged}:{onChanged:()=>void}) => <button onClick={onChanged}>Simuler actualisation du dossier</button>
+      : ()=> <p>{path.split('/').pop()}</p>])));
 }
 const CaseView = (await import('../../CaseView')).default;
 let client: QueryClient;
@@ -70,6 +71,13 @@ it('uses the existing selected-scenario action once, without opening or calling 
   mount(); await userEvent.click(screen.getByRole('button',{name:'Actualiser l’estimation'}));
   expect(estimateAction).toHaveBeenCalledTimes(1); expect(invoke).not.toHaveBeenCalled();
   expect(screen.getByText('Groupes de test à vérifier')).not.toBeVisible();
+});
+it('refreshes PAD confirmations when dossier data is refreshed',async()=>{
+  mount(); const invalidate=vi.spyOn(client,'invalidateQueries');
+  await userEvent.click(screen.getByText('Marchandises et catégories portuaires'));
+  await userEvent.click(screen.getByRole('button',{name:'Simuler actualisation du dossier'}));
+  expect(invalidate).toHaveBeenCalledWith({queryKey:['pad-group-confirmations',caseId]});
+  expect(invoke).not.toHaveBeenCalled();
 });
 it('opens the proposal review when no scenario is selected',async()=>{
   hasSelection=false;mount(); await userEvent.click(screen.getByRole('button',{name:'Préparer l’estimation'}));

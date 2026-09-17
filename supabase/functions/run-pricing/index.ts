@@ -1,5 +1,6 @@
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
 import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
+import { loadPadGroupState, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
 /**
  * Phase 11: run-pricing
  * Executes deterministic pricing via quotation-engine
@@ -2466,7 +2467,15 @@ Deno.serve(async (req) => {
     }
 
     const effectiveServiceKeys = resolveEffectiveServiceKeys(pkg, readOverridesFromFacts(scopeFacts || []));
-    const padScopeBlocker = resolvePadScopeBlocker({
+    const padRequired = padGroupScopeRequired(scopeFacts || [], effectiveServiceKeys);
+    const padGroupState = padRequired
+      ? await loadPadGroupState(serviceClient, case_id) : null;
+    const padScopeBlocker = !padRequired ? null : padGroupState?.mode === "groups"
+      ? padGroupState.ready ? null : {
+        pricing_blockers: ["PAD_GROUP_CONFIRMATION_REQUIRED"],
+        message: "Confirmez la catégorie, les sources et le poids de chaque groupe pour le devis. L’estimation reste distincte.",
+        scope_debug: { servicePackage: pkg, incoterm: incotermEarly, effectiveServiceKeys, issues: padGroupState.issues },
+      } : resolvePadScopeBlocker({
       facts: scopeFacts || [],
       servicePackage: pkg,
       effectiveServiceKeys,
@@ -3412,7 +3421,7 @@ Deno.serve(async (req) => {
       // ═══ Phase PAD-1: Alias lookup PAD (exact match, validated only) ═══
       // Runs BEFORE passive fact consumption. Facts opérateur toujours prioritaires.
       // commodity_category_id = source de vérité métier, pad_category = copie dénormalisée runtime.
-      if (!inputs.padCategory && inputs.cargoDescription) {
+      if (padGroupState?.mode !== "groups" && !inputs.padCategory && inputs.cargoDescription) {
         try {
           const normalizedDescPad = normalizePricingText(inputs.cargoDescription);
           if (normalizedDescPad) {
@@ -3602,7 +3611,7 @@ Deno.serve(async (req) => {
       // ═══ PAD-GAP-1: Gap bloquant si PAD applicable mais catégorie non résolue ═══
       // PAD-GAP-1-FIX: condition assouplie — poids non requis pour lever le gap
       // Condition identique au bloc terminal storage (maritime + description + poids > 0)
-      if (!inputs.padCategory && isMaritime && inputs.cargoDescription) {
+      if (padRequired && padGroupState?.mode !== "groups" && !inputs.padCategory && isMaritime && inputs.cargoDescription) {
         try {
           // Idempotent: ne pas dupliquer si gap existe déjà (ouvert)
           const { data: existingGap } = await serviceClient
@@ -3676,11 +3685,13 @@ Deno.serve(async (req) => {
       // bien avant, donc un lot en périmètre PAD y est bloqué en amont par
       // resolvePadBlockersForLot (PAD_MULTI_LOT_UNSUPPORTED). Implémenter le PAD par lot = lever
       // ce blocker ET ajouter ici l'équivalent multi-lot, jamais l'un sans l'autre.
-      if (inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0) {
-        const weightTonnes = inputs.cargoWeight || 0;
+      if (padGroupState?.mode === "groups" || (inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0)) {
+        const confirmedGroups = padGroupState?.mode === "groups" ? padGroupState.lines : null;
+        const weightTonnes = confirmedGroups ? confirmedGroups.reduce((sum, l) => sum + l.quantity, 0) : inputs.cargoWeight || 0;
         if (weightTonnes > 0) {
-          const padAmount = Math.round(inputs.padRateFcfaPerTon * weightTonnes);
-          const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
+          const padAmount = confirmedGroups ? padGroupState!.total! : Math.round(inputs.padRateFcfaPerTon! * weightTonnes);
+          const rawLines = engineResponse.lines || engineResponse.quotationLines || [];
+          const engineLines = confirmedGroups ? rawLines.filter((l: { category?: string }) => l.category !== 'PAD_DROIT_PASSAGE') : rawLines;
           const officialPadLine = canonicalizeLine({
             category: 'PAD_DROIT_PASSAGE',
             label: `Droit de passage PAD ${inputs.padCategory}`,
@@ -3697,7 +3708,16 @@ Deno.serve(async (req) => {
             },
             isEditable: false,
           }, { origin_layer: 'enrichment_pad' });
-          engineLines.push(officialPadLine);
+          if (confirmedGroups) {
+            for (const line of confirmedGroups) engineLines.push(canonicalizeLine({
+              category: 'PAD_DROIT_PASSAGE', label: `Droit de passage PAD ${line.category} — ${line.unit_ref}`,
+              description: `Catégorie et poids confirmés pour le groupe ${line.unit_ref}`,
+              amount: line.amount, currency: 'FCFA', unit: 'tonne', quantity: line.quantity, unitPrice: line.unit_price,
+              source: { type: 'OFFICIAL', reference: line.tariff_source, table: 'port_tariffs', tariff_id: line.tariff_id,
+                decision_id: line.decision_id, unit_ref: line.unit_ref, context_hash: line.context_hash, confidence: 1 },
+              isEditable: false,
+            }, { origin_layer: 'enrichment_pad' }));
+          } else engineLines.push(officialPadLine);
           engineResponse.lines = engineLines;
           console.log(`[PAD] Droit de passage PAD ${inputs.padCategory}: ${padAmount} FCFA (${inputs.padRateFcfaPerTon} × ${weightTonnes}t)`);
 
@@ -4584,9 +4604,7 @@ ${JSON.stringify(refPayload)}`;
     const durationMs = Date.now() - startTime;
 
     // 13. Update pricing_run with results
-    await serviceClient
-      .from("pricing_runs")
-      .update({
+    const pricingResult = {
         status: "success",
         engine_request: {
           finalDestination: inputs.finalDestination,
@@ -4602,8 +4620,32 @@ ${JSON.stringify(refPayload)}`;
         tariff_sources: tariffSources,
         completed_at: new Date().toISOString(),
         duration_ms: durationMs,
-      })
-      .eq("id", pricingRun.id);
+      };
+    if (padGroupState?.mode === "groups") {
+      try {
+      const freshPad = await loadPadGroupState(serviceClient, case_id);
+      if (!freshPad.ready || freshPad.context?.context_hash !== padGroupState.context?.context_hash ||
+        JSON.stringify(freshPad.lines) !== JSON.stringify(padGroupState.lines)) throw new Error("PAD_CONTEXT_CHANGED");
+      const emittedPad = tariffLines.filter((l: { category?: string }) => l.category === 'PAD_DROIT_PASSAGE');
+      if (emittedPad.length !== padGroupState.lines.length || padGroupState.lines.some(expected =>
+        emittedPad.filter((l: { source?: { decision_id?: string; unit_ref?: string; tariff_id?: string }; amount?: unknown }) => l.source?.decision_id === expected.decision_id && l.source?.unit_ref === expected.unit_ref &&
+          l.source?.tariff_id === expected.tariff_id && Number(l.amount) === expected.amount).length !== 1)) throw new Error("PAD_GROUP_LINES_MISMATCH");
+      const saved = await serviceClient.rpc("complete_pad_group_pricing", { p_case_id: case_id, p_run_id: pricingRun.id,
+        p_context_hash: padGroupState.context!.context_hash, p_heads: padGroupState.all_heads, p_result: pricingResult });
+      if (saved.error) throw new Error("PAD_CONTEXT_CHANGED");
+      } catch {
+        await serviceClient.from("pricing_runs").update({ status: "blocked", error_message: "PAD_GROUP_CONTEXT_CHANGED",
+          outputs_json: { pricing_blockers: ["PAD_GROUP_CONTEXT_CHANGED"], message: "Les confirmations PAD ou leurs sources ont changé. Actualisez les groupes avant de recalculer." },
+          completed_at: new Date().toISOString(), duration_ms: Date.now() - startTime,
+        }).eq("id", pricingRun.id).eq("status", "running");
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "pad_group_context_changed");
+        return new Response(JSON.stringify({ pricing_blockers: ["PAD_GROUP_CONTEXT_CHANGED"], pricing_run_id: pricingRun.id,
+          message: "Confirmez l’état actuel des groupes avant de relancer le devis." }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    } else {
+      await serviceClient.from("pricing_runs").update(pricingResult).eq("id", pricingRun.id);
+    }
 
     // 14. Transition case to PRICED_DRAFT (skip for finalized cases)
     if (!isFinalized) {

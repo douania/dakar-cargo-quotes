@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useCallback } from "react";
+import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -125,6 +126,7 @@ function formatContainersValue(value: unknown): string | null {
 }
 
 export default function CaseView() {
+  const queryClient = useQueryClient();
   const { caseId } = useParams<{ caseId: string }>();
   const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
   const scenarioPanel = React.useRef<HTMLDetailsElement>(null);
@@ -132,6 +134,15 @@ export default function CaseView() {
     if (!scenarioPanel.current) return;
     scenarioPanel.current.open = true;
     scenarioPanel.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    const target = scenarioPanel.current.querySelector<HTMLElement>('[data-pad-needs-review="true"]');
+    const decision = target?.querySelector("details");
+    if (decision) decision.open = true;
+    target?.focus({ preventScroll: true });
+  };
+  const openEstimateReview = () => {
+    openScenarioReview();
+    const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
+    if (variants) variants.open = true;
   };
   const [isScenarioEstimating, setIsScenarioEstimating] = React.useState(false);
   const [selectedEstimate, setSelectedEstimate] = React.useState<SelectedScenarioEstimate | null>(null);
@@ -370,12 +381,13 @@ export default function CaseView() {
   const hasArticlesDetail = facts.some((f: any) => f.fact_key === "cargo.articles_detail");
 
   const handleRefresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["pad-group-confirmations", caseId] });
     refetchCase();
     refetchFacts();
     refetchEvents();
     refetchGaps();
     refetchGapRequests();
-  }, [refetchCase, refetchFacts, refetchEvents, refetchGaps, refetchGapRequests]);
+  }, [queryClient, caseId, refetchCase, refetchFacts, refetchEvents, refetchGaps, refetchGapRequests]);
 
   const handlePricingComplete = useCallback(() => {
     setPricingRefreshToken((t) => t + 1);
@@ -1268,7 +1280,7 @@ export default function CaseView() {
           const showPricingPanel = shouldShowPricingPanel(caseData.status, canProvisionalDdp);
 
           if (!showPricingPanel) return selectedEstimate?.caseId === caseId
-            ? <div className="mb-6"><ScenarioEstimateResult estimate={selectedEstimate} onReview={openScenarioReview} /></div>
+            ? <div className="mb-6"><ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} /></div>
             : null;
 
           return (
@@ -1276,12 +1288,12 @@ export default function CaseView() {
               <PricingLaunchPanel
                 caseId={caseId!}
                 estimateAvailable={selectedEstimate?.caseId === caseId && !!selectedEstimate.run}
-                onReview={openScenarioReview}
+                onReview={openEstimateReview}
                 isEstimating={isScenarioEstimating}
-                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} onReview={openScenarioReview} /> : null}
+                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} /> : null}
                 onEstimate={() => {
                   if (!scenarioPricingAction.current) { toast.warning("Scénarios indisponibles : réessayez après leur chargement."); return; }
-                  if (!selectedEstimate || selectedEstimate.caseId !== caseId) openScenarioReview();
+                  if (!selectedEstimate || selectedEstimate.caseId !== caseId) openEstimateReview();
                   scenarioPricingAction.current.estimateSelected();
                 }}
                 onComplete={handlePricingComplete}
@@ -2017,9 +2029,16 @@ export default function CaseView() {
 
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
         {caseId && <details ref={scenarioPanel} className="mb-4 rounded-lg border p-4" id="section-scenarios">
-          <summary className="cursor-pointer font-medium">Groupes, choix PAD et scénarios alternatifs</summary>
-          <p className="my-3 text-sm text-muted-foreground">Vérifiez les propositions et leurs sources avant de les retenir. Aucun fait client n’est modifié automatiquement.</p>
+          <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires</summary>
+          <PadGroupConfirmationsPanel caseId={caseId} onChanged={handleRefresh} onEstimateReview={() => {
+            const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
+            if (variants) { variants.open = true; variants.scrollIntoView({ behavior: "smooth", block: "start" }); }
+          }} />
+          <details id="section-scenario-variants" className="mt-3">
+          <summary className="cursor-pointer text-sm">Variantes, choix de l’estimation et historique</summary>
+          <p className="my-3 text-sm text-muted-foreground">Retenir une catégorie pour l’estimation ne la confirme pas pour le devis. Aucun fait client n’est modifié automatiquement.</p>
           <QuoteScenariosPanel key={caseId} caseId={caseId} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} />
+          </details>
         </details>}
 
         <details className="mb-4 rounded-lg border p-4">
@@ -2240,7 +2259,7 @@ export default function CaseView() {
           );
         })()}
 
-        <div id="section-pad-review" className="mb-4 rounded border p-3">
+        <div className="mb-4 rounded border p-3">
           <p className="text-sm">{PAD_REVIEW_FR}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
         </div>
