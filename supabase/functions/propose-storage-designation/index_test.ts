@@ -4,7 +4,7 @@ import { proposeGroups } from "../_shared/scenario-proposal-domain.ts";
 const sourceMail = { id: "22222222-2222-4222-8222-222222222222", from_address: "client@example.com", body_text: "1.1 transformers: 18t/unit, 20GP SOC" };
 const body = { case_id: "11111111-1111-4111-8111-111111111111", unit_ref: "lot-1", equipment_code: "20GP", quantity: 1, ownership: "SOC" };
 const req = (b: unknown = body) => new Request("https://test.invalid", { method: "POST", body: JSON.stringify(b) });
-function fixture(options: { denied?: boolean; alias?: boolean; incomplete?: boolean; different?: boolean; gotrans?: boolean; version?: number; sourced?: boolean; sourceIncomplete?: boolean } = {}) {
+function fixture(options: { denied?: boolean; alias?: boolean; incomplete?: boolean; different?: boolean; gotrans?: boolean; version?: number; sourced?: boolean; sourceIncomplete?: boolean; weightBands?: boolean } = {}) {
   const tables: string[] = []; let aiCalls = 0;
   const deps = {
     authenticate: async () => ({ token: "test", userId: "u" }),
@@ -26,6 +26,11 @@ function fixture(options: { denied?: boolean; alias?: boolean; incomplete?: bool
         } };
         if (table === "quote_scenarios" && options.sourced) (value as {scope_snapshot: {cargo_units: unknown}}).scope_snapshot.cargo_units = proposeGroups(sourceMail.from_address, [sourceMail]).groups.map(g => ({ ...body, unit_kind: "CONTAINER", scenario_basis: `e-mail ${sourceMail.id}; SHA256 test`, gross_weight_kg: g.weight_kg, weight_basis: g.weight_basis, un_number: g.un_number, imo_class: g.imo_class, dangerous_goods: g.dangerous }));
         if (table === "terminal_designations") value = [{ id: "d", designation_label: "Transformateurs", storage_code_p1: "414", unit_basis: "tonne_per_day" }];
+        if (table === "terminal_designations" && options.weightBands) value = [
+          { id: "d", designation_label: "TRANSFORMATEURS électriques plus de 1,500 à 3,000 kgs", storage_code_p1: "414", unit_basis: "tonne_per_day" },
+          { id: "heavy", designation_label: "TRANSFORMATEURS électriques plus de 5,000 kgs", storage_code_p1: "414", unit_basis: "tonne_per_day" },
+          { id: "excluded", designation_label: "APPAREILS ELECTRIQUES (sauf colis lourds)", storage_code_p1: "421", unit_basis: "tonne_per_day" },
+        ];
         if (table === "terminal_designation_aliases") value = options.alias ? [{ terminal_designation_id: "d", normalized_term: "transformers", is_validated: true }] : [];
         const response = { data: value, error: null, count: options.incomplete || (options.sourceIncomplete && table === "emails") ? 1002 : Array.isArray(value) ? value.length : null };
         const chain = { select: () => chain, eq: () => chain, is: () => chain, order: () => chain, limit: () => chain,
@@ -39,6 +44,23 @@ function fixture(options: { denied?: boolean; alias?: boolean; incomplete?: bool
   return { deps: deps as unknown as NonNullable<Parameters<typeof handleRequest>[1]>, tables, aiCalls: () => aiCalls };
 }
 Deno.env.set("SUPABASE_URL", "https://test.invalid"); Deno.env.set("SUPABASE_ANON_KEY", "anon-test");
+Deno.test("server filters weight and exclusions before AI and rejects reintroduced IDs afterwards", async () => {
+  const f = fixture({ weightBands: true, alias: true, sourced: true, version: 3 });
+  f.deps.ai = async (messages) => {
+    const payload = JSON.parse(String(messages[1].content));
+    assertEquals(payload.catalog.map((r: {id: string}) => r.id), ["heavy"]);
+    assertEquals(payload.lexical_candidates_to_verify, []);
+    return new Response("{}");
+  };
+  f.deps.parse = async () => JSON.stringify({ candidates: [
+    { designation_id: "d", justification: "plus proche malgré le poids" },
+    { designation_id: "excluded", justification: "malgré exclusion" },
+    { designation_id: "heavy", justification: "18 tonnes dépasse 5 tonnes" },
+  ] });
+  const res = await handleRequest(req(), f.deps); const data = await res.json();
+  assertEquals(res.status, 200); assertEquals(data.candidates.map((r: {id: string}) => r.id), ["heavy"]);
+  assertEquals(data.warning.includes("restriction non vérifiable"), true);
+});
 Deno.test("read-only caller-scoped proposal: alias requires contextual review and keeps catalogue code", async () => {
   const f = fixture({ alias: true }); const res = await handleRequest(req(), f.deps); const data = await res.json();
   assertEquals(res.status, 200); assertEquals(data.candidates[0].code, "414"); assertEquals(f.aiCalls(), 1);

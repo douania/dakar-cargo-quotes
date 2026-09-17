@@ -3,7 +3,7 @@ import { proposalClient } from "../_shared/scenario-source.ts";
 import { normalize, type Row } from "./domain.ts";
 
 /** Strict source-to-scenario join, never ordinal alone. No facts or classifications written. */
-export function matchSourceUnits(units: Row[], client: unknown, facts: Row[], emails: Row[]) {
+export function matchSourceUnits(units: Row[], client: unknown, facts: Row[], emails: Row[]): Array<Row & { scenario_basis: string }> {
   const identity = proposalClient(client, facts);
   if (identity.reason || !identity.email) throw new Error("SOURCE_CLIENT_UNVERIFIED");
   const proposal = proposeGroups(identity.email, emails);
@@ -16,7 +16,7 @@ export function matchSourceUnits(units: Row[], client: unknown, facts: Row[], em
       g.un_number !== u.un_number || g.dangerous !== u.dangerous_goods || (g.imo_class ?? null) !== (u.imo_class ?? null)) throw new Error("SOURCE_GROUP_MISMATCH");
     const refs: string[] = String(u.scenario_basis ?? "").match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gi) ?? [];
     if (refs.length ? !refs.includes(g.source_email_id) : normalize(u.scenario_basis) !== normalize(g.excerpt)) throw new Error("SOURCE_EMAIL_MISMATCH");
-    return { ...u, scenario_basis: g.excerpt, source_email_id: g.source_email_id,
+    return { ...u, scenario_basis: g.excerpt, source_email_id: g.source_email_id, source_quantity_basis: g.quantity_basis,
       source_note: "Extrait client ; affectation au lot rapprochée au scénario, non confirmation de la classification." };
   });
 }

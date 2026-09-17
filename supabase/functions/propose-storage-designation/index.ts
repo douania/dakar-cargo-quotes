@@ -59,7 +59,9 @@ export async function handleRequest(req: Request, deps = dependencies): Promise<
     const catalog = compatibleStorageCatalog(target, designations.data as Row[]);
     const description = redact(String(target.scenario_basis).slice(0, 1000));
     let candidates = exactCandidates(description, catalog, aliases.data as Row[]);
-    let warning: string | null = null;
+    let warning: string | null = catalog.length < designations.data.length
+      ? "Certaines désignations sont exclues : contexte incompatible, tranche de poids non satisfaite ou restriction non vérifiable. Aucun seuil de colis lourd n'est supposé."
+      : null;
     // Even a validated alias must be reviewed against this shipment's context.
     {
       try {
@@ -71,6 +73,7 @@ export async function handleRequest(req: Request, deps = dependencies): Promise<
         ], { temperature: 0, maxTokens: 1600, signal: AbortSignal.timeout(30000) });
         if (!ai.ok) throw new Error("ai");
         const parsed = extractAndParseJSON<{ candidates?: unknown }>(await deps.parse(ai), { label: "storage-proposal", expectRoot: "object" });
+        // Validate IDs against the filtered catalogue again: the AI cannot restore exclusions.
         candidates = aiCandidates(parsed.candidates, catalog);
       } catch { candidates = []; warning = "Vérification contextuelle IA indisponible ; aucun alias retenu sans contrôle. Sélection manuelle conservée."; }
     }

@@ -1604,6 +1604,26 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Tests86Deno ciblés PASS dont70de non-régression parser/proposition existants ; UI ciblée7PASS ; types frontend/deno Edge+tests et build PASS. Contre-revue indépendante : deux points provenance/identité descriptive corrigés et levés. CI complète et recette Cloud nouveau code NOT_RUN.
 - Périmètre10fichiers applicatifs/tests (dont4partage/façades) + roadmap. Aucun moteur gelé/barème/fait/Auth/RLS/migration modifié. Déploiement futur nouvelle version propose-storage-designation et preview uniquement ; rollback revert ciblé + redéploiement. Reconnaissance GoTrans runtime toujours non validée tant que ce correctif n'est pas livré.
 
+#### Livraison correctif magasinage v3/sources — 17 septembre 2026 — livraison PASS / recette PARTIAL
+
+- GO utilisateur commit/push/preview/redéploiement propose-storage-designation seule/recette sans envoi. work d8e563d→a1823b0619a61843ed8896cda0243101dd8479b6, 11 fichiers +438/-323 ; GitHub aligné, worktree propre avant cette note.
+- 86 tests Deno ciblés rejoués PASS sur code livré ; contrôles frontend/types/build et contre-revue du lot précédent conservés, CI complète NOT_RUN ce tour.
+- Lovable : même HEAD et arbre supabase4c59e5907efbf53f42c3c9053dc2331a1c485294 avant/après, build Vite30,4s PASS, déploiement unique réussi ; OPTIONS200/POST sans auth401 rapportés. Empreinte du bundle runtime non exposée ; dette Deno hors lot signalée, non corrigée.
+- Recette Chrome authentifiée GoTrans : version3 acceptée, extraits source exacts retrouvés pour lot-1 (39 storage cabinets/55t/UN3536) et lot-2 (13 transformers/18t), provenance email affichée ; plus de refus v3 ni description technique seule.
+- Lot-1 propose BATTERIES D'ACCUMULATEURS417, pas du mobilier ; affiche aussi APPAREILS ELECTRIQUES421 sauf colis lourds malgré55t. Lot-2 propose414 mais remonte tranches1,5–3t et3–5t avant la bonne désignation plus de5t malgré18t. Filtrage des exclusions/poids métier insuffisant : recette fonctionnelle PARTIAL, codes non validés.
+- Aucune adoption ni sauvegarde ni relance pricing : formulaire annulé, aucune hypothèse enregistrée confirmé UI ; montant affiché initial36 021 972HT/36 120 972TTC non recalculé. Lot-3/adoption complète NOT_RUN. Aucun fait/barème/DB/Auth/RLS/migration/envoi modifié.
+- Suite : correctif borné de filtrage déterministe des contraintes poids/exclusions et classement des candidats, tests génériques avant nouvelle recette. Retour arrière revert ciblé + rebuild preview et redéploiement de propose-storage-designation seule ; aucune restauration DB. Note de clôture locale non commitée, aucun commit docs-only.
+
+#### Filtrage contraintes désignations magasinage — 17 septembre 2026 — PASS local, non publié
+
+- GO utilisateur correctif local poids/exclusions après recette PARTIAL ; base work a1823b0 alignée GitHub, note précédente préservée. Queue historique examinée : provenance/cumul déjà documentés, autres arbitrages hors lot restent sans nouveau GO d'écriture.
+- Six fichiers service/tests propose-storage-designation + roadmap uniquement. Filtre déterministe catalogue avant alias/IA, IDs contrôlés sur ce même catalogue après IA ; aucun calcul, montant, barème ou moteur FROZEN modifié.
+- Bornes kg lisibles (notation milliers 1,500/3,001), bas strict pour « plus de », haut inclus ; tranches contradictoires/composées/inconnues retirées. Exclusions « sauf/hors/exclu/except/colis lourd » non prouvables retirées sans inventer de seuil. Notice de filtrage via warning existant.
+- Poids de pièce admis seulement après rapprochement source, quantité one_unit_per_container, extrait exact kg/t par unit et égalité au poids scénario. Pas de division du total, ni assimilation /container ou borne de fourchette à un colis ; syntaxes non reconnues exclues prudemment.
+- Tests :94Deno ciblés PASS (24service+70source/proposition),7UI PASS, typecheck frontend et deno check Edge/trois tests PASS, diff-check PASS. Premier check élargi a révélé type de retour source imprécis, annoté puis check vert. CI complète/build/recette Cloud NOT_RUN ce tour.
+- Contre-revue indépendante lecture seule : deux blocages (contraintes antérieures ignorées, poids conteneur assimilé au colis) corrigés puis levés ; relecteur24tests PASS, GO technique local. Couverture non universelle de la syntaxe documentaire explicitement conservée.
+- Aucun commit/push/déploiement, DB/Auth/RLS/fait/client/envoi inchangés ; runtime reste a1823b0. Retour arrière : retirer ce diff ciblé sans supprimer les notes antérieures. Suite : GO publication distinct commit/push/preview privée/propose-storage-designation seule, puis recette GoTrans sans adoption ni recalcul implicite.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
