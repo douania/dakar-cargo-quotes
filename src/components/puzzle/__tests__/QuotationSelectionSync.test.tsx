@@ -4,6 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { QuotationVersionCard } from '../QuotationVersionCard';
 import { SendQuotationPanel } from '../SendQuotationPanel';
+import { PricingResultPanel } from '../PricingResultPanel';
+
+vi.mock('@/hooks/usePricingResultData', () => ({
+  usePricingResultData: () => ({
+    pricingRun: { id: 'run-new', run_number: 2, created_at: '2026-09-18T12:00:00Z',
+      total_ht: 2000000, currency: 'XOF', tariff_lines: [], tariff_sources: [], outputs_json: {} },
+    versions: [{ version_number: 1 }], isLoading: false, refetchVersions: async () => {},
+  }),
+}));
 
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
@@ -193,6 +202,45 @@ afterEach(() => {
 });
 
 describe('QuotationVersionCard <-> SendQuotationPanel selection sync', () => {
+  it.each([[false, false], [true, false], [false, true]])('creation lost response=%s / refresh failure=%s never enables stale draft', async (lostResponse, refreshFailure) => {
+    seedTwoVersions('case-a');
+    seedDraft('case-a-v1', {});
+    const gate = createDeferred();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    invokeMock.mockImplementation((async () => {
+      await gate.promise;
+      db.quotation_versions.forEach(v => { v.is_selected = v.id === 'case-a-v2'; });
+      return { data: { version_number: 2, lines_count: 0, total_ht: 2000000, currency: 'XOF' },
+        error: lostResponse ? new Error('Response lost after commit') : null };
+    }) as typeof supabase.functions.invoke);
+    render(<QueryClientProvider client={client}>
+      <PricingResultPanel caseId="case-a" />
+      <SendQuotationPanel caseId="case-a" />
+    </QueryClientProvider>);
+    await screen.findByDisplayValue('Devis case-a-v1');
+    fireEvent.click(screen.getByRole('button', { name: /Créer version de devis v2/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer et créer' }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('generate-quotation-version', {
+      body: { case_id: 'case-a', pricing_run_id: 'run-new' },
+    }));
+    expect(screen.getByRole('button', { name: 'Enregistrer le brouillon' })).toBeDisabled();
+    refetchGate = createDeferred();
+    if (refreshFailure) forceResolvedError = { table: 'quote_cases', kind: 'single' };
+    await act(async () => { gate.resolve(); });
+    await waitFor(() => expect(client.getQueryState(['send-quotation-data', 'case-a'])?.fetchStatus).toBe('fetching'));
+    expect(screen.getByRole('button', { name: 'Enregistrer le brouillon' })).toBeDisabled();
+    await act(async () => { refetchGate!.resolve(); });
+    if (refreshFailure) {
+      await waitFor(() => expect(client.getQueryState(['send-quotation-data', 'case-a'])?.status).toBe('error'));
+      expect(screen.getByRole('button', { name: 'Enregistrer le brouillon' })).toBeDisabled();
+    } else {
+      await screen.findByRole('button', { name: 'Générer un brouillon' });
+      expect(screen.queryByDisplayValue('Devis case-a-v1')).not.toBeInTheDocument();
+      expect(client.getQueryData<{ selectedVersion: { id: string } }>(['send-quotation-data', 'case-a'])?.selectedVersion.id).toBe('case-a-v2');
+    }
+    expect(updateSpy).not.toHaveBeenCalled();
+    client.clear();
+  });
   it('v1 -> v2 -> v1 round trip stays aligned without a reload, preserves drafts, and triggers zero implicit actions', async () => {
     seedTwoVersions('case-a');
     seedDraft('case-a-v1', {});

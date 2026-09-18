@@ -11,6 +11,7 @@
  */
 
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -142,7 +143,15 @@ interface PricingResultPanelProps {
 
 export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isProvisional = false, onVersionCreated }: PricingResultPanelProps) {
   const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId, refreshToken);
-  const [isCreating, setIsCreating] = useState(false);
+  const queryClient = useQueryClient();
+  // Creation also changes the server-selected version: share the selection lock
+  // with SendQuotationPanel until its data has been refreshed, even after a lost response.
+  const creation = useMutation({
+    mutationKey: ['select-quotation-version', caseId],
+    mutationFn: () => handleCreateVersion(),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId] }),
+  });
+  const isCreating = creation.isPending;
   const [linesExpanded, setLinesExpanded] = useState(false);
   const [showAllLines, setShowAllLines] = useState(false);
   const [showAllLotLines, setShowAllLotLines] = useState<Record<number, boolean>>({});
@@ -194,7 +203,6 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
   const extraReasonsCount = qualification.reasons.length > 1 ? qualification.reasons.length - 1 : 0;
 
   const handleCreateVersion = async () => {
-    setIsCreating(true);
     try {
       // Lot 4-A-quater: pinner explicitement le pricing_run_id pour éviter
       // toute ambiguïté entre run visible / version créée / PDF rouvert.
@@ -216,8 +224,6 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
       toast.error('Erreur lors de la création de version', {
         description: err instanceof Error ? err.message : 'Erreur inconnue',
       });
-    } finally {
-      setIsCreating(false);
     }
   };
 
@@ -745,7 +751,7 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
             <AlertDialogFooter>
               <AlertDialogCancel disabled={isCreating}>Annuler</AlertDialogCancel>
               <AlertDialogAction
-                onClick={handleCreateVersion}
+                onClick={() => creation.mutate()}
                 disabled={isCreating}
                 className="bg-emerald-600 hover:bg-emerald-700"
               >

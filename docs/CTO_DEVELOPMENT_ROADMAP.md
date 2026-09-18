@@ -1810,6 +1810,34 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Arrêt au contrôle d’identité Git : git var GIT_AUTHOR_IDENT FAIL (identité non configurée). Aucun commit/push/Edge/preview/recette ; work@de1f543 inchangé, code local préservé. Aucune décision commerciale ni donnée GoTrans modifiée.
 - Suite : définir l’identité uniquement pour ce commit, puis reprendre les actions nommées sous le même GO, sans rejouer la migration. Retour SQL possible seulement à registre vide, jamais effacer le ledger ; aucune restauration exécutée.
 
+#### Rapprochement des poids — livraison privée — 18 septembre 2026 — PARTIAL
+
+- Identité Codex <noreply@openai.com> autorisée uniquement pour ce commit via options Git ; aucune configuration globale modifiée. work de1f543→e0ce9367f2711da9b887420048a0e7cfcccbc335 poussé, 25 fichiers +731/-22, diff-check PASS.
+- Migration non rejouée : contrôle frais version20260918120000 présente une fois, registre vide ; ledger206 précédemment vérifié. Aucun fait GoTrans/barème/confirmation/envoi modifié.
+- Lovable message umsg_01m2tsmfcnfqf81fxnm4g9gxwh : six déploiements séquentiels annoncés Successfully deployed (generate-quotation-version, export-quotation-version-pdf, create-quotation-email-draft, run-pricing, build-case-puzzle, manage-pad-group-confirmation), sondes OPTIONS200/POST sans auth401 pour chacun ; arbre supabase4b1ade67ff2df97f803fa590bb51628276281eb8 identique à Git approuvé, worktree propre rapporté après chacun.
+- Build preview21,10s PASS rapporté, HTTP200 ; projet prêt/non publié confirmé via connecteur. Bundle runtime non exposé : preuve limitée aux sources + résultat déploiement + sondes, pas une preuve métier.
+- Lovable fac78461bfef0312174fe753a413d7a103e2a837 : diff connecteur depuis e0ce936 vérifié, uniquement94 lignes ajoutées à src/integrations/supabase/types.ts pour nouvelle table/RPC ; aucun écart métier. Le HEAD intermédiaire14ab6f8 et sa suppression temporaire des types sont rapportés par Lovable, non adoptés localement.
+- Contrôle GitHub final local échoue à nouveau (connexion443,21176ms) après push réussi ; arrêt recette conformément au GO, déploiement déjà envoyé terminé et bilan récupéré. Alignement GitHub final UNKNOWN, HEAD local e0ce936 inchangé.
+- Dossier TEST accessible en session authentifiée, aucun calcul/version/brouillon de cette recette lancé : NOT_RUN. Code/UI GoTrans final non recetté ; aucune validation commerciale réelle.
+- Suite sous même GO : accès GitHub frais, rapprochement du seul diff généré, puis recette TEST calcul→version→PDF→brouillon et GoTrans lecture seule. Ne pas rejouer SQL ni déployer à nouveau sans nécessité ; retour SQL uniquement registre vide, ledger préservé. Note locale non commitée.
+
+#### Rapprochement des poids — recette authentifiée — 18 septembre 2026 — PARTIAL
+
+- Alignement frais PASS : GitHub/Lovable fac78461bfef0312174fe753a413d7a103e2a837 ; fetch et diff Git depuis e0ce936 confirment uniquement94 lignes de types générés. Fast-forward local effectué, note locale préservée ; aucune migration rejouée ni nouveau déploiement.
+- TEST450cb321 : calcul authentifié Run#2 réussi,9 lignes,884380XOF avant TVA SODATRA,99000XOF TVA,983380XOF total provisoire ; réserve groupe10t conservée. Versionv2 créée depuis Run#2 et persistante après rechargement.
+- Export PDFv2 généré et ouvert dans un nouvel onglet ; contenu/présentation du nouveau PDF NOT_VERIFIED ce tour.
+- FAIL actualisation : après créationv2, carte versions sélectionnev2 mais panneau préparation restev1 avec ancien brouillon ; après rechargement, panneau passev2 sans brouillon. Cause observée côté code : onVersionCreated actualise versionRefreshToken seulement, tandis que le panneau consomme send-quotation-data séparément.
+- Arrêt avant écriture de brouillon conformément au GO ; aucun envoi, aucune décision/fait GoTrans modifié. Test réel du rapprochement de poids contradictoires et suite brouillon NOT_RUN ; TEST actuel contrôle seulement la non-régression du poids provisoire, sans conflit global.
+- Suite : correctif ciblé de synchronisation création version→panneau brouillon avec test, puis reprise recette ; aucun changement de calcul/barème nécessaire identifié. Note locale non commitée, HEADfac78461 inchangé ; artefacts TEST conservés pour traçabilité.
+
+#### Création de version → brouillon — correctif local — 18 septembre 2026 — PASS local
+
+- GO utilisateur : actualisation ciblée avec tests, sans calcul/tarifs ni publication. Préflight work@fac78461 aligné GitHub au second essai (premier accès443 indisponible) ; notes locales antérieures préservées.
+- PricingResultPanel utilise le verrou de sélection déjà consommé par SendQuotationPanel ; invalidation send-quotation-data limitée au dossier et attendue après création, y compris réponse perdue/erreur. Aucun changement des snapshots ou de la logique métier.
+- QuotationSelectionSync : trois régressions ajoutées (succès, réponse perdue après écriture simulée, échec relecture), actions brouillon verrouillées pendant création/relecture, ancien texte écarté après succès, échec fermé conservé. Suite ciblée20/20 et frontend488/488 PASS ; typecheck/build/diff-check PASS. Avertissements DOM imbriqué/build présents, sans correction hors lot.
+- Auto-revue du diff ciblé effectuée : deux fichiers code/test + présente clôture ; aucune DB/Auth/RLS/Edge, aucun fait/barème ou artefact Cloud modifié. CI complète/Deno et recette Lovable du correctif NOT_RUN, non pertinents au contrôle serveur inchangé / publication non autorisée.
+- HEAD inchangé ; aucun commit/push. Retour local : retirer uniquement ces deux diff et cette clôture en préservant les notes précédentes. Suite : GO publication frontend distinct, puis recette TEST ; preuve complète du rapprochement de poids toujours restante.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
