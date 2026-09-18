@@ -4780,6 +4780,65 @@ export type Database = {
           },
         ]
       }
+      pad_weight_reconciliations: {
+        Row: {
+          action: string
+          case_id: string
+          confirmation_heads: Json
+          context_hash: string
+          created_at: string
+          decided_by: string
+          decision_version: number
+          id: string
+          idempotency_key: string
+          justification: string
+          original_fact: Json
+          request_fingerprint: string
+          reservation: string
+          total_weight_kg: number
+        }
+        Insert: {
+          action: string
+          case_id: string
+          confirmation_heads: Json
+          context_hash: string
+          created_at?: string
+          decided_by: string
+          decision_version: number
+          id?: string
+          idempotency_key: string
+          justification: string
+          original_fact: Json
+          request_fingerprint: string
+          reservation: string
+          total_weight_kg: number
+        }
+        Update: {
+          action?: string
+          case_id?: string
+          confirmation_heads?: Json
+          context_hash?: string
+          created_at?: string
+          decided_by?: string
+          decision_version?: number
+          id?: string
+          idempotency_key?: string
+          justification?: string
+          original_fact?: Json
+          request_fingerprint?: string
+          reservation?: string
+          total_weight_kg?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pad_weight_reconciliations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       partner_response_suggestions: {
         Row: {
           case_id: string
@@ -8089,6 +8148,14 @@ export type Database = {
       }
     }
     Functions: {
+      assert_pad_weight_head: {
+        Args: {
+          p_case_id: string
+          p_require_valid?: boolean
+          p_weight_head_id: string
+        }
+        Returns: undefined
+      }
       assert_scenario_quotation_version_current: {
         Args: { p_version_id: string }
         Returns: Json
@@ -8126,6 +8193,17 @@ export type Database = {
           p_heads: Json
           p_result: Json
           p_run_id: string
+        }
+        Returns: undefined
+      }
+      complete_pad_weight_pricing: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_heads: Json
+          p_result: Json
+          p_run_id: string
+          p_weight_head_id: string
         }
         Returns: undefined
       }
@@ -8418,6 +8496,7 @@ export type Database = {
         Returns: Json
       }
       read_pad_group_context: { Args: { p_case_id: string }; Returns: Json }
+      read_pad_weight_context: { Args: { p_case_id: string }; Returns: Json }
       record_maritime_fee_decision: {
         Args: {
           p_actor_user_id: string
@@ -8443,6 +8522,10 @@ export type Database = {
         Returns: Json
       }
       record_pad_group_confirmation: {
+        Args: { p_actor: string; p_case_id: string; p_request: Json }
+        Returns: Json
+      }
+      record_pad_weight_reconciliation: {
         Args: { p_actor: string; p_case_id: string; p_request: Json }
         Returns: Json
       }
@@ -8509,6 +8592,17 @@ export type Database = {
           p_heads: Json
           p_question: string
           p_ready: boolean
+        }
+        Returns: undefined
+      }
+      sync_pad_weight_gap: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_heads: Json
+          p_question: string
+          p_ready: boolean
+          p_weight_head_id: string
         }
         Returns: undefined
       }
