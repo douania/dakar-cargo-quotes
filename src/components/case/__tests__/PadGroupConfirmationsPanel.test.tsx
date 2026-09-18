@@ -94,3 +94,28 @@ it("range can be retained explicitly with reserve, never automatically attested"
   await user.click(screen.getByRole("button", { name: "Retenir avec réserve pour le devis" }));
   await waitFor(() => expect(io.invoke).toHaveBeenCalledWith("manage-pad-group-confirmation", { body: expect.objectContaining({ action: "record", decision: expect.objectContaining({ weight_basis: "provisional", weight_reservation: expect.stringContaining("révisables") }) }) }));
 });
+
+it("reconciles a weight conflict explicitly without resubmitting category decisions", async () => {
+  const base = state();
+  const s = { ...base, issues: [{ unit_ref: "", code: "PAD_GROUP_WEIGHT_CONFLICT" }], all_heads: [],
+    weight_facts: [{ id: "fact", number: 35000, text: null, source_type: "ai_extraction", source_email_id: "mail" }],
+    weight_reconciliation: null };
+  io.invoke.mockResolvedValue({ data: s, error: null }); mount();
+  const button = await screen.findByRole("button", { name: "Retenir la base révisable" });
+  expect(button).toBeDisabled();
+  const user = userEvent.setup();
+  await user.type(screen.getByLabelText("Source et justification de l’écart"), "Source client : deux transformateurs de 18 tonnes, somme extraite incorrecte.");
+  expect(button).toBeDisabled();
+  await user.click(screen.getByRole("checkbox", { name: /J’ai rapproché les sources/ }));
+  await user.click(button);
+  await waitFor(() => expect(io.invoke).toHaveBeenCalledWith("manage-pad-group-confirmation", { body: expect.objectContaining({ action: "reconcile_weight",
+    decision: expect.objectContaining({ action: "retain", expected_head_id: null, expected_heads: [], reservation: expect.stringContaining("révisable") }) }) }));
+  expect(io.invoke.mock.calls.some(([, args]) => args.body.action === "record")).toBe(false);
+});
+
+it("does not offer commercial override of an operator-confirmed contradictory fact", async () => {
+  io.invoke.mockResolvedValue({ data: { ...state(), issues: [{ unit_ref: "", code: "PAD_GROUP_WEIGHT_CONFLICT" }],
+    weight_facts: [{ id: "fact", number: 35000, source_type: "operator" }] }, error: null }); mount();
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("button", { name: "Retenir la base révisable" })).not.toBeInTheDocument();
+});

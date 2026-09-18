@@ -6,6 +6,7 @@ import { ReadyActionsPanel } from '../ReadyActionsPanel';
 import { NextActionBanner } from '../NextActionBanner';
 import { CaseActionPlan } from '../CaseActionPlan';
 import { needsPadReview, refreshGapActionQueries } from '@/lib/padGapReview';
+import { PAD_WEIGHT_REVIEW_FR, PAD_WEIGHT_REVIEW_TITLE } from '@/lib/padGapReview';
 
 type Row=Record<string,unknown>;
 const io=vi.hoisted(()=>({invoke:vi.fn(),from:vi.fn()}));
@@ -32,6 +33,13 @@ function mount() {
     <details data-testid="review-section"><summary>Sources</summary><div id="section-pad-review">Candidats PAD</div></details>
   </QueryClientProvider>);
 }
+
+it('names the weight conflict instead of asking to validate categories again', async () => {
+  db.quote_gaps = [{ case_id: 'c', gap_key: pad, status: 'open', is_blocking: true, question_fr: PAD_WEIGHT_REVIEW_FR }];
+  mount();
+  expect((await screen.findAllByText(PAD_WEIGHT_REVIEW_TITLE)).length).toBeGreaterThan(0);
+  expect(screen.queryByText('Vérifier la classification PAD en interne')).not.toBeInTheDocument();
+});
 function mixed(status='drafted') {
   db.quote_gaps.push({id:'weight-gap',case_id:'c',gap_key:weight,status:'open',is_blocking:false,question_fr:'Poids à préciser'});
   db.client_gap_requests=[{id:'request',case_id:'c',gap_key:weight,status,source_timeline_event_id:'old-mixed',draft_body:'OLD PAD QUESTION'}];

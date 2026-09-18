@@ -13,7 +13,7 @@ function fixture(options: { denied?: boolean; anonymous?: boolean; conflict?: bo
         calls.push({ name, args });
         if (caller) return { data: !options.denied, error: null };
         if (name === "record_pad_group_confirmation") return { data: {}, error: options.conflict ? { code: "40001" } : null };
-        if (name === "read_pad_group_context") return { data: { case_id: cid, scenario: null, heads: [], facts: [] }, error: options.readFailure ? {} : null };
+        if (name === "read_pad_weight_context") return { data: { case_id: cid, scenario: null, heads: [], facts: [] }, error: options.readFailure ? {} : null };
         throw new Error("unexpected RPC");
       }, from: () => { throw new Error("unexpected table access"); } };
     },
@@ -39,7 +39,13 @@ Deno.test("PAD writer: actor comes from verified JWT, not request; conflict is 4
 Deno.test("PAD reader: access checked, no mutation, failure not treated as missing confirmations", async () => {
   const f = fixture(); const r = await handleRequest(request({ case_id: cid, action: "read" }), f.dependencies);
   assertEquals(r.status, 200); assertEquals((await r.json()).mode, "legacy");
-  assertEquals(f.calls.map(c => c.name), ["has_case_read_access", "read_pad_group_context"]);
+  assertEquals(f.calls.map(c => c.name), ["has_case_read_access", "read_pad_weight_context"]);
   const bad = fixture({ readFailure: true });
   assertEquals((await handleRequest(request({ case_id: cid, action: "read" }), bad.dependencies)).status, 503);
+});
+
+Deno.test("weight reconciliation requires write access, never a read-only authorization", async () => {
+  const f = fixture({ denied: true });
+  const r = await handleRequest(request({ case_id: cid, action: "reconcile_weight", decision: {} }), f.dependencies);
+  assertEquals(r.status, 403); assertEquals(f.calls[0].name, "has_case_write_access"); assertEquals(f.clients(), 1);
 });

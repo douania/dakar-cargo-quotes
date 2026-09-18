@@ -3,6 +3,15 @@ import { validWeightBasis, weightBasisNotice, quotationWeightNotices } from "./q
 import { resolveSnapshotQualification } from "../generate-quotation-version/qqm-resolver.ts";
 const decision = { weight_basis: "provisional" as const, weight_reservation: "15 tonnes par conteneur ; révision après documents définitifs." };
 const lines = [{ quantity: 45, source: { ...decision, unit_ref: "spares" } }];
+Deno.test("global reconciliation reserve survives snapshots once, without replacing group reserves", () => {
+  const r = { id: "reconciliation", total_weight_kg: 2424000, reservation: "x".repeat(2000) };
+  const input = [...lines.map(l => ({ ...l, source: { ...l.source, weight_reconciliation: r } })),
+    { quantity: 234, source: { weight_reconciliation: r } }];
+  const notices = quotationWeightNotices(input);
+  assertEquals(notices.length, 2); assertEquals(notices[0], quotationWeightNotices(lines)[0]);
+  assertEquals(notices[1], "Base globale de cotation : 2424 tonnes, poids non définitif. " + r.reservation);
+  assertEquals(resolveSnapshotQualification({ level: "firm", reasons: [] }, [input[1]]).level, "provisional");
+});
 Deno.test("legacy exact basis stays exact; provisional requires a meaningful reserve", () => {
   assertEquals(validWeightBasis({}), true);
   assertEquals(validWeightBasis(decision), true);

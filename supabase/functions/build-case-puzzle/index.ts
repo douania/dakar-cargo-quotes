@@ -7,6 +7,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { loadPadGroupState, syncPadGroupGap, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
+import { PAD_WEIGHT_REVIEW_FR } from "../_shared/pad-weight-reconciliation.ts";
 import {
   IMO_GOODS_EVENT, IMO_GOODS_GAP, imoGoodsEvidenceId, syncImoGoodsRecognition, type ImoGoodsAssessment,
   imoGoodsSourceFingerprint, resolveImoGoodsPricing, imoGoodsQuestion, type ImoGoodsPricingPlan,
@@ -7778,7 +7779,7 @@ Deno.serve(async (req) => {
               padGroupHandled = true;
             }
             if (groups.mode === "groups") padScopeState.blocker = groups.ready ? null : {
-              pricing_blockers: ["PAD_CATEGORY_REQUIRED"], message: PAD_SCOPE_GAP_QUESTION_FR,
+              pricing_blockers: ["PAD_CATEGORY_REQUIRED"], message: groups.issues.some(i => i.code === "PAD_GROUP_WEIGHT_CONFLICT") ? PAD_WEIGHT_REVIEW_FR : PAD_SCOPE_GAP_QUESTION_FR,
               scope_debug: { servicePackage: padScopeState.servicePackage, incoterm: padScopeState.incoterm,
                 effectiveServiceKeys: padScopeState.effectiveServiceKeys },
             };

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { PadGroup, PadGroupContext, PadGroupDecision } from "../../../supabase/functions/_shared/pad-group-confirmation";
 import type { GroupEvidence } from "../../../supabase/functions/manage-pad-group-confirmation/evidence";
 import { validWeightBasis, type WeightBasis } from "../../../supabase/functions/_shared/quotation-weight-basis";
+import type { WeightFact, WeightReconciliation } from "../../../supabase/functions/_shared/pad-weight-reconciliation";
 
 type State = {
   mode: "legacy" | "groups"; context: PadGroupContext | null; heads: PadGroupDecision[]; ready: boolean;
@@ -13,6 +14,10 @@ type State = {
   issues: { unit_ref: string; code: string }[];
   assistance?: Record<string, GroupEvidence>;
   dossier_weight_kg?: number | null;
+  all_heads?: PadGroupDecision[];
+  weight_facts?: WeightFact[];
+  weight_reconciliation?: WeightReconciliation | null;
+  retained_weight?: WeightReconciliation | null;
 };
 const messages: Record<string, string> = {
   PAD_CONFIRMATION_REQUIRED: "Catégorie et poids à confirmer pour le devis.",
@@ -120,6 +125,51 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, onSav
   </article>;
 }
 
+function WeightReconciliationForm({ state, onSaved }: { state: State; onSaved: () => Promise<unknown> }) {
+  const [justification, setJustification] = useState("");
+  const [reserve, setReserve] = useState("Base de cotation révisable selon les poids des documents définitifs ; le poids extrait contradictoire n’est pas confirmé.");
+  const [attested, setAttested] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const eligible = state.issues.length === 1 && state.issues[0].code === "PAD_GROUP_WEIGHT_CONFLICT" &&
+    state.weight_facts?.length === 1 && state.weight_facts[0].source_type === "ai_extraction";
+  if (!state.context || (!eligible && !state.weight_reconciliation)) return null;
+  const total = state.context.groups.reduce((sum, g) => sum + (g.total_weight_kg ?? 0), 0);
+  async function save(action: "retain" | "revoke") {
+    setPending(true); setError("");
+    try {
+      const result = await supabase.functions.invoke("manage-pad-group-confirmation", { body: {
+        case_id: state.context!.case_id, action: "reconcile_weight", decision: { action,
+          expected_context_hash: state.context!.context_hash, expected_heads: state.all_heads?.map(h => h.id).sort(),
+          expected_head_id: state.weight_reconciliation?.id ?? null, idempotency_key: crypto.randomUUID(),
+          justification: justification.trim(), reservation: reserve.trim() },
+      } });
+      if (result.error) throw result.error;
+      await onSaved(); setAttested(false);
+    } catch { setError("Rapprochement non enregistré : actualisez les données avant de réessayer."); }
+    finally { setPending(false); }
+  }
+  const disabled = state.read_only || pending || !attested || justification.trim().length < 10 || reserve.trim().length < 10;
+  return <fieldset className="border rounded p-3 space-y-2" disabled={pending || state.read_only}>
+    <legend>Rapprochement du poids pour la cotation</legend>
+    <p>{state.retained_weight ? "Base révisable retenue" : "Base proposée, non confirmée"} : {(total / 1000).toLocaleString("fr-FR")} tonnes.</p>
+    <p className="text-sm">Ce choix conserve le poids extrait et les décisions PAD. Il ne confirme pas un poids définitif ni les autres prestations.</p>
+    {state.weight_reconciliation && !state.retained_weight && <p className="text-sm">L’ancien rapprochement n’est pas exploitable dans l’état actuel.</p>}
+    <label className="block text-sm">Source et justification de l’écart
+      <textarea className="block w-full border rounded p-2 bg-background" value={justification} maxLength={2000} onChange={e => { setJustification(e.target.value); setAttested(false); }} />
+    </label>
+    <label className="block text-sm">Réserve dans la cotation
+      <textarea className="block w-full border rounded p-2 bg-background" value={reserve} maxLength={2000} onChange={e => { setReserve(e.target.value); setAttested(false); }} />
+    </label>
+    <label className="flex gap-2 text-sm"><input type="checkbox" checked={attested} onChange={e => setAttested(e.target.checked)} />
+      J’ai rapproché les sources ; je retiens la somme des groupes comme base révisable, sans modifier les faits client.
+    </label>
+    {eligible && <Button disabled={disabled} onClick={() => save("retain")}>Retenir la base révisable</Button>}
+    {state.weight_reconciliation?.action === "retain" && <Button variant="outline" disabled={disabled} onClick={() => save("revoke")}>Retirer le rapprochement</Button>}
+    {error && <p role="alert">{error}</p>}
+  </fieldset>;
+}
+
 export function PadGroupConfirmationsPanel({ caseId, onChanged, onEstimateReview }: { caseId: string; onChanged: () => void; onEstimateReview: () => void }) {
   const query = useQuery({ queryKey: ["pad-group-confirmations", caseId], retry: false, queryFn: async () => {
     const result = await supabase.functions.invoke("manage-pad-group-confirmation", { body: { case_id: caseId, action: "read" } });
@@ -144,6 +194,7 @@ export function PadGroupConfirmationsPanel({ caseId, onChanged, onEstimateReview
         Poids enregistré dans le dossier : {state.dossier_weight_kg == null ? "à vérifier" : `${state.dossier_weight_kg.toLocaleString("fr-FR")} kg`}.
         Rapprochez le fait extrait et les poids sources ; une borne haute de fourchette ne doit pas devenir un poids exact confirmé. Remplir les justifications ne résout pas cet écart.
       </p>}
+      <WeightReconciliationForm key={`${state.context?.context_hash}:${state.weight_reconciliation?.id ?? "new"}`} state={state} onSaved={async () => { await query.refetch(); onChanged(); }} />
       {state.context?.groups.map(group => <GroupDecision key={`${state.context!.context_hash}:${group.unit_ref}:${state.heads.find(h => h.unit_ref === group.unit_ref)?.id ?? "new"}`}
         group={group} context={state.context!} head={state.heads.find(h => h.unit_ref === group.unit_ref)} readOnly={state.read_only} evidence={state.assistance?.[group.unit_ref]}
         issues={state.issues.filter(i => i.unit_ref === group.unit_ref).map(i => i.code)} onSaved={async () => { await query.refetch(); onChanged(); }} />)}

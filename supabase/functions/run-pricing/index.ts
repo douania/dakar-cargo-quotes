@@ -1,6 +1,7 @@
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
 import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
 import { loadPadGroupState, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
+import { PAD_WEIGHT_REVIEW_FR } from "../_shared/pad-weight-reconciliation.ts";
 import { weightBasisNotice, quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 /**
  * Phase 11: run-pricing
@@ -2474,7 +2475,7 @@ Deno.serve(async (req) => {
     const padScopeBlocker = !padRequired ? null : padGroupState?.mode === "groups"
       ? padGroupState.ready ? null : {
         pricing_blockers: ["PAD_GROUP_CONFIRMATION_REQUIRED"],
-        message: "Confirmez la catégorie, les sources et le poids de chaque groupe pour le devis. L’estimation reste distincte.",
+        message: padGroupState.issues.some(i => i.code === "PAD_GROUP_WEIGHT_CONFLICT") ? PAD_WEIGHT_REVIEW_FR : "Confirmez la catégorie, les sources et le poids de chaque groupe pour le devis. L’estimation reste distincte.",
         scope_debug: { servicePackage: pkg, incoterm: incotermEarly, effectiveServiceKeys, issues: padGroupState.issues },
       } : resolvePadScopeBlocker({
       facts: scopeFacts || [],
@@ -2779,6 +2780,9 @@ Deno.serve(async (req) => {
 
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
+    // Commercial overlay only: facts/snapshot stay unchanged, all ordinary
+    // engine weight consumers receive the explicitly retained total in tonnes.
+    if (padGroupState?.retained_weight) inputs.cargoWeight = padGroupState.retained_weight.total_weight_kg / 1000;
 
     if (goodsAssessment) {
       // Recheck source identity, mail snapshot and evidence transition after the
@@ -3717,6 +3721,7 @@ Deno.serve(async (req) => {
               source: { type: 'OFFICIAL', reference: line.tariff_source, table: 'port_tariffs', tariff_id: line.tariff_id,
                 decision_id: line.decision_id, unit_ref: line.unit_ref, context_hash: line.context_hash, confidence: 1,
                 weight_basis: line.weight_basis ?? "confirmed", weight_reservation: line.weight_reservation ?? "",
+                weight_reconciliation: padGroupState?.retained_weight ?? null,
                 weight_container_count: line.weight_container_count, weight_per_container_kg: line.weight_per_container_kg },
               isEditable: false,
             }, { origin_layer: 'enrichment_pad' }));
@@ -4619,6 +4624,8 @@ ${JSON.stringify(refPayload)}`;
     const pricingResult = {
         status: "success",
         engine_request: {
+          cargoWeight: inputs.cargoWeight,
+          weight_reconciliation: padGroupState?.retained_weight ?? null,
           finalDestination: inputs.finalDestination,
           originPort: inputs.originPort,
           containers: inputs.containers,
@@ -4637,13 +4644,15 @@ ${JSON.stringify(refPayload)}`;
       try {
       const freshPad = await loadPadGroupState(serviceClient, case_id);
       if (!freshPad.ready || freshPad.context?.context_hash !== padGroupState.context?.context_hash ||
-        JSON.stringify(freshPad.lines) !== JSON.stringify(padGroupState.lines)) throw new Error("PAD_CONTEXT_CHANGED");
+        JSON.stringify(freshPad.lines) !== JSON.stringify(padGroupState.lines) ||
+        freshPad.weight_reconciliation?.id !== padGroupState.weight_reconciliation?.id) throw new Error("PAD_CONTEXT_CHANGED");
       const emittedPad = tariffLines.filter((l: { category?: string }) => l.category === 'PAD_DROIT_PASSAGE');
       if (emittedPad.length !== padGroupState.lines.length || padGroupState.lines.some(expected =>
         emittedPad.filter((l: { source?: { decision_id?: string; unit_ref?: string; tariff_id?: string }; amount?: unknown }) => l.source?.decision_id === expected.decision_id && l.source?.unit_ref === expected.unit_ref &&
           l.source?.tariff_id === expected.tariff_id && Number(l.amount) === expected.amount).length !== 1)) throw new Error("PAD_GROUP_LINES_MISMATCH");
-      const saved = await serviceClient.rpc("complete_pad_group_pricing", { p_case_id: case_id, p_run_id: pricingRun.id,
-        p_context_hash: padGroupState.context!.context_hash, p_heads: padGroupState.all_heads, p_result: pricingResult });
+      const saved = await serviceClient.rpc("complete_pad_weight_pricing", { p_case_id: case_id, p_run_id: pricingRun.id,
+        p_context_hash: padGroupState.context!.context_hash, p_heads: padGroupState.all_heads, p_result: pricingResult,
+        p_weight_head_id: padGroupState.weight_reconciliation?.id ?? null });
       if (saved.error) throw new Error("PAD_CONTEXT_CHANGED");
       } catch {
         await serviceClient.from("pricing_runs").update({ status: "blocked", error_message: "PAD_GROUP_CONTEXT_CHANGED",

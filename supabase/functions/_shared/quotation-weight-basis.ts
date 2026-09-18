@@ -21,10 +21,21 @@ export function weightBasisNotice(unitRef: string, weightKg: number, d: WeightBa
 
 /** Read the immutable calculation lines, not today's mutable case or decisions. */
 export function quotationWeightNotices(lines: readonly unknown[]): string[] {
-  return lines.flatMap(raw => {
-    const l = raw as { quantity?: number; source?: WeightBasisDecision & { unit_ref?: string } };
+  const reconciliationNotices = new Map<string, string>();
+  const notices = lines.flatMap(raw => {
+    const l = raw as { quantity?: number; source?: WeightBasisDecision & { unit_ref?: string;
+      weight_reconciliation?: { id: string; total_weight_kg: number; reservation: string } | null } };
+    const r = l?.source?.weight_reconciliation;
+    if (r) {
+      if (typeof r.id !== "string" || !Number.isFinite(r.total_weight_kg) || r.total_weight_kg <= 0 ||
+        typeof r.reservation !== "string" || r.reservation.trim().length < 10) throw new Error("WEIGHT_BASIS_INVALID");
+      const message = `Base globale de cotation : ${r.total_weight_kg / 1000} tonnes, poids non définitif. ${r.reservation.trim()}`;
+      if (reconciliationNotices.has(r.id) && reconciliationNotices.get(r.id) !== message) throw new Error("WEIGHT_BASIS_INVALID");
+      reconciliationNotices.set(r.id, message);
+    }
     if (!l?.source || l.source.weight_basis !== "provisional") return [];
     if (typeof l.source.unit_ref !== "string" || typeof l.quantity !== "number") throw new Error("WEIGHT_BASIS_INVALID");
     return [weightBasisNotice(l.source.unit_ref, l.quantity * 1000, l.source)!];
   });
+  return [...notices, ...reconciliationNotices.values()];
 }

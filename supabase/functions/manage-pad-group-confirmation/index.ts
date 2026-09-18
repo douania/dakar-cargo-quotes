@@ -16,11 +16,11 @@ export async function handleRequest(req: Request, dependencies = deps): Promise<
     if (!body || typeof body !== "object" || Array.isArray(body) ||
       Object.keys(body).some(k => !["case_id", "action", "decision"].includes(k)) ||
       typeof body.case_id !== "string" || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(body.case_id) ||
-      !["read", "record"].includes(body.action) || (body.action === "read" && body.decision !== undefined)) return errorResponse("Requête invalide", 400);
+      !["read", "record", "reconcile_weight"].includes(body.action) || (body.action === "read" && body.decision !== undefined)) return errorResponse("Requête invalide", 400);
     const caller = dependencies.client(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: `Bearer ${auth.token}` } }, auth: { persistSession: false },
     });
-    const access = await caller.rpc(body.action === "record" ? "has_case_write_access" : "has_case_read_access", { _case_id: body.case_id });
+    const access = await caller.rpc(body.action !== "read" ? "has_case_write_access" : "has_case_read_access", { _case_id: body.case_id });
     if (access.error || access.data !== true) return errorResponse("Accès au dossier refusé", 403);
     const service = dependencies.client(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     if (body.action === "record") {
@@ -30,6 +30,17 @@ export async function handleRequest(req: Request, dependencies = deps): Promise<
       if (recorded.error) return errorResponse("Confirmation refusée : actualisez les groupes et vérifiez les sources.", recorded.error.code === "40001" ? 409 : 422);
     }
     const state = await loadPadGroupState(service, body.case_id);
+    if (body.action === "reconcile_weight") {
+      const onlyWeightConflict = state.issues.length === 1 && state.issues[0].code === "PAD_GROUP_WEIGHT_CONFLICT";
+      // A successful retain may be replayed after a lost response. The SQL
+      // writer checks its fingerprint before CAS; a different request still fails.
+      if (!state.context || (body.decision?.action === "retain" && !onlyWeightConflict && !state.retained_weight)) return errorResponse("Résolvez d’abord les autres contrôles des groupes.", 422);
+      const recorded = await service.rpc("record_pad_weight_reconciliation", { p_case_id: body.case_id, p_actor: auth.user.id, p_request: body.decision });
+      if (recorded.error) return errorResponse("Rapprochement refusé : actualisez les sources et les confirmations.", recorded.error.code === "40001" ? 409 : 422);
+      const fresh = await loadPadGroupState(service, body.case_id);
+      await syncPadGroupGap(service, body.case_id, fresh);
+      return jsonResponse(fresh);
+    }
     if (body.action === "record") await syncPadGroupGap(service, body.case_id, state);
     // Optional read-only assistance, scoped to the authenticated caller. Never
     // use an unavailable or changed source as evidence for a confirmation.

@@ -6,7 +6,7 @@
  */
 
 import { useCockpitState } from "@/hooks/useCockpitState";
-import { PAD_REVIEW_TITLE } from "@/lib/padGapReview";
+import { PAD_REVIEW_TITLE, PAD_WEIGHT_REVIEW_FR, PAD_WEIGHT_REVIEW_TITLE } from "@/lib/padGapReview";
 import { TERMINAL_STATUSES, statusBelow } from "@/lib/cockpitStatusConstants";
 import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
 import { useQuery } from "@tanstack/react-query";
@@ -56,7 +56,7 @@ export function NextActionBanner({ caseId }: Props) {
       const [gapsRes, reqRes] = await Promise.all([
         supabase
           .from("quote_gaps")
-          .select("gap_key")
+          .select("gap_key, question_fr")
           .eq("case_id", caseId)
           .eq("status", "open")
           .eq("is_blocking", true),
@@ -87,6 +87,10 @@ export function NextActionBanner({ caseId }: Props) {
 
   const result = computeAction(data, hasCriticalUnconfirmed, seaFreightSpec);
   if (!result) return null;
+  if (result.action === PAD_REVIEW_TITLE && bannerData?.blockingGaps.some(g => g.gap_key === "pricing.pad_category" && g.question_fr === PAD_WEIGHT_REVIEW_FR)) {
+    result.action = PAD_WEIGHT_REVIEW_TITLE;
+    result.blocker = "Écart entre le poids extrait et la base de cotation ; les catégories déjà validées restent enregistrées.";
+  }
 
   const colorMap: Record<string, string> = {
     amber: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",

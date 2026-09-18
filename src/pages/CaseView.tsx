@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
+import { PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -1850,7 +1851,7 @@ export default function CaseView() {
 
             return (
               <li key={g.id} className={`flex items-center gap-2 text-sm ${textColorClass}`}>
-                <span className="flex-1">{g.gap_key === PAD_REVIEW_GAP_KEY ? PAD_REVIEW_FR : g.question_fr || g.gap_key}</span>
+                <span className="flex-1">{g.gap_key === PAD_REVIEW_GAP_KEY ? g.question_fr === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR : g.question_fr || g.gap_key}</span>
                 {g.gap_key === PAD_REVIEW_GAP_KEY && (
                   <Button size="sm" variant="outline" onClick={openScenarioReview}>Examiner les groupes et sources</Button>
                 )}

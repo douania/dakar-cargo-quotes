@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_TITLE, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions } from "@/lib/padGapReview";
+import { PAD_WEIGHT_REVIEW_FR, PAD_WEIGHT_REVIEW_TITLE } from "@/lib/padGapReview";
 import {
   EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
   computeSeaFreightPartnerAction,
@@ -309,8 +310,9 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       for (const gap of blockingGaps) {
         if (gap.gap_key === PAD_REVIEW_GAP_KEY) {
           result.push({ type: "internal", actionKey: "review_pad", priority: getPriority(),
-            title: PAD_REVIEW_TITLE, reason: "Classification à valider pour le devis confirmé ; l’estimation reste disponible.",
-            message: PAD_REVIEW_FR + (data.cargoDescription ? ` Description disponible : ${data.cargoDescription}` : ""),
+            title: gap.question_fr === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_TITLE : PAD_REVIEW_TITLE,
+            reason: gap.question_fr === PAD_WEIGHT_REVIEW_FR ? "Écart de poids, pas une nouvelle validation des catégories." : "Classification à valider pour le devis confirmé ; l’estimation reste disponible.",
+            message: (gap.question_fr === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR) + (data.cargoDescription ? ` Description disponible : ${data.cargoDescription}` : ""),
             gapKey: gap.gap_key, status: "to_execute", nextStep: "Examiner les sources et les propositions par groupe ; identifier seulement les précisions réellement manquantes.",
             icon: <Search className="h-4 w-4 text-amber-600" />, color: "amber" });
           continue;

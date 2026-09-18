@@ -1760,6 +1760,56 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Aucun changement moteur/barème/fait/registre/DB/Auth/RLS/Edge ; aucune écriture Cloud, commit, push ni envoi. CI complète et recette Lovable du correctif NOT_RUN.
 - Suite : GO distinct commit/push work/preview privée/recette ; sans migration ni redéploiement Edge. Rollback applicatif ciblé, aucune donnée à restaurer.
 
+#### Livraison actualisation PAD — 18 septembre 2026 — PASS borné
+
+- GO utilisateur commit/push work/preview privée/vérification, sans migration ni Edge.14be739→de1f543c2972641d2c3fd92ee61194124143cd1a,4fichiers +68/-4 incluant notes antérieures. Premier push refusé réseau, rejeu réussi ; origine alignée.
+- Lovable umsg_01m2t0qf81f8t8jwww8dspkpzh : réponse completed, build Vite ~29s/previewHTTP200, HEAD avant/après de1f543 et arbre supabase abfeb743 inchangés. Diagnostics Deno signalés sans correction, aucune CI complète revendiquée.
+- Recette navigateur authentifiée TEST450cb321 après rechargement : action PAD obsolète absente en coordination, rappel inconditionnel absent du pipeline ; version provisoire/réserve10t/brouillon toujours présents, marquage envoyé désactivé sans destinataire. Aucune confirmation/révocation/recalcul/envoi réalisé pour cette livraison.
+-15tests UI relancés PASS : fermeture/réouverture dynamique et isolation dossier couvertes localement ; cycle dynamique de mutation Cloud NOT_RUN. Typecheck/build locaux du tour précédent PASS ; contrôle runtime présent limité au dossier TEST.
+- Aucun changement DB/Auth/RLS/faits/barèmes/Edge/publication publique. Retour arrière par revert applicatif ciblé et reconstruction preview ; historique conservé. Note de clôture locale non commitée.
+
+#### Rapprochement du poids extrait / base commerciale — 18 septembre 2026 — PARTIAL local
+
+- GO utilisateur exception run-pricing/build-case-puzzle, confirmations/UI/tests/contre-revue, puis migration locale explicitement autorisée ; aucun GO de publication. work de1f543 local/origin alignés, note de clôture précédente préservée.
+- Migration20260918120000 : registre append-only service-only, décision retain/revoke, source/justification/réserve, acteur JWT, CAS contexte+têtes et idempotence. Le hash PAD original reste inchangé : pas de réécriture des confirmations ni faits ; seuls totaux ai_extraction contradictoires éligibles.
+- Lecture commune et contrôles pricing/puzzle consomment une réconciliation fraîche ; total commercial en tonnes transmis aux entrées moteur, ancien fait conservé. Un changement de contexte/tête/provenance refuse la réutilisation. Les autres blocages IMO/services demeurent indépendants.
+- UI : rapprochement explicite séparé des catégories, réserve obligatoire/attestation décochée, révocation ; question de poids distincte dans gap/actions/bannière après synchronisation. Transport CAS limité aux IDs triés, têtes complètes conservées serveur.
+- Réserve globale distincte des réserves par groupe, copiée aux lignes immuables et lue par qualification/version/PDF/brouillon sans troncature ; pas de poids exact inventé. Future livraison coordonnée inclut aussi les trois consommateurs de sorties du helper partagé.
+- Tests ciblés :36Deno stricts et18UI PASS ; typecheck frontend/build PASS, config97/bundles PASS. Check Deno composants :2TS2345 run-pricing reproduits sur archive origin/work, PASS_WITH_BASELINE ; aucune correction de cette dette. CI complète NOT_RUN.
+- SQL PostgreSQL local réseau none, base synthétique pad_weight_reconciliation_test : migration, CAS/idempotence, registre/faits conservés, refus provenance, réouverture gap autorisée et fermeture/finalisation refusées après dérive, ACL héritées retirées PASS. Harnais avec finaliseurs simulés, pas une preuve d’intégration schéma complet.
+- Rollback à registre vide puis réapplication PASS ; rollback avec historique refusé PAD_WEIGHT_HISTORY_EXISTS, transactions de test annulées. Aucun historique Cloud concerné. Schéma complet/restauration, concurrence réellement chevauchante et recette applicative NOT_RUN.
+- Contre-revue indépendante lecture seule : replay Edge après réponse perdue et garde de provenance atomique corrigés ; réouverture du gap après dérive corrigée ; relectures ciblées et transport IDs conformes. Tests exécutés par Codex, non rejoués par relecteur.
+- État :22fichiers locaux (interface/tests, gestion PAD/pricing, helper réserves, migration/rollback/harnas et roadmap), aucun commit/push/Cloud/envoi/barème/fait GoTrans. Pas encore disponible dans Lovable.
+- Suite sous GO local existant : intégration SQL sur schéma complet, concurrence et parcours calcul→sorties avant proposition de livraison ; ne pas demander un nouveau GO de réalisation inchangé. Rollback SQL interdit dès première décision persistante, privilégier correction en avant.
+
+#### Rapprochement des poids — intégration locale — 18 septembre 2026 — PASS borné
+
+- GO local inchangé ; work@de1f543 conservé, aucune publication ni lecture/écriture Cloud ce tour.
+- Restauration privée du 15/09 dans PostgreSQL isolé réseau none, sans port exposé ; E3 et trois migrations préalables puis 20260918120000 appliquées. Adaptations locales propriétaire DB et pins OID/catalogue E3 après égalité sémantique ; aucune preuve d’identité avec le Cloud frais ni simulation du ledger des migrations récentes.
+- Vraies RPC sur schéma restauré complété : scénario, confirmation, rapprochement, replay, fermeture/réouverture gap, finalisation et refus après dérive de provenance PASS ; fait extrait et confirmation conservés. Montant de finalisation SQL synthétique.
+- Fixtures pad_group_confirmations, pad_weight_basis et nouvelle pad_weight_reconciliation_full PASS, transactions annulées ; fixtures de concurrence/documents persistées uniquement dans la base locale privée.
+- Deux sessions réellement chevauchantes : révocation sous verrou puis assertion d’ancienne tête bloquée et refusée PAD_WEIGHT_HEAD_CHANGED PASS ; ce n’est pas une concurrence HTTP complète.
+- Parcours local PAD réel → qualification → PDF/brouillon PASS : 36 t retenues, fait extrait 35 t intact, 348408 XOF ; réserve globale présente, devis provisoire et total indicatif. PDF synthétique hors Git contrôlé visuellement : lisible, sans débordement.
+- Limites : entrées et snapshot assemblés par le harnais ; orchestration HTTP run-pricing, persistance de version, authentification et recette Lovable NOT_RUN. CI complète non relancée ; tests ciblés de la section précédente conservés, code applicatif inchangé ce tour.
+- Rollback sur ce schéma avec historique refusé PAD_WEIGHT_HISTORY_EXISTS comme attendu, aucun objet supprimé ; retour arrière vide déjà vérifié au lot précédent.
+- Contre-revue indépendante des trois nouveaux harnais : aucun bloquant, limites ci-dessus confirmées ; tests non rejoués par le relecteur. Deno check du harnais documents et git diff --check PASS.
+- Diff de ce tour : deux scripts locaux, un test SQL complet et cette clôture ; lot total 25 fichiers locaux. Aucun barème/fait GoTrans/secret ajouté, aucun commit/push/déploiement/envoi.
+- Suite : préflight Cloud frais en lecture seule, puis GO de livraison distinct et recette authentifiée. Migration et sources restent uniquement locales ; préserver toute décision enregistrée lors d’un retour arrière.
+
+#### Rapprochement des poids — GO livraison reçu, préflight bloqué — 18 septembre 2026
+
+- GO utilisateur reçu : migration20260918120000 + enregistrement, commit/push work/preview, six Edge (version/PDF/brouillon puis run-pricing/build-case-puzzle/manage-pad-group-confirmation), recette TEST et GoTrans lecture seule, arrêt au premier échec, aucun envoi.
+- Préflight local work@de1f543, lot attendu présent ; git ls-remote origin refs/heads/work FAIL : connexion github.com:443 impossible après 21145 ms. État distant frais UNKNOWN ; contrôle précédent aligné, non substituable à un contrôle frais.
+- Arrêt avant toute écriture : migration/commit/push/déploiement/recette NOT_RUN ; aucun appel Cloud ce tour, aucun fait/barème/Auth/RLS modifié. Seule cette note locale ajoutée ; aucun rollback requis.
+- Reprise sous ce même GO après rétablissement et contrôle GitHub, puis recontrôle Cloud ; pas de nouvelle demande d’autorisation si périmètre inchangé.
+
+#### Rapprochement des poids — livraison partielle — 18 septembre 2026
+
+- Reprise sous GO existant : GitHub rétabli, local/GitHub/Lovable de1f543 identiques ; projet prêt, non publié. Préflight Cloud 17:32:51 UTC : ledger205, cible absente, trois empreintes RPC prérequises inchangées.
+- Migration20260918120000 appliquée via Lovable query_database avec enregistrement dans la même transaction ; accusé PAD_WEIGHT_MIGRATION_APPLIED. Contrôle persistant : ledger206, registre vide, RLS active ; table SELECT service_role seulement, quatre RPC service_role et helper assert propriétaire seulement.
+- Arrêt au contrôle d’identité Git : git var GIT_AUTHOR_IDENT FAIL (identité non configurée). Aucun commit/push/Edge/preview/recette ; work@de1f543 inchangé, code local préservé. Aucune décision commerciale ni donnée GoTrans modifiée.
+- Suite : définir l’identité uniquement pour ce commit, puis reprendre les actions nommées sous le même GO, sans rejouer la migration. Retour SQL possible seulement à registre vide, jamais effacer le ledger ; aucune restauration exécutée.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

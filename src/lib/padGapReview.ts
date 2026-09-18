@@ -1,5 +1,6 @@
 // Shared pure policy, plus frontend-only refresh of its independent readers.
 export * from "../../supabase/functions/_shared/pad-gap-review";
+export { PAD_WEIGHT_REVIEW_FR, PAD_WEIGHT_REVIEW_TITLE } from "../../supabase/functions/_shared/pad-weight-reconciliation";
 
 import type { QueryClient } from "@tanstack/react-query";
 import { PAD_REVIEW_GAP_KEY } from "../../supabase/functions/_shared/pad-gap-review";

@@ -1,6 +1,7 @@
 import { padGroupsFromSnapshot, padGroupAllocationIssue, resolveConfirmedPadGroups,
   type PadGroupContext, type PadGroupDecision, type PadGroupIssue, type ConfirmedPadLine } from "./pad-group-confirmation.ts";
 import { PAD_REVIEW_FR } from "./pad-gap-review.ts";
+import { usableWeightReconciliation, PAD_WEIGHT_REVIEW_FR, type WeightFact, type WeightReconciliation } from "./pad-weight-reconciliation.ts";
 import { resolveEffectiveServiceKeys, readOverridesFromFacts, resolveExplicitlyRemovedServiceKeys } from "./service-scope.ts";
 import { PAD_SCOPE_SERVICE_KEYS, type PadScopeFact } from "./pad-scope-blocker.ts";
 
@@ -16,6 +17,7 @@ type Filter = { eq: (key: string, value: unknown) => Filter;
 type Client = { rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
   from: (table: string) => { select: (columns: string, options: { count: "exact" }) => Filter } };
 type ContextRow = { case_id: string; case_status: string; context_hash: string; request_count: number;
+  weight_facts?: WeightFact[]; weight_reconciliation?: WeightReconciliation | null;
   facts: Record<string, unknown>[]; heads: PadGroupDecision[];
   scenario: { id: string; scope_hash: string; scope_snapshot: Record<string, unknown>; status: string; superseded_by_scenario_id: string | null } | null };
 export type PadGroupState = {
@@ -29,11 +31,14 @@ export type PadGroupState = {
   issues: PadGroupIssue[];
   lines: ConfirmedPadLine[];
   total: number | null;
+  weight_reconciliation: WeightReconciliation | null;
+  retained_weight: WeightReconciliation | null;
+  weight_facts: WeightFact[];
 };
 export async function loadPadGroupState(client: unknown, caseId: string): Promise<PadGroupState> {
   // Isolate the deeply generic Supabase builder at this adapter boundary.
   const db = client as Client;
-  const response = await db.rpc("read_pad_group_context", { p_case_id: caseId });
+  const response = await db.rpc("read_pad_weight_context", { p_case_id: caseId });
   if (response.error || !response.data || typeof response.data !== "object") throw new Error("PAD_GROUP_CONTEXT_UNAVAILABLE");
   const raw = response.data as ContextRow;
   if (raw.case_id !== caseId) throw new Error("PAD_GROUP_CONTEXT_INVALID");
@@ -44,7 +49,10 @@ export async function loadPadGroupState(client: unknown, caseId: string): Promis
   const sc = raw.scenario;
   const groupScope = sc?.scope_snapshot?.schema_version === 3;
   const read_only = ["SENT", "ACCEPTED", "REJECTED", "ARCHIVED", "PRICING_RUNNING"].includes(raw.case_status);
-  const empty: PadGroupState = { mode: "groups", required, read_only, context: null, heads: [], all_heads: raw.heads, ready: false, issues: [], lines: [], total: null };
+  const weight_reconciliation = raw.weight_reconciliation ?? null;
+  const weight_facts = raw.weight_facts ?? [];
+  const empty: PadGroupState = { mode: "groups", required, read_only, context: null, heads: [], all_heads: raw.heads, ready: false, issues: [], lines: [], total: null,
+    weight_reconciliation, retained_weight: null, weight_facts };
   // No old confirmation can disappear silently into the legacy global path.
   if (!groupScope && !raw.heads.length) return { ...empty, mode: "legacy" };
   if (!groupScope || !sc || sc.superseded_by_scenario_id || ["blocked", "superseded", "promoted_to_final"].includes(sc.status)) {
@@ -61,17 +69,22 @@ export async function loadPadGroupState(client: unknown, caseId: string): Promis
   if (rates.error || rates.count === null || rates.count > 200 || rates.count !== rates.data?.length) throw new Error("PAD_GROUP_CATALOG_UNAVAILABLE");
   const resolved = resolveConfirmedPadGroups(context, heads, rates.data ?? [], new Date().toISOString().slice(0, 10));
   const allocation = padGroupAllocationIssue(groups, raw.facts);
+  const retained_weight = allocation === "PAD_GROUP_WEIGHT_CONFLICT" && resolved.ready &&
+    usableWeightReconciliation(context, raw.heads, weight_facts, weight_reconciliation) ? weight_reconciliation : null;
   const issues = [...resolved.issues];
   if (raw.request_count > 1) issues.push({ unit_ref: "", code: "PAD_REQUEST_MULTI_LOT_UNSUPPORTED" });
-  if (allocation) issues.push({ unit_ref: "", code: allocation });
+  if (allocation && !retained_weight) issues.push({ unit_ref: "", code: allocation });
   return { mode: "groups", required, read_only, context, heads, all_heads: raw.heads, ...resolved, issues, ready: !issues.length,
+    weight_reconciliation, retained_weight, weight_facts,
     lines: issues.length ? [] : resolved.lines, total: issues.length ? null : resolved.total };
 }
 
 export async function syncPadGroupGap(client: unknown, caseId: string, state: PadGroupState): Promise<void> {
   const db = client as Client;
   if (!state.context) return;
-  const result = await db.rpc("sync_pad_group_gap", { p_case_id: caseId, p_context_hash: state.context.context_hash,
-    p_heads: state.all_heads, p_ready: !state.required || state.ready, p_question: PAD_REVIEW_FR });
+  const result = await db.rpc("sync_pad_weight_gap", { p_case_id: caseId, p_context_hash: state.context.context_hash,
+    p_heads: state.all_heads, p_ready: !state.required || state.ready,
+    p_weight_head_id: state.weight_reconciliation?.id ?? null,
+    p_question: state.issues.some(i => i.code === "PAD_GROUP_WEIGHT_CONFLICT") ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR });
   if (result.error) throw new Error("PAD_GAP_SYNC_FAILED");
 }
