@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
-import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions } from "@/lib/padGapReview";
+import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -381,6 +381,7 @@ export default function CaseView() {
   const hasArticlesDetail = facts.some((f: any) => f.fact_key === "cargo.articles_detail");
 
   const handleRefresh = useCallback(() => {
+    if (caseId) void refreshGapActionQueries(queryClient, caseId);
     queryClient.invalidateQueries({ queryKey: ["pad-group-confirmations", caseId] });
     refetchCase();
     refetchFacts();
@@ -2259,10 +2260,10 @@ export default function CaseView() {
           );
         })()}
 
-        <div className="mb-4 rounded border p-3">
+        {needsPadReview(gaps) && <div className="mb-4 rounded border p-3">
           <p className="text-sm">{PAD_REVIEW_FR}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
-        </div>
+        </div>}
         {/* PAD-NST-2E-C-D : Panneau Suggestions PAD-NST (assistance opérateur, frontend-only, TO_CONFIRM) */}
         {(() => {
           const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);

@@ -1731,6 +1731,35 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Correctif strict : une ligne vide EOF supprimée dans migration, rollback et fixture ; aucune instruction SQL changée. Source historique exécutée conservée au ledger sans réécriture ; différence textuelle finale documentée, aucune migration rejouée.
 - diff-check PASS après correction ; commandes de reprise conditionnées aux codes de sortie. Tests métier précédents restent la preuve du code inchangé ; recette runtime à poursuivre après cinq déploiements coordonnés, sans envoi ni correction GoTrans.
 
+#### Livraison poids révisable — clôture 17 septembre 2026 — PASS livraison / PARTIAL recette
+
+- Correction EOF f477e91 poussée avec lot5a52309 ; diff-check global59dcc4d→f477e91 PASS.20tests Deno ciblés relancés PASS (PAD, base poids, PDF, brouillon). Tests SQL/7UI/build locaux du lot précédents non relancés.
+- Lovable umsg_01m2r9xt0fe53v7tzxn3g34rg7 terminé : build21,1s, preview200 ; cinq Edge déployées dans l'ordre generate-quotation-version, export-quotation-version-pdf, create-quotation-email-draft, run-pricing, manage-pad-group-confirmation. Chaque succès rapporté, OPTIONS200/POSTsansauth401 ; source supabase abfeb743dc8b57919a3bd0257bd53e324ddf58b3 identique. Bundle runtime non exposé, preuve de remplacement conservée.
+- Écart automatique expliqué/vérifié :11d6862 puis14be739 ajoutent uniquement6lignes de types pour les deux colonnes ; fast-forward local14be739 aligné origin. Aucun code métier modifié par Lovable, aucune migration rejouée/publication publique/envoi.
+- Recette authentifiée TEST450cb321 : UI base révisable/réserve/attestation puis enregistrement réussi ; décisionv2 provisional10000kg et réserve exacte vérifiées SQL, décisionv1 conservée. Restitution « poids provisoire retenu avec réserve » observée.
+- Calcul/version/PDF/brouillon runtime NOT_RUN : document synthétique TEST_PAD_20260917.txt non chargé ; sélecteur Chrome timeout puis session navigateur réinitialisée/onglet de recette disparu. Aucun contournement de contrôle de source. Document TEST reste à ajouter avant reprise du parcours complet.
+- Contrôle final lecture seule : ledger205, faits8cc3268243897737ca5e5126378e5658 et tarifs235a655bf711e7ad8fc6c917f6419fee inchangés. Deux confirmations GoTrans conservées ; aucune correction poids ni décision lot3.
+- Historique provisional désormais présent sur TEST : rollback SQL destructif interdit ; préserver décisions et privilégier correction en avant. Aucun nettoyage effectué. Note de clôture locale non commitée.
+
+#### Recette poids révisable — 18 septembre 2026 — PARTIAL
+
+- Base work14be739 alignée GitHub ; aucun code, commit, push, migration ou déploiement ce tour. Note locale précédente préservée.
+- Document utilisateur TEST_PAD_20260917.txt présent/extrait (797 caractères), case450cb321 ; après analyse, confirmation TESTv3 provisional10000kg enregistrée, v1/v2 conservées. Source synthétique et réserve explicites ; aucune action GoTrans.
+- Analyse puis calcul canonique Run1 réussis :884380XOF avant TVA SODATRA,983380XOF à payer,9lignes dont2à confirmer. Qualification provisoire et réserve10t visibles ; versionv1 immuable7cdd6e12-46da-4504-bfda-d091a1fc518e créée avec même réserve.
+- PDF généré et registre vérifié (3862octets) ; ouverture UI sans document visible dans le navigateur utilisé : contenu/rendu PDF NOT_VERIFIED, ne pas assimiler génération à recette visuelle PASS.
+- Brouillon runtime créé : sujet provisoire, base10t/réserve complète vérifiées UI et SQL ; statusdraft,0destinataire,sent_atNULL. Aucun envoi ni marquage envoyé.
+- Défauts observés hors correctif : action de revue PAD persistante malgré confirmation exploitable ; postes Surestaries et Droits&Taxes encore TO_CONFIRM pour fixture SOC/DAP. Montant de test, pas validation générale de couverture métier. Après rechargement, panneau brouillon accessible ; bouton PDF revient à PDF Draft.
+- Suite : vérifier le PDF effectif et diagnostiquer ces restitutions sans étendre silencieusement le lot. Tests automatisés non relancés ; recette authentifiée ci-dessus uniquement. Historique provisoire à préserver, rollback SQL destructif toujours interdit.
+
+#### Actualisation des actions PAD — 18 septembre 2026 — PASS local, non livré
+
+- GO utilisateur : traiter l’action PAD persistante après confirmation. work14be739 local/GitHub alignés, notes locales antérieures préservées ; queue sans nouvelle entrée PENDING réelle.
+- Diagnostic SELECT TEST450cb321 : deux gaps PAD historiques resolved, aucun PAD open ; actions UI mises en cache indépendamment et non invalidées par handleRefresh. Rappel PAD du pipeline affiché inconditionnellement.
+- Correctif limité à CaseView, façade frontend padGapReview et PadGapActions.test : rafraîchir ready-actions-panel/next-action-banner/cockpit-state du seul dossier ; rappel de revue uniquement si gap PAD actuellement open. Aucun masquage fondé sur une simple proposition, aucune clôture de gap côté client.
+- Tests :15UI PASS (dont résolution/réouverture sans rechargement et isolation inter-dossiers), typecheck PASS, build PASS avec avertissements ; auto-revue ciblée effectuée. Premier test trop large sur badge « Interne » corrigé pour cibler l’action PAD, les autres actions internes restant légitimes.
+- Aucun changement moteur/barème/fait/registre/DB/Auth/RLS/Edge ; aucune écriture Cloud, commit, push ni envoi. CI complète et recette Lovable du correctif NOT_RUN.
+- Suite : GO distinct commit/push work/preview privée/recette ; sans migration ni redéploiement Edge. Rollback applicatif ciblé, aucune donnée à restaurer.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReadyActionsPanel } from '../ReadyActionsPanel';
 import { NextActionBanner } from '../NextActionBanner';
 import { CaseActionPlan } from '../CaseActionPlan';
+import { needsPadReview, refreshGapActionQueries } from '@/lib/padGapReview';
 
 type Row=Record<string,unknown>;
 const io=vi.hoisted(()=>({invoke:vi.fn(),from:vi.fn()}));
@@ -47,6 +48,26 @@ beforeEach(()=>{
     client_gap_requests:[],external_quote_requests:[],external_quote_response_facts:[],quotation_versions:[],case_timeline_events:[]};
 });
 afterEach(()=>{cleanup();client.clear();});
+it('refreshes resolved and reopened PAD actions without reloading or changing another dossier',async()=>{
+  mount();await screen.findByText('Interne');
+  client.setQueryData(['ready-actions-panel','other'],{untouched:true});
+  db.quote_gaps[0].status='resolved';
+  await refreshGapActionQueries(client,'c');
+  await waitFor(()=>expect(screen.queryByText('Vérifier la classification PAD en interne')).not.toBeInTheDocument());
+  expect(screen.queryByText('Revue PAD interne')).not.toBeInTheDocument();
+  expect(screen.queryByText('Vérifier la classification PAD en interne')).not.toBeInTheDocument();
+  expect(client.getQueryState(['ready-actions-panel','other'])?.isInvalidated).toBe(false);
+  db.quote_gaps[0].status='open';
+  await refreshGapActionQueries(client,'c');
+  await waitFor(()=>expect(screen.getAllByText('Vérifier la classification PAD en interne')).toHaveLength(2));
+  expect(io.invoke).not.toHaveBeenCalled();
+});
+it('shows the PAD reminder only for a currently open PAD gap',()=>{
+  expect(needsPadReview([])).toBe(false);
+  expect(needsPadReview([{gap_key:pad,status:'resolved'}])).toBe(false);
+  expect(needsPadReview([{gap_key:weight,status:'open'}])).toBe(false);
+  expect(needsPadReview([{gap_key:pad,status:'open'}])).toBe(true);
+});
 it('PAD is an internal review with source navigation and no client-generation action',async()=>{
   mount();expect(await screen.findByText('Interne')).toBeInTheDocument();
   expect(screen.getByText(/Description disponible : equipment/)).toBeInTheDocument();
