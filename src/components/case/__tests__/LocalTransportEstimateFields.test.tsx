@@ -33,7 +33,7 @@ it("saisie guidée sans qualification automatique, payload hypothèse existant e
   fill("Source de la distance et itinéraire vérifié", "Carte routière test");
   fill("Date de vérification", "2026-09-16");
   fireEvent.click(screen.getByText("Ajouter un lot admissible"));
-  expect(screen.getByRole("checkbox").getAttribute("aria-checked")).toBe("false");
+  expect(screen.getAllByRole("checkbox").every(c => c.getAttribute("aria-checked") === "false")).toBe(true);
   fill("Référence du lot dans le scénario", "lot-1");
   fill("Code équipement exact (ex. 20GP)", "20GP");
   fill("Nombre de conteneurs", "2");
@@ -41,7 +41,7 @@ it("saisie guidée sans qualification automatique, payload hypothèse existant e
   fill("Charge marchandise admissible vérifiée (kg)", "20000");
   fill("Source capacité conteneur ET véhicule / conditions de transport", "Fiche transporteur + plaque TC test");
   expect(transportEstimateBasisError(JSON.parse(raw))).not.toBeNull();
-  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getAllByRole("checkbox")[0]);
   expect(transportEstimateBasisError(JSON.parse(raw))).toBeNull();
   const draft: AssumptionDraft = { statement: "Transport ordinaire estimé", basis: "Source opérateur", assumptionType: "other",
     valueType: "json", valueInput: raw, scopeKey: "case", assumedFactKey: LOCAL_TRANSPORT_ESTIMATE_KEY, gapKey: "",

@@ -20,6 +20,8 @@ export interface TransportEstimateGroup {
   max_payload_kg: number;
   ordinary_transport: boolean;
   qualification_source: string;
+  /** Explicit scenario opt-in; never changes the cargo danger classification. */
+  unknown_danger_base_only?: boolean;
 }
 export interface TransportEstimateBasis {
   schema_version: 1;
@@ -46,7 +48,8 @@ export function transportEstimateBasisError(raw: unknown): string | null {
     if (!object(g) || typeof g.unit_ref !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(g.unit_ref) || refs.has(g.unit_ref) ||
       !resolveCanonicalLocalTransportContainerType(g.equipment_code) || !Number.isSafeInteger(g.quantity) || !positive(g.quantity) ||
       !positive(g.weight_per_container_kg) || !positive(g.max_payload_kg) || g.weight_per_container_kg > g.max_payload_kg ||
-      g.ordinary_transport !== true || !text(g.qualification_source)) return "Lot : TC sec 20/40 pieds, quantité, poids connu, charge admissible sourcée et transport ordinaire attesté requis.";
+      g.ordinary_transport !== true || !text(g.qualification_source) ||
+      (g.unknown_danger_base_only !== undefined && typeof g.unknown_danger_base_only !== "boolean")) return "Lot : TC sec 20/40 pieds, quantité, poids connu, charge admissible sourcée et transport ordinaire attesté requis.";
     refs.add(g.unit_ref);
   }
   return null;
@@ -85,7 +88,9 @@ export function estimateUnlistedContainerTransport(rates: readonly LocalTranspor
   // Ignore case only: do not collapse distinct equipment into a tariff-size family.
   const sameEquipment = typeof u.equipment_code === "string" && !!g &&
     u.equipment_code.toUpperCase() === g.equipment_code.toUpperCase();
-  if (!g || u.unit_kind !== "CONTAINER" || u.dangerous_goods !== false || u.temperature_control_required !== false ||
+  const unknownDanger = u.dangerous_goods == null && u.un_number == null && u.imo_class == null;
+  const dangerAllowed = u.dangerous_goods === false || (unknownDanger && g?.unknown_danger_base_only === true);
+  if (!g || u.unit_kind !== "CONTAINER" || !dangerAllowed || u.un_number != null || u.imo_class != null || u.temperature_control_required !== false ||
     !sameEquipment || u.quantity !== g.quantity || weight !== g.weight_per_container_kg ||
     u.destination_ref != null) return refuse("Lot non qualifié, modifié, dangereux, température dirigée ou poids inconnu : transport à confirmer.");
   const type = resolveCanonicalLocalTransportContainerType(g.equipment_code)!;
@@ -103,7 +108,8 @@ export function estimateUnlistedContainerTransport(rates: readonly LocalTranspor
   const unitTtc = ht + fee + vat;
   const amount = unitTtc * g.quantity;
   if (!Number.isSafeInteger(amount)) return refuse("Montant hors capacité de calcul.");
-  const notes = `Estimation kilométrique non ferme, pas un tarif réglementaire. Distance routière ${basis.distance_km} km : ${basis.distance_source}, vérifiée le ${basis.verified_on}. ` +
+  const dangerReserve = unknownDanger ? "Statut dangereux inconnu : base de transport ordinaire uniquement, sous hypothèse explicite ; supplément et contraintes IMO non inclus, non supposés nuls. Ce calcul ne confirme ni la classification ni l'acceptation par le transporteur. " : "";
+  const notes = dangerReserve + `Estimation kilométrique non ferme, pas un tarif réglementaire. Distance routière ${basis.distance_km} km : ${basis.distance_source}, vérifiée le ${basis.verified_on}. ` +
     `Lot ${g.unit_ref} : transport ordinaire attesté (${g.qualification_source}), charge admissible ${g.max_payload_kg} kg. ` +
     `Par conteneur : transport HT ${ht} + frais HT ${fee} + TVA fournisseur 18 % ${vat} = ${unitTtc} XOF TTC ; quantité ${g.quantity}. ` +
     `${weightRule.note ?? ""} Retour vide, attente, manutention et prestations particulières non présumés inclus. Aucune TVA SODATRA supplémentaire.`;
@@ -112,7 +118,8 @@ export function estimateUnlistedContainerTransport(rates: readonly LocalTranspor
     description: `Transport ${g.equipment_code} → ${basis.destination} — estimation kilométrique (${g.unit_ref})`,
     amount, currency: "XOF", quantity: g.quantity, unit: "TC", containerType: g.equipment_code, isEditable: false, notes,
     source: { type: "CALCULATED" as const, confidence: 0.5, reference: LOCAL_TRANSPORT_ESTIMATE_RULE,
-      firm_eligible: false, unit_ref: g.unit_ref, distance_source: basis.distance_source, verified_on: basis.verified_on,
+      firm_eligible: false, danger_status: unknownDanger ? "unknown" : "non_dangerous", danger_reservation: dangerReserve || null,
+      unit_ref: g.unit_ref, distance_source: basis.distance_source, verified_on: basis.verified_on,
       distance_km: basis.distance_km, tariff_source: anchor.rate.source_document, billed_size: billed40 ? "40" : "20",
       transport_ht_per_container: ht, fees_ht_per_container: fee, supplier_vat_per_container: vat,
       qualification: { ...g } },

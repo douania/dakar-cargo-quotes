@@ -3,11 +3,39 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { emptyTransportEstimateBasis } from "@/lib/scenarioAssumptions";
 import { RoadDistanceProposal } from "./RoadDistanceProposal";
+import { useRef, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { proposeTransportGroups } from "@/lib/transportGroupProposal";
 const blankGroup = () => ({ unit_ref: "", equipment_code: "", quantity: null, weight_per_container_kg: null,
   max_payload_kg: null, ordinary_transport: false, qualification_source: "" });
 
 /** Edits only the existing assumption draft. No database/pricing side effects. */
 export function LocalTransportEstimateFields({ value, onChange, caseId }: { value: string | boolean; onChange: (v: string) => void; caseId?: string }) {
+  const current = useRef({ value, caseId }); current.current = { value, caseId };
+  const [loading, setLoading] = useState(false);
+  const [proposalMessage, setProposalMessage] = useState('');
+  async function proposeGroups() {
+    const initial = { value, caseId };
+    setLoading(true); setProposalMessage('');
+    try {
+      const selection = await supabase.from('quote_scenario_selections').select('scenario_id')
+        .eq('case_id', caseId!).is('released_at', null).maybeSingle();
+      if (selection.error || !selection.data) throw new Error('Sélectionnez un scénario avant de proposer ses lots.');
+      const result = await supabase.from('quote_scenarios').select('id,scope_hash,scope_snapshot')
+        .eq('case_id', caseId!).eq('id', selection.data.scenario_id).single();
+      if (result.error || !result.data) throw new Error('Les lots du scénario ne sont pas accessibles.');
+      if (current.current.value !== initial.value || current.current.caseId !== initial.caseId) {
+        setProposalMessage('Le formulaire a changé : relancez la proposition.'); return;
+      }
+      const proposal = proposeTransportGroups(result.data.scope_snapshot);
+      const draft = JSON.parse(String(initial.value));
+      if (Array.isArray(draft.groups) && draft.groups.length) throw new Error('Les lots déjà saisis sont conservés : retirez-les avant une nouvelle proposition.');
+      onChange(JSON.stringify({ ...draft, groups: proposal.groups,
+        scenario_source: { id: result.data.id, scope_hash: result.data.scope_hash } }));
+      setProposalMessage(`${proposal.groups.length} lot(s) proposé(s), capacité et transport ordinaire à vérifier. ${proposal.excluded.join(' ')}`);
+    } catch (error) { setProposalMessage(error instanceof Error ? error.message : 'Proposition indisponible. Saisie manuelle possible.'); }
+    finally { setLoading(false); }
+  }
   let data: Record<string, unknown>;
   try {
     const parsed = JSON.parse(String(value));
@@ -36,6 +64,10 @@ export function LocalTransportEstimateFields({ value, onChange, caseId }: { valu
       {field("Date de vérification", "verified_on", data, change, "date")}
     </div>
     {caseId && <RoadDistanceProposal caseId={caseId} value={value} onChange={onChange} />}
+    {caseId && <Button type="button" variant="outline" size="sm" disabled={loading || groups.length > 0} onClick={proposeGroups}>
+      {loading ? 'Lecture des lots…' : 'Proposer les lots depuis le scénario sélectionné'}
+    </Button>}
+    {proposalMessage && <p role="status">{proposalMessage}</p>}
     {groups.map((raw, i) => {
       const g = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
       const update = (p: Record<string, unknown>) => change({ groups: groups.map((row, n) => n === i ? { ...row, ...p } : row) });
@@ -54,10 +86,14 @@ export function LocalTransportEstimateFields({ value, onChange, caseId }: { valu
           <Checkbox checked={g.ordinary_transport === true} onCheckedChange={v => update({ ordinary_transport: v === true })} />
           <span>J’atteste un transport ordinaire sans hors-gabarit, véhicule spécial ni contrainte particulière ; la charge admissible respecte le conteneur et le véhicule routier. Le moteur vérifiera aussi le poids, le type et le statut dangereux du lot.</span>
         </label>
+        <label className="flex items-start gap-2">
+          <Checkbox checked={g.unknown_danger_base_only === true} onCheckedChange={v => update({ unknown_danger_base_only: v === true })} />
+          <span>Si le danger est inconnu, retenir uniquement une base estimative hors supplément IMO, avec réserve visible. Cela ne confirme pas une marchandise non dangereuse ni l’acceptation du transporteur.</span>
+        </label>
         <Button type="button" variant="ghost" size="sm" onClick={() => change({ groups: groups.filter((_, n) => n !== i) })}>Retirer ce lot</Button>
       </fieldset>;
     })}
     <Button type="button" variant="outline" size="sm" disabled={groups.length >= 12} onClick={() => change({ groups: [...groups, blankGroup()] })}>Ajouter un lot admissible</Button>
-    <p className="text-muted-foreground">Lots dangereux, spéciaux, de poids inconnu ou dépassant la charge justifiée : transport non chiffré par cette formule. Retour vide et autres prestations restent distincts.</p>
+    <p className="text-muted-foreground">Lots connus dangereux, spéciaux, de poids inconnu ou dépassant la charge justifiée : transport non chiffré par cette formule. Danger inconnu : base seule sur choix explicite, jamais un supplément nul. Retour vide et autres prestations restent distincts.</p>
   </fieldset>;
 }

@@ -1838,6 +1838,16 @@ Critère de sortie : preuves horodatées du parcours complet, absence de régres
 - Auto-revue du diff ciblé effectuée : deux fichiers code/test + présente clôture ; aucune DB/Auth/RLS/Edge, aucun fait/barème ou artefact Cloud modifié. CI complète/Deno et recette Lovable du correctif NOT_RUN, non pertinents au contrôle serveur inchangé / publication non autorisée.
 - HEAD inchangé ; aucun commit/push. Retour local : retirer uniquement ces deux diff et cette clôture en préservant les notes précédentes. Suite : GO publication frontend distinct, puis recette TEST ; preuve complète du rapprochement de poids toujours restante.
 
+#### Création de version → brouillon — livraison et recette — 18 septembre 2026 — PASS ciblé
+
+- GO publication utilisateur + identité Codex/noreply@openai.com limitée au commit ; aucune configuration globale modifiée. work fac78461→2dec09071e9f83a076e97ef2d96c0dad1de17ccc,3 fichiers,+87/-5 incluant clôtures antérieures ; push et alignement final GitHub/Lovable PASS.
+- Lovable umsg_01m2tv7haxfk4tkag89swcfq4p : build32,7s/HTTP200 rapportés, HEAD et arbre supabase inchangés, aucune édition ; projet ready/is_published=false confirmé. Aucun SQL/migration/déploiement Edge/publication publique.
+- Recette UI authentifiée TEST450cb321 : Run#3 réussi9 lignes,884380XOF sous-total+99000TVA=983380total provisoire ; versionv3 depuis Run#3. Pendant création panneau verrouillé, puis v3 cohérente carte/préparation sans rechargement : défaut corrigé.
+- PDFv3 généré, visualisation des deux pages : base10t révisable, titre provisoire, totaux et DRAFT présents, aucun chevauchement visible ; pagination2pages perfectible non bloquante. Brouillonv3 généré sans IA, réserve10t et montants conservés ; persistance vérifiée après rechargement, destinataire vide, marquage envoyé désactivé ; aucun envoi.
+- Observation non bloquante : avertissement absence PDF restait affiché après export jusqu'à génération du brouillon ; alors PDF détecté. Ne remet pas en cause synchronisation version/brouillon vérifiée, aucun correctif supplémentaire.
+- Tests locaux du lot précédent488/488/typecheck/build PASS non rejoués, sources inchangées. GoTrans/faits/barèmes/Auth/RLS inchangés par nos actions ; artefacts TEST conservés. Aucun test de conflit global dans cette recette : rapprochement des poids contradictoires reste à vérifier séparément.
+- Retour arrière : revert ciblé2dec090 et reconstruction frontend, sans toucher aux artefacts TEST ni migrations. Note de clôture locale non commitée ; suite utile : terminer la recette spécifique du rapprochement des poids sous son périmètre autorisé.
+
 #### Suite canonique P1-A
 
 - **P1-A2 — objet scénario** : PASS Git + Lovable runtime et nettoyage ; périmètre immuable, révisions, supersession, sélection et comparaison ; aucun pricing.
@@ -2312,6 +2322,29 @@ STOP et demander arbitrage CTO si :
 - une action peut modifier Lovable, une base live, des emails réels ou des données client sans GO explicite ;
 - l'idempotence, le rollback ou la provenance ne peuvent pas être démontrés ;
 - le chantier révèle un risque de mauvais devis, double comptage ou corruption de données.
+
+#### Rapprochement des poids — recette TEST — 19 septembre 2026 — PASS calcul/version/brouillon, PDF visuel NOT_RUN
+
+- GO recette utilisateur ; work/GitHub `2dec09071e9f83a076e97ef2d96c0dad1de17ccc` alignés, aucun patch applicatif, commit, migration ou déploiement ce tour.
+- TEST `450cb321-8da6-4323-a579-187800d09e45` uniquement : ancien fait manuel 10000 kg conservé historique ; nouveau fait 9000 kg explicitement marqué simulation d'extraction IA, pas une extraction réelle.
+- Confirmation authentifiée v4 `d257df1f-9c0a-447d-b2a3-dab6c49108dd`, puis rapprochement `3be77b2a-28d8-49f8-b139-ba07aa0687c3` : base révisable 10000 kg ; fait 9000 kg toujours courant, décisions PAD conservées, blocage PAD levé dans l'UI.
+- Pricing Run #4 `188a2f92-0601-4d65-a94a-5ded3518dd5e` réussi ; snapshot v4 `cb3aaa21-1312-4634-8bed-d64aff331212` : cargo_weight=10 t, PAD 10×9678=96780 XOF, total provisoire 983380 XOF ; réserve globale et rapprochement figés.
+- PDF v4 enregistré (`c811402b-4986-4b86-ab23-191399471224`) ; capture/export du lecteur IAB indisponibles : contenu et rendu PDF non vérifiés ce tour.
+- Brouillon v4 `327fc4f9-d137-4737-afb3-a6a11492a521` enregistré avec réserve globale 10 t / 9 t ; destinataires vides, sent_at NULL, status draft.
+- Défauts UI observés sans correction : notification création « vundefined / NaN » transitoire avant restitution v4 correcte ; formulaire rapprochement retenu remet ses champs à vide/défaut plutôt que restituer la justification enregistrée.
+- Aucun changement GoTrans, barème, Auth/RLS ; fixtures et artefacts TEST conservés pour audit. Aucun test local relancé. Suite : contrôle du PDF v4 ; recette sur GoTrans distincte, pas validée par ce TEST.
+
+#### Transport hors barème par groupe — 19 septembre 2026 — PASS_WITH_BASELINE local, non livré
+
+- GO utilisateur : exception locale calcul gelé, proposition des lots et base hors supplément pour danger inconnu ; aucun tarif/fait/Cloud/publication. work `2dec09071e9f83a076e97ef2d96c0dad1de17ccc` inchangé, aligné origin/work ; notes antérieures préservées.
+- Périmètre : 8 fichiers applicatifs/tests (helper km, moteur notes, formulaire, proposition pure et tests). Aucun contrat DB ni Edge supplémentaire.
+- UI : lecture RLS du scénario sélectionné, références/types/quantités/poids préremplis, source id/hash conservée ; capacité et attestations restent vides/décochées. Réponse tardive après changement dossier/formulaire ignorée. Distance via proposition TomTom existante ; enregistrement et liaison restent explicites.
+- Calcul scénario uniquement : danger inconnu sans UN/classe peut recevoir une base kilométrique sur opt-in explicite, avec réserve IMO et firm_eligible=false. Danger positif/UN/classe, capacité insuffisante/non justifiée, équipements spéciaux restent refusés ; barème exact prioritaire.
+- Test moteur mixte synthétique 39×55t DG / 13×18t / 3×15t : premier transport null, deux autres calculés avec capacité fictive explicitement sourcée et distance test300km ; aucune qualification réelle GoTrans déduite.
+- Tests : 492 Vitest PASS ; 76 Deno ciblés (45 handler +31 km) PASS ; typecheck, build, config97, bundles et diff-check PASS. Deno types49/5 inchangés ; suite Deno complète et recette Cloud NOT_RUN.
+- Gate lint brut FAIL740/16 vs fichierbaseline737/16 ; comparaison ESLint de TOUS les fichiers suivis origin/work via git show=740/16, delta0 ; nouveaux fichiers0. PASS_WITH_BASELINE, pas CI verte ni baseline relevée.
+- Contre-revue indépendante lecture seule PASS, 9 tests frontend rejoués ; sélection/snapshot non atomiques signalés non bloquants (proposition seule, qualifications non préremplies, contrôles moteur conservés).
+- Aucune écriture Cloud, migration, Auth/RLS, commit/push/déploiement/envoi. GoTrans inchangé ; l'automatisation complète de qualification et de liaison n'est pas livrée par ce lot. Retour arrière : retirer uniquement ce diff local en préservant les notes précédentes.
 
 ## 11. Procédure de reprise dans une nouvelle session
 

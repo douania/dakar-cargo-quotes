@@ -159,6 +159,43 @@ Deno.test("km: UI lowercase equipment and uppercase qualification reach the real
   assertEquals(JSON.stringify(req), before);
 });
 
+Deno.test("km: unknown danger opt-in prices base only; positive or contradictory DG still excluded", () => {
+  const i = input();
+  Object.assign(i.unit, { dangerous_goods: null });
+  assertEquals(estimateUnlistedContainerTransport(rates(), i).line, null);
+  Object.assign(i.basis.groups[0], { unknown_danger_base_only: true });
+  const before = JSON.stringify(i);
+  const result = estimateUnlistedContainerTransport(rates(), i); assert(result.line);
+  assertEquals(result.line.source.danger_status, "unknown");
+  assertEquals(result.line.source.firm_eligible, false);
+  assert(result.line.notes.includes("supplément et contraintes IMO non inclus"));
+  assertEquals(JSON.stringify(i), before);
+  for (const patch of [{ dangerous_goods: true }, { dangerous_goods: null, un_number: "UN3536" },
+    { dangerous_goods: false, un_number: null, imo_class: "9" }]) {
+    Object.assign(i.unit, patch);
+    assertEquals(estimateUnlistedContainerTransport(rates(), i).line, null);
+  }
+});
+
+Deno.test("km: mixed 55t DG / 18t / 15t - engine calculates eligible groups separately", async () => {
+  const req = request();
+  req.scenarioCargoContext.cargo_units = [
+    unit({ unit_ref: "lot-1", quantity: 39, gross_weight_kg: 55000, dangerous_goods: true, un_number: "UN3536", imo_class: "9" }),
+    unit({ unit_ref: "lot-2", quantity: 13, gross_weight_kg: 18000, dangerous_goods: null }),
+    unit({ unit_ref: "lot-3", equipment_code: "40hq", quantity: 3, gross_weight_kg: 15000, dangerous_goods: null }),
+  ];
+  req.containers = resolveScenarioCargo(req.scenarioCargoContext).containers;
+  req.scenarioLocalTransport.basis.groups = req.scenarioCargoContext.cargo_units.slice(1).map(u => ({
+    unit_ref: String(u.unit_ref), equipment_code: String(u.equipment_code), quantity: Number(u.quantity),
+    weight_per_container_kg: Number(u.gross_weight_kg), max_payload_kg: 20000, ordinary_transport: true,
+    qualification_source: "Capacité TC ET véhicule synthétique, pas une qualification GoTrans", unknown_danger_base_only: true,
+  }));
+  const before = JSON.stringify(req);
+  const result = await generateQuotationLines(db(), req);
+  assertEquals(result.lines.filter(l => l.category === "Transport").map(l => l.amount), [null, 5476380, 2371800]);
+  assertEquals(JSON.stringify(req), before);
+});
+
 Deno.test("km: equipment comparison ignores case only, not size or equipment changes", () => {
   for (const [scenarioCode, basisCode, allowed] of [
     ["20gp", "20GP", true], ["20GP", "20gp", true], ["40hq", "40HQ", true],

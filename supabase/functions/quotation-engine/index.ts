@@ -1996,7 +1996,7 @@ export async function generateQuotationLines(
             reference: `${localTransport.code} — ${localTransport.reason}`,
             confidence: 0
           },
-          notes: `${localTransport.message} ${kmEstimate?.reason ?? (transportBasis ? 'Estimation kilométrique hors périmètre : import Sénégal via Dakar et scénario DAP requis.' : '')} Confirmation humaine requise. Contacter transporteur.${historicalHint}`,
+          notes: `${localTransport.message} ${kmEstimate?.reason ?? (transportBasis ? 'Estimation kilométrique hors périmètre : import Sénégal via Dakar et scénario DAP requis.' : 'Aucune hypothèse de distance et de qualification transport liée : préparer le transport hors barème, vérifier les lots puis lier cette hypothèse au scénario.')} ${historicalHint}`,
           isEditable: true
         });
         warnings.push(`Transport ${container.type} → ${request.finalDestination}: ${localTransport.message} (${localTransport.reason})`);
