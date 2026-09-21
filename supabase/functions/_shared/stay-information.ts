@@ -1,6 +1,7 @@
 /** Read-only quote information. Examples never participate in pricing totals. */
 import { calculateStayTiers, DPW_FRANCHISE_SOURCE, type StayGroup, type StayTier } from "./container-stay-estimate.ts";
 import { estimateStorageByTonne, storageRateEstimate } from "./storage-rate-estimate.ts";
+import { buildDemurrageComparison, readDemurrageComparison, demurrageComparisonText, type DemurrageComparison, type DemurrageComparisonInput } from "./demurrage-reference-information.ts";
 
 export interface StayInformation {
   schema_version: 1;
@@ -10,6 +11,7 @@ export interface StayInformation {
   example: { days: number; amount: number; currency: string; formula: string } | null;
   reservations: string[];
   sources: string[];
+  carrier_comparison?: DemurrageComparison;
 }
 export function readStayInformation(value: unknown): StayInformation | null {
   if (!value || typeof value !== "object") return null;
@@ -24,6 +26,7 @@ export function readStayInformation(value: unknown): StayInformation | null {
     !Array.isArray(v.sources) || !v.sources.every(s => typeof s === "string") ||
     (v.example !== null && (!v.example || !day(v.example.days) || v.example.days < 1 || !positive(v.example.amount) ||
       !currency(v.example.currency) || typeof v.example.formula !== "string"))) return null;
+  if (v.carrier_comparison !== undefined && (!readDemurrageComparison(v.carrier_comparison) || v.free_days !== null || v.example !== null || v.tiers.length)) return null;
   return v;
 }
 const number = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 6 }).format(value);
@@ -87,8 +90,15 @@ export function demurrageStayInformation(tiers: StayTier[], freeDays: unknown, q
   return info;
 }
 
+export function unknownCarrierStayInformation(input: DemurrageComparisonInput): StayInformation | null {
+  const comparison = buildDemurrageComparison(input);
+  return comparison ? { schema_version: 1, free_days: null, franchise_note: "Franchise applicable à confirmer : les franchises ci-dessous appartiennent aux barèmes de référence, pas à un armateur sélectionné.",
+    tiers: [], example: null, reservations: [], sources: [], carrier_comparison: comparison } : null;
+}
+
 /** Plain text travels with existing line notes into immutable quotation outputs. */
 export function stayInformationText(info: StayInformation): string {
+  if (info.carrier_comparison) return [info.franchise_note, demurrageComparisonText(info.carrier_comparison)].join("\n");
   return [info.free_days === null ? "Franchise : à confirmer." : `Franchise : ${info.free_days} jours.`, info.franchise_note,
     ...info.tiers.map(t => `${stayRange(t.from, t.to, t.relative)} : ${number(t.rate)} ${t.currency}/${t.unit}.`),
     info.example ? `Exemple illustratif pour un séjour HYPOTHÉTIQUE de ${info.example.days} jours, franchise comprise : ${info.example.formula} = ${number(info.example.amount)} ${info.example.currency}. Non ajouté au total ; ce n’est pas la durée retenue.` : "Exemple non chiffrable avec les conditions connues.",

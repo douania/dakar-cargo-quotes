@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert";
-import { storageStayInformation } from "../_shared/stay-information.ts";
+import { storageStayInformation, unknownCarrierStayInformation } from "../_shared/stay-information.ts";
 import {
   buildScenarioEmailBody,
   buildScenarioEmailSubject,
@@ -91,4 +91,15 @@ Deno.test("stay output: immutable raw-line information reaches PDF context and e
   assertEquals(context.indicativeTotalHt, 150000);
   assertEquals(JSON.stringify(source), before);
   assertEquals(readScenarioOutputContext(snapshot())?.stayInformation, []);
+});
+
+Deno.test("reference output: sources and conditional examples preserved in PDF context/email, never repriced", () => {
+  const info = unknownCarrierStayInformation({ carrier: null, equipment: "40HC", unit: { unit_kind: "CONTAINER", ownership: "COC", quantity: 3,
+    dangerous_goods: null, temperature_control_required: false }, movement_direction: "IMPORT", destination_country: "SN", discharge_port: "Dakar", is_transit: false, as_of: "2026-09-21" })!;
+  const source = snapshot({ raw_lines: [{ description: "Surestaries — lot exemple", amount: null, stay_information: info }] });
+  const before = JSON.stringify(source); const context = readScenarioOutputContext(source)!;
+  const body = buildScenarioEmailBody(source, context, true);
+  for (const content of ["CMA CGM", "Hapag-Lloyd", "2026-09-21", "2025-01-01", "2024-05-01", "HYPOTHÉTIQUE de 25 jours", "Danger du lot inconnu", "Non ajouté au total", "https://www.bceao.int/"]) assert(body.includes(content));
+  assertEquals(context.indicativeTotalHt, 150000); assertEquals(context.firmTotalHt, 100000);
+  assertEquals(JSON.stringify(source), before);
 });

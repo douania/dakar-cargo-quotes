@@ -18,7 +18,7 @@ import { assertScenarioCargoContext, type ScenarioCargoContext } from "../_share
 import { estimateUnlistedContainerTransport } from "../_shared/local-transport-estimate.ts";
 import { resolveStayGroup, calculateStayTiers, assessDpwStorageFranchise, isCurrentStayTariff } from "../_shared/container-stay-estimate.ts";
 import { estimateStorageByTonne, STORAGE_POLICY } from "../_shared/storage-rate-estimate.ts";
-import { storageStayInformation, demurrageStayInformation, stayInformationText, type StayInformation } from "../_shared/stay-information.ts";
+import { storageStayInformation, demurrageStayInformation, unknownCarrierStayInformation, stayInformationText, type StayInformation } from "../_shared/stay-information.ts";
 import {
   resolveDemurrageEquipment,
   resolveDemurragePendingProvenance,
@@ -2384,6 +2384,17 @@ export async function generateQuotationLines(
       // [FAIL-CLOSED surestaries] Sélection refusée (taille/armateur inconnus ou
       // ambigus, ou aucune donnée) → ligne TO_CONFIRM explicite, jamais un barème arbitraire.
       const failClosedReason = demSelection.reason || 'Aucune donnée de surestaries en base';
+      // GO global restitution séjour : documentary references ONLY. The selected
+      // rate, TO_CONFIRM source and null amount remain unchanged, including totals.
+      const referenceInfo = servicesOnly && demurrageGroup && !detectedCarrier ? unknownCarrierStayInformation({
+        carrier: detectedCarrier, equipment: equipment.containerType,
+        unit: request.scenarioCargoContext?.cargo_units.find(u => u.unit_ref === demurrageGroup),
+        movement_direction: request.scenarioStay?.movement_direction,
+        destination_country: request.scenarioStay?.destination_country,
+        discharge_port: request.scenarioStay?.discharge_port,
+        terminal_mode: request.scenarioStay?.terminal_mode, is_transit: isTransit,
+        as_of: new Date().toISOString().slice(0, 10),
+      }) : null;
       console.log(`[quotation-engine §8c] demurrage FAIL-CLOSED reason="${failClosedReason}"`);
       lines.push({
         id: demurrageGroup ? `demurrage_estimate_${demurrageGroup}` : 'demurrage_estimate',
@@ -2397,7 +2408,8 @@ export async function generateQuotationLines(
           reference: failClosedReason,
           confidence: 0
         },
-        notes: `${failClosedReason} — contacter l'armateur pour la grille de surestaries.`,
+        ...(referenceInfo ? { stay_information: referenceInfo } : {}),
+        notes: referenceInfo ? `${failClosedReason}\n${stayInformationText(referenceInfo)}` : `${failClosedReason} — contacter l'armateur pour la grille de surestaries.`,
         isEditable: true
       });
     }

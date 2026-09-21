@@ -153,3 +153,41 @@ Deno.test("stay: canonical RORO/CONRO fact survives missing scenario mode, canno
     assert(out.lines.filter(l => l.category === "Magasinage").every(l => l.amount === null));
   }
 });
+
+Deno.test("unknown carrier: reference metadata only, per COC group, totals and input unchanged", async () => {
+  const req = request(); req.carrier = "";
+  Object.assign(req.scenarioCargoContext.cargo_units[0], { dangerous_goods: null });
+  delete (req.scenarioStay as Record<string, unknown>).basis;
+  req.scenarioCargoContext.cargo_units.push(unit({ unit_ref: "lot-3", quantity: 2 }));
+  req.containers = resolveScenarioCargo(req.scenarioCargoContext).containers;
+  const before = JSON.stringify(req);
+  const out = await generateQuotationLines(db(), req);
+  const dem = out.lines.filter(l => l.category === "Surestaries");
+  assertEquals(dem.length, 2);
+  assert(dem.every(l => l.amount === null && l.source.type === "TO_CONFIRM"));
+  assertEquals(dem.map(l => l.stay_information?.carrier_comparison?.quantity), [3, 2]);
+  assertEquals(dem[0].stay_information?.free_days, null);
+  assertEquals(dem[0].stay_information?.carrier_comparison?.quantity, 3);
+  assertEquals(dem[0].stay_information?.carrier_comparison?.references.length, 2);
+  assert(dem[0].notes?.includes("Danger du lot inconnu"));
+  const withoutInfo = out.lines.map(({ stay_information: _info, ...line }) => ({ ...line, notes: "" }));
+  const { lines: annotated, ...totals } = computeScenarioTotals(out.lines.map(l => ({ ...l })), new Set());
+  const { lines: stripped, ...baselineTotals } = computeScenarioTotals(withoutInfo, new Set());
+  assertEquals(totals, baselineTotals);
+  assertEquals(annotated.map(l => l.scenario_provenance), stripped.map(l => l.scenario_provenance));
+  assertEquals(JSON.stringify(req), before);
+});
+Deno.test("unknown carrier: standard comparison cannot leak into known carrier, DG, special, transit or canonical", async () => {
+  for (const setup of [
+    (r: ReturnType<typeof request>) => { r.carrier = "MSC"; },
+    (r: ReturnType<typeof request>) => { r.scenarioCargoContext.cargo_units[0].dangerous_goods = true; },
+    (r: ReturnType<typeof request>) => { r.scenarioStay.movement_direction = "EXPORT"; },
+    (r: ReturnType<typeof request>) => { r.finalDestination = "Bamako"; },
+    (r: ReturnType<typeof request>) => { r.containers[0].type = "40OT"; r.scenarioCargoContext.cargo_units[0].equipment_code = "40OT"; },
+    (r: ReturnType<typeof request>) => { delete (r as Record<string, unknown>).scenarioPricingMode; delete (r as Record<string, unknown>).scenarioCargoContext; },
+  ]) {
+    const req = request(); req.carrier = ""; setup(req);
+    const out = await generateQuotationLines(db(), req);
+    assert(out.lines.every(l => !l.stay_information?.carrier_comparison));
+  }
+});

@@ -2388,6 +2388,32 @@ STOP et demander arbitrage CTO si :
 - Tests : 13 ciblés PASS ; typecheck et build PASS. Suite frontend : 493 PASS / 1 FAIL identique à `origin/work` (`LocalTransportEstimateFields` attend « Ajouter un lot admissible », UI inchangée affiche « Ajouter un lot ») : PASS_WITH_BASELINE.
 - Retour arrière : revert de ces deux fichiers frontend ; aucun rollback DB/Cloud. Publication et extension structurée PDF/e-mail nécessitent GO distinct ; toute modification du moteur FROZEN exige une exception explicite.
 
+#### Restitution structurée séjour et fraîcheur — 21 septembre 2026 — PASS technique privé / PARTIAL métier
+
+- GO utilisateur : lot global franchises/tranches/exemple, exception pricing FROZEN, livraison privée et recette ; modèle de tâche vérifié `gpt-6-astra/high`.
+- `work` a434c49→62af0982e8dba15e97dae8dd2d32e3c7b70da327 poussé, 13 fichiers +292/-14 ; Git/Lovable alignés, arbre supabase 0a2210f3fbee8200528031d2ae78bdde1f475b35. Présente note de clôture locale non commitée.
+- Contrat informatif additionnel par ligne : franchise puis tranches complètes, taux/unité/sources/réserves ; exemple sur poids/quantité du lot et durée explicitement hypothétique, jamais ajouté aux totaux. P1 opérateur et P2/P3 historiques non promus en tarifs fermes ; aucun montant catalogue remplacé sans pièce.
+- Scénarios conteneurs : contexte import transmis même sans durée liée ; gardes de calcul inchangées. CTA vers hypothèses existantes et avertissement daté quand le pricing canonique précède l’estimation sélectionnée. Les anciens résultats/snapshots ne sont pas réécrits.
+- PDF/brouillon scénario : informations issues des raw_lines figées, sans migration ; retours ligne/pagination contrôlés sur PDF synthétique 2 pages. Exemple EUR décimal corrigé après contre-revue indépendante, verdict final PASS.
+- Tests : 75 Deno ciblés/16 UI PASS ; globaux 1594 Deno PASS/1 FAIL/6 ignorés et 496 UI PASS/1 FAIL, deux échecs baseline Intake/LocalTransport inchangés. Typecheck/build/bundles/config PASS ; dette Deno49/5 et lint740/16 inchangée (comparaison fichiers à origin/work), donc PASS_WITH_BASELINE, pas CI intégralement verte.
+- Lovable message umsg_01m321dgvkf7n92xrbr4wppqv6 : rebuild privé et quotation-engine→run-scenario-pricing→export-quotation-version-pdf→create-quotation-email-draft déployées ; sondes200/401. Projet workspace_edit, non publié. Empreinte du bundle runtime non exposée : NOT_VERIFIED, preuve de substitution conservée.
+- Recette UI GoTrans : run5 d08f1b04-6db9-48bc-b75a-46365f832d9f à13:13:33 UTC, HT47925930/TTC48024930 XOF inchangés, ferme0 ; nouvelles réserves visibles, CTA/focus vers hypothèses et avertissement pricing07/06 vérifiés. Aucune hypothèse séjour ni armateur inventés : magasinage/surestaries restent à confirmer ; chiffrage positif live et export client NOT_RUN.
+- Intégrité SELECT avant/après : empreintes 1428 faits,16 franchises,35 barèmes armateurs,35 paliers,219 tarifs port inchangées ; pricing canonique175 et versions14 stables, runs scénario23→24 seulement. Aucun changement Auth/RLS/migration, aucun envoi/publication publique.
+- Retour arrière : revert ciblé62af098 puis rebuild/redéploiement des quatre fonctions ; aucun rollback DB, préserver l’historique. Suite métier : documenter/relier terminal, désignation, durées distinctes et armateur, confirmer franchises IMO et actualité documentaire sans prétendre tous les barèmes à jour.
+
+#### Surestaries sans armateur — comparatif documentaire global — 21 septembre 2026 — PASS_WITH_BASELINE local
+
+- GO utilisateur sur recommandation informative ; maintien recommandé GPT-6 Astra/high après documentation officielle. work@62af098 local/GitHub alignés, note de clôture précédente préservée ; aucune publication autorisée par ce GO de réalisation.
+- Extension bornée de la restitution séjour sous exception FROZEN déjà accordée : branche scénario sans armateur, métadonnées seulement ; amount=null/TO_CONFIRM, sélection effective, totaux, faits et catalogues inchangés.
+- Deux références publiques nommées/datées/consultées : CMA CGM Dakar City Center DEMURRAGE (01/01/2025), Hapag-Lloyd Sénégal import (01/05/2024), conversion informative BCEAO655,957 ; pas une fourchette exhaustive du marché ni un plafond garanti, actualité et booking à reconfirmer.
+- Franchise propre à chaque référence, tranches11–20/21+, exemples15/20/25jours sur quantité par lot ; EUR conservé, conversion du total puis arrondi. Aucune durée retenue ni franchise applicable déduite ; magasinage/détention/TVA exclus.
+- Gardes : importDakar/SN, COCsec20DV/40DV/40HC, pas de carrier connu/SOC/DG connu/température/spécial/transit/export. Danger inconnu : base standard explicitement hypothétique, réserve visible avant tableaux. Aucun cas client codé en dur.
+- Contrat additif validé défensivement, gros montants rejetés ; contexte PDF/brouillon issu des références figées dans raw_lines, anciens snapshots compatibles, sans relecture du catalogue courant.
+- Tests37Deno ciblés avec typage/17UI PASS ; globaux1601DenoPASS/1FAIL/6ignorés et497UI PASS/1FAIL, échecs Intake/LocalTransport identiques à origin/work (fichiers/tests inchangés). Typecheck/build/bundles/config PASS ; dette Deno49/5 et lint740/16 inchangée : PASS_WITH_BASELINE, pas CI verte intégrale.
+- Contre-revue indépendante PASS,37Deno réexécutés ; dernier test renforcé sans durée liée et deux lots COC distincts PASS. Export texte vérifié, nouveau rendu PDF visuel et recette runtime NOT_RUN.
+- Neuf fichiers code/tests plus présente clôture ; aucun SQL/Auth/RLS/migration/écriture Cloud/envoi/commit/push/déploiement. HEAD inchangé. Retour local : retirer uniquement ce diff, préserver la clôture antérieure ; aucun rollback DB.
+- Suite sous GO publication distinct : commit/push work, reconstruction privée et déploiement coordonné quotation-engine/export-quotation-version-pdf/create-quotation-email-draft, puis relance et recette privée sans envoi ; les anciens runs ne sont pas réécrits.
+
 ## 11. Procédure de reprise dans une nouvelle session
 
 La nouvelle session doit commencer par :

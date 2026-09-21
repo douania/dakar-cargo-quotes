@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { formatScenarioPricingAmount, readScenarioPricingCodes, scenarioPricingCodeMessage, type ScenarioPricingRunSummary } from "@/lib/scenarioPricing";
 import { readStayInformation, stayRange, formatStayAmount } from "../../../supabase/functions/_shared/stay-information";
+import { DemurrageReferenceComparison } from "./DemurrageReferenceComparison";
 export interface SelectedScenarioEstimate {
   caseId: string; title: string; run: ScenarioPricingRunSummary | null; pending: boolean; error: string | null;
 }
@@ -62,6 +63,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { e
               {info ? <div className="mt-2 space-y-2 text-sm">
                 <p className="font-medium">Franchise : {info.free_days === null ? "à confirmer" : `${info.free_days} jours`}</p>
                 <p>{info.franchise_note}</p>
+                {info.carrier_comparison && <DemurrageReferenceComparison comparison={info.carrier_comparison} />}
                 {info.tiers.length > 0 && <div className="overflow-x-auto"><table className="w-full text-sm">
                   <caption className="text-left font-medium mb-1">Tranches de séjour — information non ferme</caption>
                   <thead><tr><th className="text-left p-2">Période</th><th className="text-right p-2">Taux</th><th className="text-left p-2">Unité</th></tr></thead>
@@ -74,7 +76,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { e
                   <p className="font-medium">Exemple sur ce lot — séjour hypothétique de {info.example.days} jours, franchise comprise</p>
                   <p>{info.example.formula} = {formatStayAmount(info.example.amount, info.example.currency)}</p>
                   <p>Illustration non ajoutée au total ; ce n’est pas la durée retenue.</p>
-                </div> : <p>Exemple à compléter : conditions du lot, taux ou quantité/poids insuffisamment renseignés.</p>}
+                </div> : !info.carrier_comparison && <p>Exemple à compléter : conditions du lot, taux ou quantité/poids insuffisamment renseignés.</p>}
                 {info.reservations.map((reservation, i) => <p key={i} className="whitespace-pre-wrap">{reservation}</p>)}
                 {info.sources.map((source, i) => <p key={i} className="text-xs text-muted-foreground">Source : {source}</p>)}
               </div> : <>

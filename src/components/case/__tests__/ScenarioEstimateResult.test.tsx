@@ -3,8 +3,30 @@ import userEvent from "@testing-library/user-event";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { ScenarioEstimateResult, type SelectedScenarioEstimate } from "../ScenarioEstimateResult";
 import { PricingFreshnessNotice } from "../../puzzle/PricingFreshnessNotice";
-import { storageStayInformation, demurrageStayInformation } from "../../../../supabase/functions/_shared/stay-information";
+import { storageStayInformation, demurrageStayInformation, unknownCarrierStayInformation } from "../../../../supabase/functions/_shared/stay-information";
 afterEach(cleanup);
+it("shows two documented references and hypothetical group examples without selecting a carrier or changing the total", () => {
+  const info = unknownCarrierStayInformation({ carrier: null, equipment: "40HC", unit: { unit_kind: "CONTAINER", ownership: "COC", quantity: 3,
+    dangerous_goods: null, temperature_control_required: false }, movement_direction: "IMPORT", destination_country: "SN", discharge_port: "Dakar", is_transit: false, as_of: "2026-09-21" });
+  const e = estimate(); e.run!.tariff_lines = [{ id: "demurrage_estimate_example", category: "Surestaries", description: "Surestaries du lot", amount: null, source: { type: "TO_CONFIRM" }, stay_information: info }];
+  const before = JSON.stringify(e);
+  const { rerender } = render(<ScenarioEstimateResult estimate={e} />);
+  const comparison = screen.getByRole("region", { name: "Comparaison indicative des armateurs" });
+  expect(screen.getByText("Franchise : à confirmer")).toBeInTheDocument();
+  expect(within(comparison).getByText(/CMA CGM — franchise de référence : 10 jours calendaires/)).toBeInTheDocument();
+  expect(within(comparison).getByText(/Hapag-Lloyd — franchise de référence : 10 jours calendaires/)).toBeInTheDocument();
+  for (const days of [15, 20, 25]) expect(within(comparison).getByText(`${days} jours`)).toBeInTheDocument();
+  expect(within(comparison).getByText(/Danger du lot inconnu/)).toBeInTheDocument();
+  expect(within(comparison).getByRole("link", { name: "Source officielle CMA CGM" })).toHaveAttribute("href", expect.stringContaining("cma-cgm.com"));
+  expect(within(comparison).getByText(/531\s*325 FCFA à 570\s*750 FCFA/)).toBeInTheDocument();
+  expect(screen.getByText(/Sous-total indicatif/)).toHaveTextContent(/1\s*000/);
+  expect(screen.queryByText(/Exemple à compléter/)).not.toBeInTheDocument();
+  expect(JSON.stringify(e)).toBe(before);
+  e.run!.tariff_lines = [{ id: "demurrage_estimate_legacy", category: "Surestaries", amount: null, notes: "Ancien résultat sans comparatif", source: { type: "TO_CONFIRM" } }];
+  rerender(<ScenarioEstimateResult estimate={e} />);
+  expect(screen.queryByRole("region", { name: "Comparaison indicative des armateurs" })).not.toBeInTheDocument();
+  expect(screen.getByText("Ancien résultat sans comparatif")).toBeInTheDocument();
+});
 it("shows franchise then complete periods and a separate cargo example, with access to the existing editor", async () => {
   const info = storageStayInformation({ unit_ref: "example", equipment_code: "40HQ", quantity: 3, ownership: "COC", provider: "DPW", storage_p1_code: "412", storage_days: 10, demurrage_days: null }, 30000, true, "Sous hypothèse");
   const e = estimate();
