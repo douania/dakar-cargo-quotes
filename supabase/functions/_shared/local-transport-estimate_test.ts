@@ -59,6 +59,21 @@ Deno.test("km: provisional standard policy prices 18t/15t without claiming vehic
     assert(result.line.notes.includes("répartition par essieu"));
   }
 });
+
+Deno.test("km: short scenario locality matches its exact enriched routing label", () => {
+  const i = input();
+  i.destination = "N'Dioum";
+  i.basis.destination = "Ndioum, Podor, Saint-Louis, Sénégal";
+  assert(estimateUnlistedContainerTransport(rates(), i).line);
+
+  for (const destination of ["Keur Ndioum", "Ndioumé", "Podor"]) {
+    i.destination = destination;
+    const result = estimateUnlistedContainerTransport(rates(), i);
+    assertEquals(result.line, null);
+    assertEquals(result.reason, "La distance ne correspond pas à la destination du calcul.");
+  }
+});
+
 Deno.test("km: provisional standard policy refuses above 18t and altered policy source", () => {
   const i = input();
   Object.assign(i.unit, { gross_weight_kg: 18001 });

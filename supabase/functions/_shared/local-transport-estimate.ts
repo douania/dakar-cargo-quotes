@@ -76,6 +76,30 @@ export interface TransportEstimateInput {
   asOfDate: string;
   catalogComplete: boolean;
 }
+
+function localTransportDestinationsMatch(
+  scenarioDestination: unknown,
+  routedDestination: unknown,
+): boolean {
+  const scenario = normalizeLocalTransportDestination(scenarioDestination);
+  const routed = normalizeLocalTransportDestination(routedDestination);
+  if (!scenario || !routed) return false;
+  if (scenario === routed) return true;
+
+  // TomTom may persist an enriched locality label (city, department, region,
+  // country) while the scenario keeps only the city. Compare that first,
+  // comma-delimited locality exactly; apostrophes are orthographic only.
+  const primaryLocality = (value: unknown) =>
+    typeof value === "string"
+      ? normalizeLocalTransportDestination(
+        value.split(",", 1)[0].replace(/['’ʼ]/g, ""),
+      )
+      : "";
+  const scenarioLocality = primaryLocality(scenarioDestination);
+  const routedLocality = primaryLocality(routedDestination);
+  return !!scenarioLocality && scenarioLocality === routedLocality;
+}
+
 /** Call only AFTER exact resolution failed, with the complete unfiltered catalog.
  * A listed destination with an unusable/ambiguous/expired rate is NOT absent.
  */
@@ -87,7 +111,7 @@ export function estimateUnlistedContainerTransport(rates: readonly LocalTranspor
   const basis = input.basis as TransportEstimateBasis;
   if (!date(input.asOfDate) || basis.verified_on > input.asOfDate) return refuse("Date de vérification invalide ou future.");
   const destination = normalizeLocalTransportDestination(input.destination);
-  if (destination !== normalizeLocalTransportDestination(basis.destination)) return refuse("La distance ne correspond pas à la destination du calcul.");
+  if (!localTransportDestinationsMatch(input.destination, basis.destination)) return refuse("La distance ne correspond pas à la destination du calcul.");
   const canonical = resolveCanonicalLocalTransportDestination(input.destination);
   if (canonical.canonical !== null || canonical.reason !== "DESTINATION_UNKNOWN") return refuse("Destination répertoriée ou ambiguë : tarif exact requis.");
   if (rates.some(r => normalizeLocalTransportDestination(r.destination) === destination &&
