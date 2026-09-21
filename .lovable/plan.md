@@ -1,24 +1,41 @@
-# Plan — Diagnostic « Failed to fetch » à la connexion
+# Livraison privée — correctif transport standard provisoire (run-scenario-pricing)
 
-## Constat (vérifié)
-- `LoginPage.tsx` utilise `supabase.auth.signInWithPassword` — code correct.
-- L'API d'authentification Lovable Cloud répond depuis le sandbox (400 sur mauvais identifiants = service joignable).
-- `cloud_status` : backend `ACTIVE_HEALTHY` (auth et base de données atteignables).
-- Erreur affichée côté navigateur : « Failed to fetch » = échec réseau au niveau du navigateur, pas du serveur.
+## Objectif
+Livrer le correctif chirurgical poussé sur `work` : transmission au moteur du pays et du port déjà présents dans l'hypothèse transport liée lorsque les anciens faits de routage sont absents. Correctif limité à `supabase/functions/run-scenario-pricing/index.ts` et `handler_test.ts`.
 
-## Cause la plus probable
-1. Preview en cours de rebuild au moment du test (« Aperçu en cours » visible après le merge) — requêtes interrompues.
-2. Bloqueur (uBlock/AdGuard) ou filtrage réseau d'entreprise bloquant `*.supabase.co` depuis le navigateur.
-3. Coupure réseau transitoire.
+## Étapes
 
-## Étape 1 — Vérifications utilisateur (sans code)
-- Recharger la preview et retenter la connexion.
-- Ouvrir DevTools → Network : vérifier le statut de la requête `auth/v1/token` (bloquée / CORS / hors-ligne).
-- Désactiver temporairement les extensions de blocage et retester.
+1. **Préflight Git (lecture seule, STOP sur divergence)**
+   - `HEAD` local = `origin/work` = `6affc1e89fe44238124ad94bd3f5f4cd51259e1f` (via `ls-remote`).
+   - Worktree propre (`git status --short`).
+   - Arbre `HEAD:supabase` = `c3ff85c04deeada1855187dced52b185dbc7f620`.
+   - Toute divergence → STOP et rapport, aucune action.
 
-## Étape 2 — Si le problème persiste : durcissement UX du login (1 fichier)
-- `src/pages/LoginPage.tsx` : distinguer l'échec réseau (`Failed to fetch` / `TypeError`) des erreurs d'identifiants, et afficher un message explicite (« Serveur injoignable — vérifiez votre connexion ou vos extensions de blocage ») avec un bouton Réessayer, au lieu du toast générique.
-- Aucune logique métier, aucun changement Auth/RLS/tarif.
+2. **Preview privée**
+   - Rebuild frontend (`npx vite build`, sans installation, sans édition).
+   - Vérifier HTTP 200 avant et après.
 
-## Hors périmètre
-- Aucune modification backend, Edge Function, migration, donnée ou publication.
+3. **Déploiement unique**
+   - Déployer uniquement `run-scenario-pricing`.
+   - `quotation-engine` non redéployée (inchangée). Aucune autre fonction Edge.
+   - STOP au premier échec.
+
+4. **Post-déploiement**
+   - Revérifier HEAD, worktree propre, arbre `HEAD:supabase` identique.
+   - Sondes : `OPTIONS` 200 et `POST {}` sans authentification → 401 attendu (joignabilité et refus d'accès seulement, pas preuve de calcul authentifié).
+   - Journal de build : vérifier qu'aucune erreur nouvelle n'apparaît.
+
+## Rapport attendu
+HEAD avant/après, arbre supabase avant/après, résultat build, accusé exact de déploiement, résultats des sondes, état preview, worktree.
+
+## Interdictions (rappel)
+Aucune édition de fichier, aucune migration/SQL, aucun fait client, barème, Auth/RLS, aucune autre fonction Edge, aucune publication publique, aucun envoi, aucun correctif automatique.
+
+## Dette connue — signalée seulement, sans correction
+- Test frontend `LocalTransportEstimateFields` obsolète.
+- Test Deno Intake non atomique.
+- Lint 740/16 vs baseline fichier 737/16 (identique à `origin/work`).
+- TS2345 historiques dans `run-pricing/index.ts`.
+
+## Limites
+Bundle runtime déployé non exposé : NOT_VERIFIED. Preuve de substitution = sources Git inchangées + accusé exact de l'outil + sondes. Recette GoTrans authentifiée reprise par Codex après livraison.
