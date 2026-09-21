@@ -2414,6 +2414,16 @@ STOP et demander arbitrage CTO si :
 - Neuf fichiers code/tests plus présente clôture ; aucun SQL/Auth/RLS/migration/écriture Cloud/envoi/commit/push/déploiement. HEAD inchangé. Retour local : retirer uniquement ce diff, préserver la clôture antérieure ; aucun rollback DB.
 - Suite sous GO publication distinct : commit/push work, reconstruction privée et déploiement coordonné quotation-engine/export-quotation-version-pdf/create-quotation-email-draft, puis relance et recette privée sans envoi ; les anciens runs ne sont pas réécrits.
 
+#### Livraison privée du comparatif — 21 septembre 2026 — PARTIAL, correctif de recette
+
+- GO distinct utilisateur : commit/push work, déploiement privé et recette sans envoi. 62af098→d727cdff7f1cebe2d270156023a746dacbff9ffc poussé, 10 fichiers +346/-5 ; Lovable synchronisé, non publié, visibilité projet workspace_edit (ne pas confondre le réglage public d'une publication future).
+- Build privé PASS ; quotation-engine/export-quotation-version-pdf/create-quotation-email-draft déployées, accusés et sondes200/401 ; arbre supabase f62fae236d047bfc683a33c216481df3bde3948f inchangé. Empreinte de bundle runtime NOT_VERIFIED.
+- Recette authentifiée : run6 aa477b43-30ba-4f94-93b1-09873d4df097, succès technique, totaux HT47925930/TTC48024930 XOF et ferme0 inchangés ; comparaison absente, donc recette fonctionnelle FAIL.
+- Cause vérifiée : contexte séjour avec pays « Senegal » et port absent ; le contexte transport contient explicitement IMPORT/Senegal/Dakar Port. Le test initial utilisait SN et port dans séjour.
+- Correctif borné sous GO du lot : alias SN/Senegal/Sénégal et port transport en secours uniquement pour la comparaison documentaire et contexte import Sénégal ; valeurs séjour explicites prioritaires, aucune sélection tarifaire ni garde de calcul modifiée.
+- Tests après correctif : 38 Deno ciblés avec typage PASS, bundles isolés PASS ; tests négatifs pays/port/sens, priorité contexte séjour, non-mutation, montant null/TO_CONFIRM et magasinage inchangé. Contre-revue et nouvelle recette avant clôture finale.
+- Aucun changement DB/Auth/RLS/migration/fait/barème ni envoi. Retour : revert des commits du lot puis reconstruction privée/redéploiement coordonné ; conserver les runs historiques.
+
 ## 11. Procédure de reprise dans une nouvelle session
 
 La nouvelle session doit commencer par :

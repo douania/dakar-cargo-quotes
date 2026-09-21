@@ -2390,8 +2390,14 @@ export async function generateQuotationLines(
         carrier: detectedCarrier, equipment: equipment.containerType,
         unit: request.scenarioCargoContext?.cargo_units.find(u => u.unit_ref === demurrageGroup),
         movement_direction: request.scenarioStay?.movement_direction,
-        destination_country: request.scenarioStay?.destination_country,
-        discharge_port: request.scenarioStay?.discharge_port,
+        destination_country: ['SN', 'SENEGAL', 'SÉNÉGAL'].includes(String(request.scenarioStay?.destination_country).trim().toUpperCase())
+          ? 'SN' : request.scenarioStay?.destination_country,
+        // The runner may carry the explicit discharge port only in transport context.
+        // Use it solely for this documentary comparison, and only for matching import SN.
+        discharge_port: request.scenarioStay?.discharge_port ?? (
+          request.scenarioLocalTransport?.movement_direction === 'IMPORT' &&
+          ['SN', 'SENEGAL', 'SÉNÉGAL'].includes(String(request.scenarioLocalTransport?.destination_country).trim().toUpperCase())
+            ? request.scenarioLocalTransport?.discharge_port : undefined),
         terminal_mode: request.scenarioStay?.terminal_mode, is_transit: isTransit,
         as_of: new Date().toISOString().slice(0, 10),
       }) : null;

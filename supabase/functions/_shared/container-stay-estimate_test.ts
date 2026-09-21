@@ -191,3 +191,32 @@ Deno.test("unknown carrier: standard comparison cannot leak into known carrier, 
     assert(out.lines.every(l => !l.stay_information?.carrier_comparison));
   }
 });
+
+Deno.test("unknown carrier: runner country aliases and explicit transport port, metadata only", async () => {
+  for (const country of ["Senegal", "Sénégal", "SN"]) {
+    const req = { ...request(), scenarioLocalTransport: { basis: null, movement_direction: "IMPORT", destination_country: country, discharge_port: "Dakar Port" } };
+    req.carrier = "";
+    req.scenarioStay.destination_country = country;
+    delete (req.scenarioStay as Record<string, unknown>).discharge_port;
+    delete (req.scenarioStay as Record<string, unknown>).basis;
+    Object.assign(req.scenarioCargoContext.cargo_units[0], { dangerous_goods: null });
+    const before = JSON.stringify(req);
+    const out = await generateQuotationLines(db(), req);
+    const dem = out.lines.find(l => l.category === "Surestaries")!;
+    assertEquals(dem.stay_information?.carrier_comparison?.quantity, 3);
+    assertEquals(dem.amount, null); assertEquals(dem.source.type, "TO_CONFIRM");
+    assert(out.lines.filter(l => l.category === "Magasinage").every(l => l.amount === null));
+    assertEquals(JSON.stringify(req), before);
+    for (const change of [
+      { movement_direction: "EXPORT" }, { destination_country: "ML" }, { discharge_port: "Abidjan" }, { discharge_port: undefined },
+    ]) {
+      const invalid = { ...req, scenarioLocalTransport: { ...req.scenarioLocalTransport, ...change } };
+      assert((await generateQuotationLines(db(), invalid)).lines.every(l => !l.stay_information?.carrier_comparison));
+    }
+    // Explicit stay values take precedence; a transport fallback must never override them.
+    for (const change of [{ discharge_port: "Abidjan" }, { destination_country: "ML" }, { movement_direction: "EXPORT" }]) {
+      const invalid = { ...req, scenarioStay: { ...req.scenarioStay, ...change } };
+      assert((await generateQuotationLines(db(), invalid)).lines.every(l => !l.stay_information?.carrier_comparison));
+    }
+  }
+});
