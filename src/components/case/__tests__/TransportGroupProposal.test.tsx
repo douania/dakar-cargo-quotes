@@ -25,7 +25,9 @@ it('reads selected scenario under user RLS, fills draft only and preserves sourc
   await waitFor(() => expect(onChange).toHaveBeenCalledOnce());
   expect(JSON.parse(onChange.mock.calls[0][0])).toMatchObject({ distance_km: 300, distance_source: 'Source test',
     scenario_source: { id: 's', scope_hash: 'hash' }, groups: [{ quantity: 13, weight_per_container_kg: 18000,
-      max_payload_kg: null, ordinary_transport: false, unknown_danger_base_only: false }] });
+      max_payload_kg: null, ordinary_transport: false, standard_estimate_only: true,
+      unknown_danger_base_only: true }] });
+  expect(screen.getByRole('status').textContent).toContain('1 avec estimation standard provisoire');
   expect(from.mock.calls.map(c => c[0])).toEqual(['quote_scenario_selections', 'quote_scenarios']);
 });
 it('ignores a response after changing case or editing draft', async () => {

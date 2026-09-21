@@ -1,6 +1,11 @@
 import { resolveCanonicalLocalTransportContainerType } from '../../supabase/functions/_shared/local-transport-destination';
+import {
+  STANDARD_TRANSPORT_ESTIMATE_MAX_CARGO_KG,
+  STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE,
+} from '../../supabase/functions/_shared/local-transport-estimate';
 
-/** Draft candidates, not assertions about admissibility or dangerous goods. */
+/** Draft candidates. The provisional mode is a quotation policy, never an
+ * assertion about vehicle/axle compliance or dangerous-goods classification. */
 export function proposeTransportGroups(snapshot: unknown) {
   const scope = snapshot as { cargo_units?: unknown } | null;
   const groups: Record<string, unknown>[] = [];
@@ -20,9 +25,15 @@ export function proposeTransportGroups(snapshot: unknown) {
       excluded.push(`${ref || 'Lot'} : danger déclaré, équipement/itinéraire particulier ou données insuffisantes ; transport à confirmer.`);
       continue;
     }
+    if (weight > STANDARD_TRANSPORT_ESTIMATE_MAX_CARGO_KG) {
+      excluded.push(`${ref} : poids supérieur au seuil provisoire de 18 000 kg ; qualification véhicule séparée requise, sans bloquer les autres lots.`);
+      continue;
+    }
     groups.push({ unit_ref: ref, equipment_code: u.equipment_code, quantity: qty,
       weight_per_container_kg: weight, max_payload_kg: null, ordinary_transport: false,
-      qualification_source: '', unknown_danger_base_only: false });
+      standard_estimate_only: true,
+      qualification_source: STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE,
+      unknown_danger_base_only: u.dangerous_goods == null });
   }
   return { groups, excluded };
 }

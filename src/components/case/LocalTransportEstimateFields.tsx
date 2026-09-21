@@ -7,7 +7,7 @@ import { useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { proposeTransportGroups } from "@/lib/transportGroupProposal";
 const blankGroup = () => ({ unit_ref: "", equipment_code: "", quantity: null, weight_per_container_kg: null,
-  max_payload_kg: null, ordinary_transport: false, qualification_source: "" });
+  max_payload_kg: null, ordinary_transport: false, standard_estimate_only: false, qualification_source: "" });
 
 /** Edits only the existing assumption draft. No database/pricing side effects. */
 export function LocalTransportEstimateFields({ value, onChange, caseId }: { value: string | boolean; onChange: (v: string) => void; caseId?: string }) {
@@ -32,7 +32,8 @@ export function LocalTransportEstimateFields({ value, onChange, caseId }: { valu
       if (Array.isArray(draft.groups) && draft.groups.length) throw new Error('Les lots déjà saisis sont conservés : retirez-les avant une nouvelle proposition.');
       onChange(JSON.stringify({ ...draft, groups: proposal.groups,
         scenario_source: { id: result.data.id, scope_hash: result.data.scope_hash } }));
-      setProposalMessage(`${proposal.groups.length} lot(s) proposé(s), capacité et transport ordinaire à vérifier. ${proposal.excluded.join(' ')}`);
+      const provisional = proposal.groups.filter(group => group.standard_estimate_only === true).length;
+      setProposalMessage(`${proposal.groups.length} lot(s) proposé(s), dont ${provisional} avec estimation standard provisoire. ${proposal.excluded.join(' ')}`);
     } catch (error) { setProposalMessage(error instanceof Error ? error.message : 'Proposition indisponible. Saisie manuelle possible.'); }
     finally { setLoading(false); }
   }
@@ -72,20 +73,25 @@ export function LocalTransportEstimateFields({ value, onChange, caseId }: { valu
       const g = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
       const update = (p: Record<string, unknown>) => change({ groups: groups.map((row, n) => n === i ? { ...row, ...p } : row) });
       return <fieldset key={i} className="border rounded p-2 space-y-2">
-        <legend>Lot admissible {i + 1}</legend>
+        <legend>Lot à estimer {i + 1}</legend>
         {g !== raw && <p role="alert">Lot malformé : corriger les données avant enregistrement.</p>}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {field("Référence du lot dans le scénario", "unit_ref", g, update)}
           {field("Code équipement exact (ex. 20GP)", "equipment_code", g, update)}
           {field("Nombre de conteneurs", "quantity", g, update, "number")}
           {field("Poids marchandise par conteneur (kg)", "weight_per_container_kg", g, update, "number")}
-          {field("Charge marchandise admissible vérifiée (kg)", "max_payload_kg", g, update, "number")}
-          {field("Source capacité conteneur ET véhicule / conditions de transport", "qualification_source", g, update)}
+          {g.standard_estimate_only !== true && field("Charge marchandise admissible vérifiée (kg)", "max_payload_kg", g, update, "number")}
+          {g.standard_estimate_only !== true && field("Source capacité conteneur ET véhicule / conditions de transport", "qualification_source", g, update)}
         </div>
-        <label className="flex items-start gap-2">
+        {g.standard_estimate_only === true ? <div className="space-y-2 rounded border border-amber-500/40 bg-amber-500/5 p-2">
+          <p><strong>Estimation standard provisoire.</strong> Ce lot peut être chiffré sans attendre les limites par essieu. Le véhicule, sa tare, sa répartition par essieu et son affectation restent à confirmer ; le seuil interne de 18&nbsp;000 kg n’est pas une limite réglementaire.</p>
+          <p className="text-muted-foreground">Base : {String(g.qualification_source)}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => update({ standard_estimate_only: false,
+            qualification_source: '', unknown_danger_base_only: false })}>Passer en qualification véhicule vérifiée</Button>
+        </div> : <label className="flex items-start gap-2">
           <Checkbox checked={g.ordinary_transport === true} onCheckedChange={v => update({ ordinary_transport: v === true })} />
           <span>J’atteste un transport ordinaire sans hors-gabarit, véhicule spécial ni contrainte particulière ; la charge admissible respecte le conteneur et le véhicule routier. Le moteur vérifiera aussi le poids, le type et le statut dangereux du lot.</span>
-        </label>
+        </label>}
         <label className="flex items-start gap-2">
           <Checkbox checked={g.unknown_danger_base_only === true} onCheckedChange={v => update({ unknown_danger_base_only: v === true })} />
           <span>Si le danger est inconnu, retenir uniquement une base estimative hors supplément IMO, avec réserve visible. Cela ne confirme pas une marchandise non dangereuse ni l’acceptation du transporteur.</span>
@@ -93,7 +99,7 @@ export function LocalTransportEstimateFields({ value, onChange, caseId }: { valu
         <Button type="button" variant="ghost" size="sm" onClick={() => change({ groups: groups.filter((_, n) => n !== i) })}>Retirer ce lot</Button>
       </fieldset>;
     })}
-    <Button type="button" variant="outline" size="sm" disabled={groups.length >= 12} onClick={() => change({ groups: [...groups, blankGroup()] })}>Ajouter un lot admissible</Button>
-    <p className="text-muted-foreground">Lots connus dangereux, spéciaux, de poids inconnu ou dépassant la charge justifiée : transport non chiffré par cette formule. Danger inconnu : base seule sur choix explicite, jamais un supplément nul. Retour vide et autres prestations restent distincts.</p>
+    <Button type="button" variant="outline" size="sm" disabled={groups.length >= 12} onClick={() => change({ groups: [...groups, blankGroup()] })}>Ajouter un lot</Button>
+    <p className="text-muted-foreground">Les TC standards jusqu’à 18&nbsp;000 kg peuvent recevoir une estimation provisoire ; cela ne confirme ni le véhicule ni les limites par essieu. Lots connus dangereux, spéciaux, de poids inconnu ou plus lourds : qualification séparée. Danger inconnu : base seule avec réserve visible, jamais un supplément nul. Retour vide et autres prestations restent distincts.</p>
   </fieldset>;
 }

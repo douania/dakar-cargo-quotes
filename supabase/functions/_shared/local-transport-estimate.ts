@@ -6,20 +6,27 @@ import {
 } from "./local-transport-destination.ts";
 import { withLocalTransportDebours } from "./local-transport-debours.ts";
 
-/** GO 2026-09-16: scenario estimate ONLY; neither a tariff nor a client fact.
- * The operator qualifies ordinary carriage and documents the admissible payload
- * (container AND road vehicle). No universal legal weight limit is invented.
+/** Scenario estimate ONLY; neither a tariff nor a client fact.
+ * Either the operator documents the admissible payload and ordinary carriage,
+ * or the temporary standard-estimate policy is used with explicit reservations.
+ * No universal legal weight or axle limit is invented.
  */
 export const LOCAL_TRANSPORT_ESTIMATE_KEY = "routing.local_transport_estimate";
 export const LOCAL_TRANSPORT_ESTIMATE_RULE = "SN_NORMAL_CONTAINER_KM_V1";
+/** Temporary quotation policy, not a legal payload or axle limit. */
+export const STANDARD_TRANSPORT_ESTIMATE_MAX_CARGO_KG = 18_000;
+export const STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE =
+  "Décision CTO 2026-09-21 — estimation TC standard ≤ 18 000 kg ; véhicule et essieux à confirmer";
 export interface TransportEstimateGroup {
   unit_ref: string;
   equipment_code: string;
   quantity: number;
   weight_per_container_kg: number;
-  max_payload_kg: number;
+  max_payload_kg: number | null;
   ordinary_transport: boolean;
   qualification_source: string;
+  /** Provisional quotation only; never attests road-vehicle or axle compliance. */
+  standard_estimate_only?: boolean;
   /** Explicit scenario opt-in; never changes the cargo danger classification. */
   unknown_danger_base_only?: boolean;
 }
@@ -47,9 +54,15 @@ export function transportEstimateBasisError(raw: unknown): string | null {
   for (const g of raw.groups) {
     if (!object(g) || typeof g.unit_ref !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(g.unit_ref) || refs.has(g.unit_ref) ||
       !resolveCanonicalLocalTransportContainerType(g.equipment_code) || !Number.isSafeInteger(g.quantity) || !positive(g.quantity) ||
-      !positive(g.weight_per_container_kg) || !positive(g.max_payload_kg) || g.weight_per_container_kg > g.max_payload_kg ||
-      g.ordinary_transport !== true || !text(g.qualification_source) ||
-      (g.unknown_danger_base_only !== undefined && typeof g.unknown_danger_base_only !== "boolean")) return "Lot : TC sec 20/40 pieds, quantité, poids connu, charge admissible sourcée et transport ordinaire attesté requis.";
+      !positive(g.weight_per_container_kg) || !text(g.qualification_source) ||
+      (g.standard_estimate_only !== undefined && typeof g.standard_estimate_only !== "boolean") ||
+      (g.unknown_danger_base_only !== undefined && typeof g.unknown_danger_base_only !== "boolean")) return "Lot : TC sec 20/40 pieds, quantité, poids connu et base de qualification requise.";
+    const operatorQualified = positive(g.max_payload_kg) && g.weight_per_container_kg <= g.max_payload_kg &&
+      g.ordinary_transport === true && g.standard_estimate_only !== true;
+    const provisionalStandard = g.standard_estimate_only === true && g.weight_per_container_kg <= STANDARD_TRANSPORT_ESTIMATE_MAX_CARGO_KG &&
+      (g.max_payload_kg == null) && g.ordinary_transport === false &&
+      g.qualification_source === STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE;
+    if (!operatorQualified && !provisionalStandard) return "Lot : charge admissible et transport ordinaire attestés, ou estimation standard provisoire ≤ 18 000 kg requise.";
     refs.add(g.unit_ref);
   }
   return null;
@@ -109,8 +122,11 @@ export function estimateUnlistedContainerTransport(rates: readonly LocalTranspor
   const amount = unitTtc * g.quantity;
   if (!Number.isSafeInteger(amount)) return refuse("Montant hors capacité de calcul.");
   const dangerReserve = unknownDanger ? "Statut dangereux inconnu : base de transport ordinaire uniquement, sous hypothèse explicite ; supplément et contraintes IMO non inclus, non supposés nuls. Ce calcul ne confirme ni la classification ni l'acceptation par le transporteur. " : "";
+  const qualificationNote = g.standard_estimate_only === true
+    ? `Lot ${g.unit_ref} : estimation standard provisoire (${g.qualification_source}). La capacité du véhicule, la tare, la répartition par essieu et l'affectation finale restent à confirmer ; ce seuil métier n'est pas une limite réglementaire. `
+    : `Lot ${g.unit_ref} : transport ordinaire attesté (${g.qualification_source}), charge admissible ${g.max_payload_kg} kg. `;
   const notes = dangerReserve + `Estimation kilométrique non ferme, pas un tarif réglementaire. Distance routière ${basis.distance_km} km : ${basis.distance_source}, vérifiée le ${basis.verified_on}. ` +
-    `Lot ${g.unit_ref} : transport ordinaire attesté (${g.qualification_source}), charge admissible ${g.max_payload_kg} kg. ` +
+    qualificationNote +
     `Par conteneur : transport HT ${ht} + frais HT ${fee} + TVA fournisseur 18 % ${vat} = ${unitTtc} XOF TTC ; quantité ${g.quantity}. ` +
     `${weightRule.note ?? ""} Retour vide, attente, manutention et prestations particulières non présumés inclus. Aucune TVA SODATRA supplémentaire.`;
   return { reason: null, line: withLocalTransportDebours({

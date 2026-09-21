@@ -1,5 +1,9 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { estimateUnlistedContainerTransport, LOCAL_TRANSPORT_ESTIMATE_KEY, transportEstimateBasisError } from "./local-transport-estimate.ts";
+import {
+  estimateUnlistedContainerTransport, LOCAL_TRANSPORT_ESTIMATE_KEY,
+  STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE, transportEstimateBasisError,
+  type TransportEstimateBasis,
+} from "./local-transport-estimate.ts";
 import { OFFICIAL_LOCAL_TRANSPORT_SOURCE_DOCUMENT, type LocalTransportRateCandidate } from "./local-transport-destination.ts";
 import { buildScenarioOverlay, buildPricingInputs, computeScenarioTotals, computeRequestFingerprint } from "../run-scenario-pricing/domain.ts";
 import { resolveScenarioCargo } from "./scenario-cargo.ts";
@@ -11,7 +15,7 @@ function unit(over: Record<string, unknown> = {}) {
     un_number: null, imo_class: null, scenario_basis: "Synthetic ordinary transport", volume_dm3: null,
     temperature_control_required: false, destination_ref: null, ...over };
 }
-function basis() { return { schema_version: 1 as const, origin: "Dakar Port" as const, country: "SN" as const,
+function basis(): TransportEstimateBasis { return { schema_version: 1, origin: "Dakar Port", country: "SN",
   destination: "Ville non répertoriée", distance_km: 300, distance_source: "Itinéraire routier test Dakar-Ville, document transporteur",
   verified_on: "2026-09-16", groups: [{ unit_ref: "lot-1", equipment_code: "20GP", quantity: 2,
     weight_per_container_kg: 10000, max_payload_kg: 20000, ordinary_transport: true, qualification_source: "Plaque conteneur et fiche véhicule test" }] }; }
@@ -41,6 +45,34 @@ Deno.test("km: existing 22t rule remains a price-band rule, never a capacity qua
   assertEquals(result.line.source.billed_size, "40");
   i.basis.groups[0].max_payload_kg = 19000;
   assertEquals(estimateUnlistedContainerTransport(rates(), i).line, null);
+});
+Deno.test("km: provisional standard policy prices 18t/15t without claiming vehicle or axle compliance", () => {
+  for (const [equipment, weight] of [["20HQ", 18000], ["40HQ", 15000]] as const) {
+    const i = input();
+    Object.assign(i.unit, { equipment_code: equipment, gross_weight_kg: weight, dangerous_goods: null });
+    Object.assign(i.basis.groups[0], { equipment_code: equipment, weight_per_container_kg: weight,
+      max_payload_kg: null, ordinary_transport: false, standard_estimate_only: true,
+      qualification_source: STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE,
+      unknown_danger_base_only: true });
+    const result = estimateUnlistedContainerTransport(rates(), i); assert(result.line);
+    assert(result.line.notes.includes("limite réglementaire"));
+    assert(result.line.notes.includes("répartition par essieu"));
+  }
+});
+Deno.test("km: provisional standard policy refuses above 18t and altered policy source", () => {
+  const i = input();
+  Object.assign(i.unit, { gross_weight_kg: 18001 });
+  Object.assign(i.basis.groups[0], { weight_per_container_kg: 18001, max_payload_kg: null,
+    ordinary_transport: false, standard_estimate_only: true,
+    qualification_source: STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE });
+  assertEquals(estimateUnlistedContainerTransport(rates(), i).line, null);
+  i.unit.gross_weight_kg = i.basis.groups[0].weight_per_container_kg = 18000;
+  i.basis.groups[0].qualification_source = "source libre";
+  assertEquals(estimateUnlistedContainerTransport(rates(), i).line, null);
+  const malformed = basis() as unknown as Record<string, unknown>;
+  const malformedGroups = malformed.groups as Record<string, unknown>[];
+  malformedGroups[0].standard_estimate_only = "false";
+  assert(transportEstimateBasisError(malformed));
 });
 for (const [name, mutate] of Object.entries({
   missing: (i: ReturnType<typeof input>) => { i.basis.distance_source = " "; },
@@ -187,13 +219,32 @@ Deno.test("km: mixed 55t DG / 18t / 15t - engine calculates eligible groups sepa
   req.containers = resolveScenarioCargo(req.scenarioCargoContext).containers;
   req.scenarioLocalTransport.basis.groups = req.scenarioCargoContext.cargo_units.slice(1).map(u => ({
     unit_ref: String(u.unit_ref), equipment_code: String(u.equipment_code), quantity: Number(u.quantity),
-    weight_per_container_kg: Number(u.gross_weight_kg), max_payload_kg: 20000, ordinary_transport: true,
-    qualification_source: "Capacité TC ET véhicule synthétique, pas une qualification GoTrans", unknown_danger_base_only: true,
+    weight_per_container_kg: Number(u.gross_weight_kg), max_payload_kg: null, ordinary_transport: false,
+    standard_estimate_only: true,
+    qualification_source: STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE,
+    unknown_danger_base_only: true,
   }));
   const before = JSON.stringify(req);
   const result = await generateQuotationLines(db(), req);
   assertEquals(result.lines.filter(l => l.category === "Transport").map(l => l.amount), [null, 5476380, 2371800]);
   assertEquals(JSON.stringify(req), before);
+});
+
+Deno.test("km: an unqualified lot above 18t does not block an eligible standard lot", async () => {
+  const req = request();
+  req.scenarioCargoContext.cargo_units = [
+    unit({ unit_ref: "lot-standard", quantity: 1, gross_weight_kg: 18000, dangerous_goods: null }),
+    unit({ unit_ref: "lot-heavy", quantity: 1, gross_weight_kg: 18001, dangerous_goods: false }),
+  ];
+  req.containers = resolveScenarioCargo(req.scenarioCargoContext).containers;
+  req.scenarioLocalTransport.basis.groups = [{
+    unit_ref: "lot-standard", equipment_code: "20GP", quantity: 1,
+    weight_per_container_kg: 18000, max_payload_kg: null, ordinary_transport: false,
+    standard_estimate_only: true, qualification_source: STANDARD_TRANSPORT_ESTIMATE_POLICY_REFERENCE,
+    unknown_danger_base_only: true,
+  }];
+  const result = await generateQuotationLines(db(), req);
+  assertEquals(result.lines.filter(l => l.category === "Transport").map(l => l.amount), [421260, null]);
 });
 
 Deno.test("km: equipment comparison ignores case only, not size or equipment changes", () => {

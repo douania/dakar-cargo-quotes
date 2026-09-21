@@ -2346,6 +2346,40 @@ STOP et demander arbitrage CTO si :
 - Contre-revue indépendante lecture seule PASS, 9 tests frontend rejoués ; sélection/snapshot non atomiques signalés non bloquants (proposition seule, qualifications non préremplies, contrôles moteur conservés).
 - Aucune écriture Cloud, migration, Auth/RLS, commit/push/déploiement/envoi. GoTrans inchangé ; l'automatisation complète de qualification et de liaison n'est pas livrée par ce lot. Retour arrière : retirer uniquement ce diff local en préservant les notes précédentes.
 
+#### Transport hors barème — livraison privée et recette — 19 septembre 2026 — PARTIAL recette étendue
+
+- GO utilisateur : commit/push/preview, quotation-engine puis run-scenario-pricing, recette TEST sans migration ni envoi ; identité permanente Codex <noreply@openai.com> autorisée uniquement pour ce dépôt.
+- Identité vérifiée dans `.git/config` via --show-origin ; configuration globale inchangée. Ne pas redemander pour les commits de ce dépôt.
+- work `2dec0907` → `1d2220a683fcb4c1ae55843e2898b5a5643f197d`, push et ls-remote alignés ; 9 fichiers +215/-8, incluant notes précédentes. Worktree propre après commit.
+- Lovable même HEAD/origin ; arbre supabase `6ce60a1d2483869f300feb4439b3070206af1f4c` ; build privé 17,72s, bundle index-ByZ6fsLL.js, HTTP200. Aucun patch Lovable.
+- Accusés successifs Successfully deployed edge functions: quotation-engine, puis run-scenario-pricing. Chaque sonde OPTIONS200/POST non authentifié401 ; source Git inchangée. Hash bundle exécuté non exposé : NOT_VERIFIED.
+- Recette authentifiée TEST 450cb321, scénario 27f1b955 rév.5, exécution1 du 19/09 à10:14 UTC : résultat enregistré, transport 1×20GP 10t vers N'Dioum 480,9km =634722 XOF, capacité synthétique20t clairement sourcée ; sous-total HT1444382/TTC1543382, estimation non ferme.
+- UI nouvelle proposition vérifiée : lot-1/20gp/1/10000kg préremplis ; capacité/source vides, attestations ordinaire et danger inconnu décochées ; brouillon annulé sans enregistrement.
+- Cas mixte et opt-in danger inconnu : tests locaux précédents PASS, recette Cloud spécifique NOT_RUN ce tour ; ne pas assimiler le TEST non-DG à cette preuve. Tests locaux non relancés, baseline précédente inchangée.
+- Aucun fait, tarif, Auth/RLS, migration, GoTrans ou envoi modifié ; seule estimation TEST enregistrée. GoTrans nécessite encore hypothèse distance liée et qualification de capacité/transport ordinaire par lot.
+- Suite : recette synthétique mixte danger connu/inconnu, puis application opérateur des hypothèses justifiées. Rollback par revert ciblé du commit et redéploiement coordonné des deux fonctions. Note de clôture locale non commitée.
+
+#### Références routières existantes — 19 septembre 2026 — PARTIAL diagnostic, raccordement suspendu
+
+- GO reprise références ordinaires/raccordement estimation ; work@1d2220a aligné origin, seule note de clôture antérieure modifiée, préservée ; aucune écriture Cloud.
+- ROAD-LOAD-1 T12S4 reste INFO_MANQUANTE côté décision : contradiction ticket/dépliant non arbitrée, aucune tolérance déduite automatiquement pour les lots ordinaires.
+- Lecture Cloud : transport_regulations contient PTR005=44t articulé5ess, ESS002=21t tandem, ESS003=27t tridem ; références génériques sans page. Ne pas promouvoir ces données historiques en preuve vérifiée.
+- Annexe primaire relue https://e-docucenter.uemoa.int/fr/annexe : articulé5ess avec tridem=43t, deux tandems=46t, 6ess=51t ; tridem21/25t selon type. La configuration compte, PTRA différent de charge marchandise.
+- Deux PDF de tickets retrouvés dans Downloads ; première page de chacun rendue, première page Mercedes lue : pesée chargée T12S4, pas preuve d'une capacité marchandise universelle. Pas de relecture complète revendiquée.
+- Nouveau risque : brancher automatiquement la table existante sur max_payload_kg donnerait une fausse attestation ; le helper exige actuellement capacité conteneur/véhicule sourcée ET ordinary_transport=true.
+- Proposition à arbitrer : contrat distinct de base transport conditionnelle avec configuration réglementaire sourcée et réserves véhicule/tare/essieux/CSC/gabarit, jamais une capacité vérifiée ; ne pas modifier silencieusement le sens du contrat actuel. Les55t/DG restent séparés.
+- Aucun code, barème, fait, migration, commit, déploiement ni GoTrans modifié. Tests applicatifs/contre-revue NOT_RUN ; note locale seulement. Suite : autoriser explicitement cette distinction dans le calcul gelé, puis implementation/tests/contre-revue groupés.
+
+#### Transport standard provisoire hors barème — 21 septembre 2026 — PASS local
+
+- GO utilisateur : chiffrer séparément les lots GoTrans 13×20HQ à 18 t et 3×40HQ à 15 t ; conserver le lot 39×20HQ à 55 t / UN3536 hors estimation standard, en attendant le complément essieux.
+- Politique métier provisoire et non réglementaire : TC sec 20/40 jusqu’à 18 000 kg ; véhicule, tare, essieux et affectation restent à confirmer. Danger inconnu : base seule, supplément IMO non inclus et jamais supposé nul.
+- Les lots >18 t non qualifiés restent hors registre actif et ne bloquent pas les lots éligibles ; anciens groupes attestés compatibles ; marqueur et source provisoires validés strictement.
+- Cas mixte moteur : 55 t DG → TO_CONFIRM ; 18 t et 15 t calculés séparément. Cas 18 t + 18 001 kg : 421 260 XOF + TO_CONFIRM, sans blocage global.
+- 34 tests Deno ciblés, 5 frontend, typecheck, baseline Deno, bundles et build PASS ; 493 tests frontend globaux PASS. Contre-revue indépendante GO.
+- Baseline hors lot : 1 test Deno `Intake.tsx` et lint global +3 restent FAIL dans des fichiers inchangés ; fichiers du lot ESLint PASS. GitHub frais NOT_VERIFIED (réseau indisponible).
+- Aucun tarif, fait client, DB/Auth/RLS, migration, commit, push, Cloud, Edge ou envoi modifié. Retour arrière : retirer uniquement les six fichiers applicatifs/tests de ce lot et la présente note.
+
 ## 11. Procédure de reprise dans une nouvelle session
 
 La nouvelle session doit commencer par :
