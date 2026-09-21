@@ -6,6 +6,7 @@
  * les mêmes hypothèses, réserves, exclusions et doubles totaux.
  */
 
+import { readStayInformation, stayInformationText } from "./stay-information.ts";
 type JsonRecord = Record<string, unknown>;
 
 export interface ScenarioOutputContext {
@@ -16,6 +17,7 @@ export interface ScenarioOutputContext {
   qualification: "provisional" | "partial";
   assumptions: string[];
   reservations: string[];
+  stayInformation?: string[];
   exclusions: string[];
   firmTotalHt: number;
   firmTotalTtc: number;
@@ -119,6 +121,11 @@ export function readScenarioOutputContext(snapshot: unknown): ScenarioOutputCont
     qualification,
     assumptions: unique(asArray(scenario.assumptions).map(readAssumption)),
     reservations: unique(asArray(scenario.reservations).map(readReservation)),
+    stayInformation: asArray(root.raw_lines).flatMap(entry => {
+      const line = asRecord(entry);
+      const info = readStayInformation(line.stay_information);
+      return info ? [`${nonEmptyString(line.description) ?? "Séjour"}\n${stayInformationText(info)}`] : [];
+    }),
     exclusions: unique(asArray(scenario.exclusions).map(readExclusion)),
     firmTotalHt,
     firmTotalTtc,
@@ -162,6 +169,7 @@ export function buildScenarioEmailBody(
   };
   addList("Hypothèses appliquées", context.assumptions);
   addList("Éléments sous réserve", context.reservations);
+  addList("Franchises, tranches et exemples de séjour — informatifs, non fermes", context.stayInformation ?? []);
   addList("Éléments exclus du socle documenté", context.exclusions);
 
   parts.push(

@@ -77,6 +77,9 @@ Deno.test("storage estimate: selected code, total/per-unit weight, preserved ind
   let lines = out.lines.filter(l => l.category === "Magasinage");
   assertEquals(lines.map(l => l.amount), [11820, null]);
   assertEquals(lines[0].source.firm_eligible, false);
+  assertEquals(lines[0].stay_information?.tiers.map(t => [t.from, t.to]), [[11, 25], [26, 40], [41, null]]);
+  assertEquals(lines[0].stay_information?.example?.amount, 11820);
+  assertEquals(lines[1].stay_information?.example, null);
   assert(lines[0].notes?.includes("P1 observé"));
   const kept = applyScenarioContainerTerminalLines(lines.map(l => ({ ...l })), { eligible: true, annexUncertain: true, blockers: [], reservations: [], effectiveMode: null });
   assertEquals(kept.map(l => l.amount), [11820, null]);
@@ -132,6 +135,7 @@ Deno.test("stay: independent durations, no recycling of missing terminal/carrier
   req.scenarioStay.basis.groups[0].storage_days = null;
   out = await generateQuotationLines(db(), req);
   assertEquals(out.lines.find(l => l.category === "Magasinage")?.amount, null);
+  assertEquals(out.lines.find(l => l.category === "Magasinage")?.stay_information?.free_days, 10);
   req.scenarioStay.basis.groups[0].storage_days = 8; req.scenarioStay.basis.groups[0].demurrage_days = null;
   out = await generateQuotationLines(db(), req);
   assertEquals(out.lines.find(l => l.category === "Surestaries")?.amount, null);

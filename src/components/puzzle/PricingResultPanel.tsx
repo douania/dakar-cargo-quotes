@@ -26,6 +26,7 @@ import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { usePricingResultData, type PricingRun } from '@/hooks/usePricingResultData';
+import { PricingFreshnessNotice } from './PricingFreshnessNotice';
 
 // ── Lot 3D-3: Local QQM resolver for pricing preview ─────────────────────────
 // Mirrors the decision table from supabase/functions/generate-quotation-version/qqm-resolver.ts
@@ -135,13 +136,14 @@ function resolveQualificationFromRun(pricingRun: PricingRun | null): QQMQualific
 
 interface PricingResultPanelProps {
   caseId: string;
+  latestEstimateAt?: string | null;
   isLocked?: boolean;
   refreshToken?: number;
   isProvisional?: boolean;
   onVersionCreated?: () => void;
 }
 
-export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isProvisional = false, onVersionCreated }: PricingResultPanelProps) {
+export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false, refreshToken, isProvisional = false, onVersionCreated }: PricingResultPanelProps) {
   const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId, refreshToken);
   const queryClient = useQueryClient();
   // Creation also changes the server-selected version: share the selection lock
@@ -282,6 +284,7 @@ export function PricingResultPanel({ caseId, isLocked = false, refreshToken, isP
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <PricingFreshnessNotice pricingAt={pricingRun.completed_at} estimateAt={latestEstimateAt} />
         {/* Regime Blocker Alert */}
         {(() => {
           const outputs = pricingRun.outputs_json as any;

@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert";
+import { storageStayInformation } from "../_shared/stay-information.ts";
 import {
   buildScenarioEmailBody,
   buildScenarioEmailSubject,
@@ -77,4 +78,17 @@ Deno.test("P1-A5 email: identifie scénario, hypothèses et caractère non ferme
   assert(body.includes("Hypothèses appliquées"));
   assert(body.includes("Éléments sous réserve"));
   assert(body.includes("Total indicatif du scénario TTC"));
+});
+
+Deno.test("stay output: immutable raw-line information reaches PDF context and email without altering totals", () => {
+  const info = storageStayInformation({ unit_ref: "sample", equipment_code: "40HQ", quantity: 3, ownership: "COC", provider: "DPW", storage_p1_code: "412", storage_days: 10, demurrage_days: null }, 30000, true, "Sous hypothèse");
+  const source = snapshot({ raw_lines: [{ category: "Magasinage", description: "Magasinage lot exemple", amount: 0, stay_information: info }] });
+  const before = JSON.stringify(source);
+  const context = readScenarioOutputContext(source)!;
+  const body = buildScenarioEmailBody(source, context, true);
+  assertEquals(context.stayInformation?.length, 1);
+  for (const content of ["Franchise : 10 jours", "Du jour 11 au jour 25", "À partir du jour 41", "Non ajouté au total", "P2/P3 historiques"]) assert(body.includes(content));
+  assertEquals(context.indicativeTotalHt, 150000);
+  assertEquals(JSON.stringify(source), before);
+  assertEquals(readScenarioOutputContext(snapshot())?.stayInformation, []);
 });

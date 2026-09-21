@@ -38,6 +38,9 @@ const FUNCTION_NAME = "export-quotation-version-pdf";
  */
 function sanitize(text: string): string {
   return text
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u202F\u00A0]/g, ' ')  // narrow no-break space, no-break space
     .replace(/\u2192/g, '->')          // → arrow
     .replace(/\u2190/g, '<-')          // ← arrow
@@ -420,13 +423,14 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     });
     y -= lineHeight;
 
-    const drawScenarioList = (heading: string, values: string[]) => {
+    const drawScenarioList = (heading: string, values: string[], preserveLines = false) => {
       if (values.length === 0) return;
       ensureSpace(lineHeight * 2);
       currentPage.drawText(sanitize(heading), { x: margin, y, size: 9, font: fontBold, color: gray });
       y -= lineHeight;
       for (const value of values) {
-        const wrapped = wrapPdfText(`- ${value}`);
+        if (preserveLines) ensureSpace(lineHeight * 3);
+        const wrapped = preserveLines ? value.split('\n').flatMap((part, i) => wrapPdfText(`${i === 0 ? '- ' : ''}${part}`)) : wrapPdfText(`- ${value}`);
         for (const line of wrapped) {
           ensureSpace(lineHeight);
           currentPage.drawText(line, { x: margin + 10, y, size: 8, font, color: black });
@@ -436,6 +440,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     };
     drawScenarioList('Hypotheses appliquees', scenarioContext.assumptions);
     drawScenarioList('Elements sous reserve', scenarioContext.reservations);
+    drawScenarioList('Franchises, tranches et exemples de sejour - informatifs, non fermes', scenarioContext.stayInformation ?? [], true);
     drawScenarioList('Elements exclus du socle documente', scenarioContext.exclusions);
     y -= sectionGap / 2;
   }
@@ -454,6 +459,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   }
 
   // === CLIENT ===
+  if (scenarioContext?.stayInformation?.length) ensureSpace(lineHeight * 5 + sectionGap);
   currentPage.drawLine({
     start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 0.5, color: gray,
@@ -472,6 +478,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   y -= sectionGap / 2;
 
   // === ROUTE ===
+  if (scenarioContext?.stayInformation?.length) ensureSpace(lineHeight * 5 + sectionGap);
   currentPage.drawLine({
     start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 0.5, color: gray,
@@ -495,6 +502,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   y -= sectionGap / 2;
 
   // === PRESTATIONS ===
+  if (scenarioContext?.stayInformation?.length) ensureSpace(lineHeight * 4);
   currentPage.drawLine({
     start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 0.5, color: gray,

@@ -145,6 +145,14 @@ export default function CaseView() {
     const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
     if (variants) variants.open = true;
   };
+  const openStayReview = () => {
+    const target = document.getElementById("section-stay-assumptions");
+    for (let parent = target?.parentElement; parent; parent = parent.parentElement) {
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    }
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    target?.focus({ preventScroll: true });
+  };
   const [isScenarioEstimating, setIsScenarioEstimating] = React.useState(false);
   const [selectedEstimate, setSelectedEstimate] = React.useState<SelectedScenarioEstimate | null>(null);
   React.useEffect(() => {
@@ -1282,7 +1290,7 @@ export default function CaseView() {
           const showPricingPanel = shouldShowPricingPanel(caseData.status, canProvisionalDdp);
 
           if (!showPricingPanel) return selectedEstimate?.caseId === caseId
-            ? <div className="mb-6"><ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} /></div>
+            ? <div className="mb-6"><ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} onStayReview={openStayReview} /></div>
             : null;
 
           return (
@@ -1292,7 +1300,7 @@ export default function CaseView() {
                 estimateAvailable={selectedEstimate?.caseId === caseId && !!selectedEstimate.run}
                 onReview={openEstimateReview}
                 isEstimating={isScenarioEstimating}
-                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} /> : null}
+                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} onStayReview={openStayReview} /> : null}
                 onEstimate={() => {
                   if (!scenarioPricingAction.current) { toast.warning("Scénarios indisponibles : réessayez après leur chargement."); return; }
                   if (!selectedEstimate || selectedEstimate.caseId !== caseId) openEstimateReview();
@@ -2022,7 +2030,7 @@ export default function CaseView() {
         })()}
 
         {/* Phase PROVISIONAL-SCENARIO-QUOTES-UI-1A: read-only operator assumptions ledger */}
-        {caseId && <QuoteScenarioAssumptionsPanel caseId={caseId} />}
+        {caseId && <div id="section-stay-assumptions" tabIndex={-1}><QuoteScenarioAssumptionsPanel caseId={caseId} /></div>}
 
         {/* P1-C2-B: revue de la demande consolidée, sans projection ni pricing. */}
         {caseId && <FinalRequestStatePanel caseId={caseId} />}
@@ -2284,6 +2292,7 @@ export default function CaseView() {
             <summary className="cursor-pointer">Résultat du devis confirmé — distinct de l’estimation par scénario, vérifier sa date</summary>
             <PricingResultPanel
               caseId={caseId!}
+              latestEstimateAt={selectedEstimate?.caseId === caseId && selectedEstimate.run?.status === 'success' ? selectedEstimate.run.completed_at : null}
               isLocked={!!isPostSentLocked}
               refreshToken={pricingRefreshToken}
               isProvisional={pricingIsProvisional}

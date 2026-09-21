@@ -16,8 +16,9 @@ import { normalizeDpwDthcFamily, resolveContainerProfile, resolveDpwDthcTariff }
 import { assertImoGoodsPlan, type ImoGoodsPricingPlan } from "../_shared/imo-goods-recognition.ts";
 import { assertScenarioCargoContext, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
 import { estimateUnlistedContainerTransport } from "../_shared/local-transport-estimate.ts";
-import { resolveStayGroup, calculateStayTiers, assessDpwStorageFranchise, DPW_FRANCHISE_SOURCE, isCurrentStayTariff } from "../_shared/container-stay-estimate.ts";
+import { resolveStayGroup, calculateStayTiers, assessDpwStorageFranchise, isCurrentStayTariff } from "../_shared/container-stay-estimate.ts";
 import { estimateStorageByTonne, STORAGE_POLICY } from "../_shared/storage-rate-estimate.ts";
+import { storageStayInformation, demurrageStayInformation, stayInformationText, type StayInformation } from "../_shared/stay-information.ts";
 import {
   resolveDemurrageEquipment,
   resolveDemurragePendingProvenance,
@@ -480,6 +481,7 @@ interface QuotationLine {
   quantity?: number;
   source: QuotationLineSource & { firm_eligible?: boolean };
   notes?: string;
+  stay_information?: StayInformation;
   isEditable: boolean;
   containerType?: string;
   accounting?: LocalTransportDeboursAccounting;
@@ -2187,13 +2189,20 @@ export async function generateQuotationLines(
             ? unit.gross_weight_kg * (unit.weight_basis === 'per_unit' ? matched.group.quantity : 1) : NaN;
           result = estimateStorageByTonne(matched.group.storage_p1_code, matched.group.provider, kg, matched.group.storage_days, 10);
         }
+        const franchiseVerified = !!(eligible && matched.group && !storageError && Array.isArray(storageRows) &&
+          assessDpwStorageFranchise(storageRows, { ...matched.group, storage_days: 10 }, unit, asOf).amount === 0);
+        const exampleKg = typeof unit.gross_weight_kg === 'number' && ['per_unit', 'total'].includes(String(unit.weight_basis))
+          ? unit.gross_weight_kg * (unit.weight_basis === 'per_unit' ? (typeof unit.quantity === 'number' ? unit.quantity : NaN) : 1) : NaN;
+        const stayInfo = storageStayInformation(matched.group, exampleKg, franchiseVerified,
+          !stay?.basis ? 'Aucune hypothèse de séjour liée à ce scénario : terminal, désignation et durées à renseigner.' : result.reason);
         lines.push({ id: `warehouse_franchise_${unit.unit_ref}`, bloc: 'operationnel', category: 'Magasinage',
           description: `Magasinage — lot ${unit.unit_ref}${result.amount === 0 ? ' — sortie supposée dans la franchise' : result.amount !== null ? ' — estimation sous hypothèses' : ' — à confirmer'}`,
           amount: result.amount, currency: 'FCFA',
           source: { type: result.amount !== null ? 'CALCULATED' : 'TO_CONFIRM',
             reference: result.amount === 0 ? 'SCENARIO_DPW_STORAGE_FRANCHISE_V1' : result.amount !== null ? STORAGE_POLICY : 'SCENARIO_GROUP_STORAGE_CONFIRMATION', confidence: 0.5,
             firm_eligible: false },
-          notes: `${result.reason} Source franchise : ${DPW_FRANCHISE_SOURCE}. Hypothèse liée, non confirmée.`, isEditable: true });
+          stay_information: stayInfo,
+          notes: stayInformationText(stayInfo), isEditable: true });
       }
     } else if (franchiseData && franchiseData.length > 0) {
       const franchise = franchiseData[0];
@@ -2285,12 +2294,16 @@ export async function generateQuotationLines(
       const freeDays = bestMatch.free_days_import;
       let stayAmount: number | null = null;
       let stayNote = '';
+      let stayInfo: StayInformation | undefined;
       if (servicesOnly && demurrageGroup) {
         const stay = request.scenarioStay;
         const asOf = new Date().toISOString().slice(0, 10);
         const unit = request.scenarioCargoContext!.cargo_units.find(u => u.unit_ref === demurrageGroup)!;
         const matched = resolveStayGroup(stay?.basis, unit, asOf);
         const currentRate = isCurrentStayTariff(bestMatch, asOf);
+        const informationalScope = !isTransit && stay?.movement_direction === 'IMPORT' && stay.destination_country === 'SN' &&
+          ['dakar', 'dakar port', 'port de dakar', 'sndkr', 'sn dkr'].includes(normalize(stay.discharge_port || '')) &&
+          currentRate && unit.dangerous_goods === false && unit.temperature_control_required === false;
         if (matched.group && matched.group.demurrage_days !== null && !isTransit && stay?.movement_direction === 'IMPORT' && stay.destination_country === 'SN' &&
           ['dakar', 'dakar port', 'port de dakar', 'sndkr', 'sn dkr'].includes(normalize(stay.discharge_port || '')) &&
           currentRate && unit.dangerous_goods === false && unit.temperature_control_required === false) {
@@ -2299,6 +2312,8 @@ export async function generateQuotationLines(
           const detail = result.breakdown.map(p => `J${p.from}–${p.to} : ${p.days}j × ${p.rate} XOF × ${matched.group!.quantity} TC = ${p.amount} XOF`).join(' ; ');
           stayNote = result.reason || `Estimation ${matched.group.quantity} TC, séjour armateur ${matched.group.demurrage_days}j franchise comprise (${freeDays}j). ${detail || 'Séjour supposé dans la franchise.'} Détention après sortie et TVA fournisseur éventuelle non chiffrées séparément ; ce montant n’est pas un coût complet.`;
         } else stayNote = matched.reason || 'Périmètre import Dakar, validité tarif ou conditions spécifiques du lot à vérifier.';
+        stayInfo = demurrageStayInformation(tiers, freeDays, typeof unit.quantity === 'number' ? unit.quantity : NaN, informationalScope,
+          !stay?.basis ? 'Durée armateur non renseignée : relier une hypothèse de séjour pour chiffrer le poste.' : stayNote);
       }
 
       let demDescription: string;
@@ -2361,7 +2376,8 @@ export async function generateQuotationLines(
           confidence: stayAmount === null ? demConfidence : 0.5,
           ...(servicesOnly ? { firm_eligible: false } : {})
         },
-        notes: stayNote ? `${stayNote}${stayAmount === null ? ` ${demNotes}` : ' Sous hypothèse liée, montant non ferme.'}` : demNotes,
+        ...(stayInfo ? { stay_information: stayInfo } : {}),
+        notes: stayInfo ? stayInformationText(stayInfo) : stayNote ? `${stayNote}${stayAmount === null ? ` ${demNotes}` : ' Sous hypothèse liée, montant non ferme.'}` : demNotes,
         isEditable: true
       });
     } else {

@@ -2,7 +2,38 @@ import { afterEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { ScenarioEstimateResult, type SelectedScenarioEstimate } from "../ScenarioEstimateResult";
+import { PricingFreshnessNotice } from "../../puzzle/PricingFreshnessNotice";
+import { storageStayInformation, demurrageStayInformation } from "../../../../supabase/functions/_shared/stay-information";
 afterEach(cleanup);
+it("shows franchise then complete periods and a separate cargo example, with access to the existing editor", async () => {
+  const info = storageStayInformation({ unit_ref: "example", equipment_code: "40HQ", quantity: 3, ownership: "COC", provider: "DPW", storage_p1_code: "412", storage_days: 10, demurrage_days: null }, 30000, true, "Sous hypothèse");
+  const e = estimate();
+  e.run!.tariff_lines = [{ id: "warehouse_franchise_example", category: "Magasinage", description: "Magasinage exemple", amount: 0, source: { type: "CALCULATED" }, stay_information: info }];
+  const before = JSON.stringify(e); const review = vi.fn();
+  render(<ScenarioEstimateResult estimate={e} onStayReview={review} />);
+  expect(screen.getByText("Franchise : 10 jours")).toBeInTheDocument();
+  for (const period of ["Du jour 11 au jour 25", "Du jour 26 au jour 40", "À partir du jour 41"]) expect(screen.getByText(period)).toBeInTheDocument();
+  expect(screen.getByText(/30 tonnes de ce lot × 2 jours facturables × 197 FCFA\/tonne\/jour/)).toHaveTextContent(/11\s*820 FCFA/);
+  expect(screen.getByText(/Illustration non ajoutée au total/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Renseigner les hypothèses de séjour" }));
+  expect(review).toHaveBeenCalledOnce(); expect(JSON.stringify(e)).toBe(before);
+});
+it("preserves decimals on informative native-currency tiers and examples", () => {
+  const info = demurrageStayInformation([{ day_from: 11, day_to: null, rate_per_day: "10.25", currency: "EUR", evidence_level: "official", source_document: "Synthetic" }], 10, 1, true, "");
+  const e = estimate(); e.run!.tariff_lines = [{ id: "demurrage_estimate_example", category: "Surestaries", amount: null, source: { type: "TO_CONFIRM" }, stay_information: info }];
+  render(<ScenarioEstimateResult estimate={e} />);
+  expect(screen.getByText("10,25 EUR")).toBeInTheDocument();
+  expect(screen.getByText(/= 20,5 EUR/)).toBeInTheDocument();
+});
+it("flags an older saved pricing without claiming tariffs expired or changing it", () => {
+  const { rerender } = render(<PricingFreshnessNotice pricingAt="2026-06-07T10:31:00Z" estimateAt="2026-09-21T12:36:00Z" />);
+  expect(screen.getByRole("note")).toHaveTextContent("n’a pas été actualisé");
+  expect(screen.getByRole("note")).toHaveTextContent("ne prouve pas");
+  for (const pricingAt of [undefined, "bad-date", "2026-09-21T12:36:00Z", "2026-09-22T00:00:00Z"]) {
+    rerender(<PricingFreshnessNotice pricingAt={pricingAt} estimateAt="2026-09-21T12:36:00Z" />);
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  }
+});
 it("distinguishes an ownership exclusion from a free service and shows the priced-base qualification", () => {
   const e = estimate(); e.run!.tariff_lines = [
     { id: "excluded", description: "Retour COC", category: "EMPTY_RETURN", amount: 0, notes: "Responsabilité contractuelle à vérifier", source: { type: "EXCLUDED_BY_RULE", reference: "TECHNICAL_CODE" } },

@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { formatScenarioPricingAmount, readScenarioPricingCodes, scenarioPricingCodeMessage, type ScenarioPricingRunSummary } from "@/lib/scenarioPricing";
+import { readStayInformation, stayRange, formatStayAmount } from "../../../supabase/functions/_shared/stay-information";
 export interface SelectedScenarioEstimate {
   caseId: string; title: string; run: ScenarioPricingRunSummary | null; pending: boolean; error: string | null;
 }
@@ -20,7 +21,7 @@ function pendingFamily(line: Line) {
   if (/EMPTY_RETURN/i.test(key)) return { key: "RETURN", label: "Retour des conteneurs vides", action: "Consulter les conditions à confirmer" };
   return { key, label: String(line.description ?? line.category ?? "Prestation à préciser").split(" — ")[0], action: "Consulter la réserve du poste" };
 }
-export function ScenarioEstimateResult({ estimate, onReview }: { estimate: SelectedScenarioEstimate; onReview?: () => void }) {
+export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { estimate: SelectedScenarioEstimate; onReview?: () => void; onStayReview?: () => void }) {
   const { run, pending, error } = estimate;
   const lines = Array.isArray(run?.tariff_lines) ? run.tariff_lines as Line[] : [];
   const stayLines = lines.filter(isStayLine);
@@ -45,9 +46,11 @@ export function ScenarioEstimateResult({ estimate, onReview }: { estimate: Selec
           <div>
             <h4 className="font-medium">Franchises, tranches et calculs de séjour</h4>
             <p className="text-sm text-muted-foreground">Présentés par lot, hors total ferme. Magasinage terminal et surestaries armateur ne partagent ni durée ni règle de franchise.</p>
+            {onStayReview && <Button className="mt-2" size="sm" variant="outline" onClick={onStayReview} disabled={pending}>Renseigner les hypothèses de séjour</Button>}
           </div>
           {stayLines.map((line, index) => {
             const source = sourceOf(line);
+            const info = readStayInformation(line.stay_information);
             const note = typeof line.notes === "string" && line.notes.trim()
               ? line.notes
               : "Franchise, durée, taux ou conditions d’application à confirmer.";
@@ -56,8 +59,28 @@ export function ScenarioEstimateResult({ estimate, onReview }: { estimate: Selec
                 <h5 className="font-medium text-sm">{String(line.description ?? line.category ?? "Séjour")}</h5>
                 <span className="font-medium text-sm whitespace-nowrap">{isExcluded(line) ? "Exclu sous hypothèse" : isPriced(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</span>
               </div>
-              <p className="mt-1 text-sm whitespace-pre-wrap">{note}</p>
-              {isPriced(line) && typeof source.reference === "string" && <p className="mt-1 text-xs text-muted-foreground">Source : {source.reference}</p>}
+              {info ? <div className="mt-2 space-y-2 text-sm">
+                <p className="font-medium">Franchise : {info.free_days === null ? "à confirmer" : `${info.free_days} jours`}</p>
+                <p>{info.franchise_note}</p>
+                {info.tiers.length > 0 && <div className="overflow-x-auto"><table className="w-full text-sm">
+                  <caption className="text-left font-medium mb-1">Tranches de séjour — information non ferme</caption>
+                  <thead><tr><th className="text-left p-2">Période</th><th className="text-right p-2">Taux</th><th className="text-left p-2">Unité</th></tr></thead>
+                  <tbody>{info.tiers.map((tier, i) => <tr className="border-t" key={i}>
+                    <td className="p-2">{stayRange(tier.from, tier.to, tier.relative)}</td>
+                    <td className="p-2 text-right whitespace-nowrap">{formatStayAmount(tier.rate, tier.currency)}</td><td className="p-2">{tier.unit}</td>
+                  </tr>)}</tbody>
+                </table></div>}
+                {info.example ? <div className="rounded bg-muted p-2">
+                  <p className="font-medium">Exemple sur ce lot — séjour hypothétique de {info.example.days} jours, franchise comprise</p>
+                  <p>{info.example.formula} = {formatStayAmount(info.example.amount, info.example.currency)}</p>
+                  <p>Illustration non ajoutée au total ; ce n’est pas la durée retenue.</p>
+                </div> : <p>Exemple à compléter : conditions du lot, taux ou quantité/poids insuffisamment renseignés.</p>}
+                {info.reservations.map((reservation, i) => <p key={i} className="whitespace-pre-wrap">{reservation}</p>)}
+                {info.sources.map((source, i) => <p key={i} className="text-xs text-muted-foreground">Source : {source}</p>)}
+              </div> : <>
+                <p className="mt-1 text-sm whitespace-pre-wrap">{note}</p>
+                {typeof source.reference === "string" && <p className="mt-1 text-xs text-muted-foreground">Source : {source.reference}</p>}
+              </>}
             </article>;
           })}
         </section>}

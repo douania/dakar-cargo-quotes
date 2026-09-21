@@ -475,8 +475,8 @@ async function handleRequest(req: Request): Promise<Response> {
         ...buildEngineRequest(inputs, transportMode),
         ...(cargoContext ? { scenarioCargoContext: cargoContext } : {}),
         ...(servicesOnly ? { scenarioPricingMode: "DAP_SERVICES_ONLY" } : {}),
-        ...(servicesOnly && inputs.containerStayEstimate !== undefined ? { scenarioStay: {
-          basis: inputs.containerStayEstimate, movement_direction: movementDirection,
+        ...(servicesOnly ? { scenarioStay: {
+          basis: inputs.containerStayEstimate ?? null, movement_direction: movementDirection,
           destination_country: inputs.destinationCountry, discharge_port: inputs.destinationPort,
           terminal_mode: terminalPolicy.effectiveMode,
         } } : {}),
