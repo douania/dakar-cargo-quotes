@@ -335,6 +335,13 @@ async function handleRequest(req: Request): Promise<Response> {
     const overlay = buildScenarioOverlay(factsSnapshot, assumptionsSnapshot);
     const cargo = buildScenarioCargoPricing(buildPricingInputs(overlay.facts), scenarioSnapshot, factsSnapshot);
     const { inputs, context: cargoContext, plan: cargoPlan } = cargo;
+    const localTransportBasis = asObject(inputs.localTransportEstimate);
+    const localTransportDestinationCountry = String(
+      inputs.destinationCountry ?? localTransportBasis.country ?? "",
+    ).trim() || undefined;
+    const localTransportDischargePort = String(
+      inputs.destinationPort ?? localTransportBasis.origin ?? "",
+    ).trim() || undefined;
     const blockers = [...overlay.blockers, ...cargo.blockers];
     if (cargoPlan) overlay.assumptionKeys.add("scenario.cargo_units");
 
@@ -475,7 +482,8 @@ async function handleRequest(req: Request): Promise<Response> {
         } } : {}),
         ...(servicesOnly && inputs.localTransportEstimate !== undefined ? { scenarioLocalTransport: {
           basis: inputs.localTransportEstimate, movement_direction: movementDirection,
-          destination_country: inputs.destinationCountry, discharge_port: inputs.destinationPort,
+          destination_country: localTransportDestinationCountry,
+          discharge_port: localTransportDischargePort,
         } } : {}),
         includeCustomsClearance: effectiveServiceKeys.includes("CUSTOMS_DAKAR"),
         includeLocalTransport: effectiveServiceKeys.includes("TRUCKING"),

@@ -225,7 +225,7 @@ Deno.test("scenario stay: linked JSON, effective terminal, indicative totals and
   });
 });
 
-Deno.test("scenario km: linked assumption reaches engine, trace/reservation persists, replay stable and no canonical writes", async () => {
+Deno.test("scenario km: linked assumption supplies missing routing facts, trace/reservation persists and replay is stable", async () => {
   const basis = { schema_version: 1, origin: "Dakar Port", country: "SN", destination: "Ville test", distance_km: 300,
     distance_source: "Carte et itinéraire test", verified_on: "2026-09-16", groups: [{ unit_ref: "alpha", equipment_code: "20hq", quantity: 4,
       weight_per_container_kg: 18000, max_payload_kg: 20000, ordinary_transport: true, qualification_source: "Documents TC et véhicule" }] };
@@ -234,12 +234,10 @@ Deno.test("scenario km: linked assumption reaches engine, trace/reservation pers
     source: { type: "CALCULATED", reference: "SN_NORMAL_CONTAINER_KM_V1", firm_eligible: false, confidence: 0.5 } }], mutate: s => {
       s.facts.find(f => f.fact_key === "routing.destination_city")!.value_text = "Ville test";
       s.snapshot.cargo_units = [group("alpha", { dangerous_goods: false, un_number: null })];
-      s.facts.push({ id: "port", fact_key: "routing.destination_port", value_text: "DAKAR" },
-        { id: "country", fact_key: "routing.destination_country", value_text: "SN" });
     } }, async h => {
       await h.invoke();
       assertEquals((h.engineBodies[0].params as Json).scenarioLocalTransport, {
-        basis, movement_direction: "IMPORT", destination_country: "SN", discharge_port: "DAKAR",
+        basis, movement_direction: "IMPORT", destination_country: "SN", discharge_port: "Dakar Port",
       });
       const result = h.rpcBodies[0].p_result as Json;
       assertEquals(result.status, "success");
