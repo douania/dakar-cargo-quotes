@@ -2380,6 +2380,14 @@ STOP et demander arbitrage CTO si :
 - Baseline hors lot : 1 test Deno `Intake.tsx` et lint global +3 restent FAIL dans des fichiers inchangés ; fichiers du lot ESLint PASS. GitHub frais NOT_VERIFIED (réseau indisponible).
 - Aucun tarif, fait client, DB/Auth/RLS, migration, commit, push, Cloud, Edge ou envoi modifié. Retour arrière : retirer uniquement les six fichiers applicatifs/tests de ce lot et la présente note.
 
+#### Restitution informative franchise et tranches — 21 septembre 2026 — PASS_WITH_BASELINE local
+
+- GO utilisateur : commencer le lot global de restitution ; sous-périmètre livré strictement frontend, sans tarif, fait, migration, Cloud, publication ni envoi. `quotation-engine` reste FROZEN et inchangé.
+- Les résultats de scénarios affichent désormais, par lot, les lignes magasinage/surestaries avec montant indicatif ou « À confirmer », franchise, tranches/calcul déjà fournis par le moteur et source ; magasinage, surestaries COC et détention après sortie restent séparés, hors total ferme.
+- Deux fichiers applicatif/test : aucun calcul, montant, persistance ou contrat runtime modifié. Le tableau technique renvoie au nouveau détail pour éviter le doublon de lecture.
+- Tests : 13 ciblés PASS ; typecheck et build PASS. Suite frontend : 493 PASS / 1 FAIL identique à `origin/work` (`LocalTransportEstimateFields` attend « Ajouter un lot admissible », UI inchangée affiche « Ajouter un lot ») : PASS_WITH_BASELINE.
+- Retour arrière : revert de ces deux fichiers frontend ; aucun rollback DB/Cloud. Publication et extension structurée PDF/e-mail nécessitent GO distinct ; toute modification du moteur FROZEN exige une exception explicite.
+
 ## 11. Procédure de reprise dans une nouvelle session
 
 La nouvelle session doit commencer par :

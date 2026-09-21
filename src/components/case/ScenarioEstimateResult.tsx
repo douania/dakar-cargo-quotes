@@ -7,6 +7,8 @@ type Line = Record<string, unknown>;
 const sourceOf = (line: Line): Line => line.source && typeof line.source === "object" ? line.source as Line : {};
 const isExcluded = (line: Line) => sourceOf(line).type === "EXCLUDED_BY_RULE";
 const isPriced = (line: Line) => typeof line.amount === "number" && Number.isFinite(line.amount) && sourceOf(line).type !== "TO_CONFIRM" && !isExcluded(line);
+const isStayLine = (line: Line) => /^(Magasinage|Surestaries)$/i.test(String(line.category ?? "")) ||
+  /^(warehouse_franchise|demurrage_estimate)/.test(String(line.id ?? ""));
 
 /** Presentation only: no amount, fact, tariff or persisted status is changed. */
 function pendingFamily(line: Line) {
@@ -21,6 +23,7 @@ function pendingFamily(line: Line) {
 export function ScenarioEstimateResult({ estimate, onReview }: { estimate: SelectedScenarioEstimate; onReview?: () => void }) {
   const { run, pending, error } = estimate;
   const lines = Array.isArray(run?.tariff_lines) ? run.tariff_lines as Line[] : [];
+  const stayLines = lines.filter(isStayLine);
   const families = new Map<string, { label: string; action: string; count: number; scenario: boolean }>();
   for (const line of lines.filter(line => !isPriced(line) && !isExcluded(line))) {
     const family = pendingFamily(line);
@@ -38,6 +41,26 @@ export function ScenarioEstimateResult({ estimate, onReview }: { estimate: Selec
       {run.status === "success" ? <>
         <p className="font-semibold text-lg">{run.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"} : HT {formatScenarioPricingAmount(run.indicative_total_ht, run.currency)} · TTC {formatScenarioPricingAmount(run.indicative_total_ttc, run.currency)}</p>
         <p className="text-sm text-muted-foreground">Estimation non ferme, distincte du devis confirmé. Les postes à confirmer ne sont pas gratuits.</p>
+        {stayLines.length > 0 && <section aria-label="Franchises et tranches de séjour" className="rounded-lg border p-3 space-y-3">
+          <div>
+            <h4 className="font-medium">Franchises, tranches et calculs de séjour</h4>
+            <p className="text-sm text-muted-foreground">Présentés par lot, hors total ferme. Magasinage terminal et surestaries armateur ne partagent ni durée ni règle de franchise.</p>
+          </div>
+          {stayLines.map((line, index) => {
+            const source = sourceOf(line);
+            const note = typeof line.notes === "string" && line.notes.trim()
+              ? line.notes
+              : "Franchise, durée, taux ou conditions d’application à confirmer.";
+            return <article className="border-t pt-3 first:border-t-0 first:pt-0" key={`${String(line.id ?? "stay")}-${index}`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h5 className="font-medium text-sm">{String(line.description ?? line.category ?? "Séjour")}</h5>
+                <span className="font-medium text-sm whitespace-nowrap">{isExcluded(line) ? "Exclu sous hypothèse" : isPriced(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</span>
+              </div>
+              <p className="mt-1 text-sm whitespace-pre-wrap">{note}</p>
+              {isPriced(line) && typeof source.reference === "string" && <p className="mt-1 text-xs text-muted-foreground">Source : {source.reference}</p>}
+            </article>;
+          })}
+        </section>}
         {families.size > 0 && <section aria-label="Postes à compléter" className="rounded-lg border border-amber-400/40 p-3">
           <h4 className="font-medium">À compléter pour couvrir les prestations restantes</h4>
           <p className="text-sm text-muted-foreground mb-2">Ces postes sont exclus du sous-total. Ils ne bloquent pas les montants déjà calculés.</p>
@@ -56,10 +79,11 @@ export function ScenarioEstimateResult({ estimate, onReview }: { estimate: Selec
           <thead><tr><th className="text-left p-2">Prestation / groupe</th><th className="text-right p-2 whitespace-nowrap">Montant</th><th className="text-left p-2">Source ou réserve</th></tr></thead>
           <tbody>{lines.map((line, i) => {
             const source = sourceOf(line);
+            const stay = isStayLine(line);
             return <tr className="border-t align-top" key={`${String(line.id ?? "line")}-${i}`}><td className="p-2">{String(line.description ?? line.category ?? "Prestation")}</td>
               <td className="text-right p-2 whitespace-nowrap">{isExcluded(line) ? "Exclu sous hypothèse" : isPriced(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
-              <td className="p-2 break-words">{String(isPriced(line) ? source.reference ?? "Source non renseignée" : line.notes ?? source.reference ?? "Données ou tarif à préciser")}
-                {isPriced(line) && typeof line.notes === "string" && <p className="mt-1 text-xs text-muted-foreground">{line.notes}</p>}
+              <td className="p-2 break-words">{stay ? "Voir la section « Franchises, tranches et calculs de séjour »." : String(isPriced(line) ? source.reference ?? "Source non renseignée" : line.notes ?? source.reference ?? "Données ou tarif à préciser")}
+                {isPriced(line) && !stay && typeof line.notes === "string" && <p className="mt-1 text-xs text-muted-foreground">{line.notes}</p>}
               </td></tr>;
           })}</tbody></table></div>
         </details>}

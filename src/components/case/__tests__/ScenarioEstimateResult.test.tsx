@@ -26,6 +26,20 @@ it("displays current detailed partial result without pricing unknown posts as ze
   expect(screen.getByText("PAD groupe a")).toBeInTheDocument();
   expect(screen.getByText("À confirmer")).toBeInTheDocument(); expect(screen.getByText("Destination à préciser")).toBeInTheDocument();
 });
+it("shows each stay franchise, tier calculation and source without changing totals",()=>{
+  const e=estimate();
+  e.run!.tariff_lines=[
+    {id:"warehouse_franchise_lot-a",category:"Magasinage",description:"Magasinage — lot lot-a",amount:7880,currency:"FCFA",source:{type:"CALCULATED",reference:"STORAGE_P1_OPERATOR_1111_20260916"},notes:"Franchise retenue 10j ; P1 2j ×394 FCFA/t/j = 7880 FCFA."},
+    {id:"demurrage_estimate_lot-b",category:"Surestaries",description:"Surestaries CMA CGM — lot COC lot-b",amount:38050,currency:"XOF",source:{type:"CALCULATED",reference:"Barème armateur synthétique"},notes:"Séjour armateur 11j franchise comprise (10j). J11–J20 : 1j × 38050 XOF × 1 TC = 38050 XOF."},
+  ];
+  const before=JSON.stringify(e);
+  render(<ScenarioEstimateResult estimate={e} />);
+  const section=screen.getByRole("region",{name:"Franchises et tranches de séjour"});
+  expect(within(section).getByText("Franchise retenue 10j ; P1 2j ×394 FCFA/t/j = 7880 FCFA.")).toBeInTheDocument();
+  expect(within(section).getByText(/Séjour armateur 11j franchise comprise/)).toBeInTheDocument();
+  expect(within(section).getByText("Source : STORAGE_P1_OPERATOR_1111_20260916")).toBeInTheDocument();
+  expect(JSON.stringify(e)).toBe(before);
+});
 it("never presents a previous success as the pending or failed relaunch",()=>{
   const e=estimate(); e.pending=true; e.error="Erreur réseau";
   render(<ScenarioEstimateResult estimate={e} />);
@@ -92,7 +106,7 @@ it.each(["calculated", "unpriced", "mixed", "zero"] as const)(
     expect(screen.getByText(/Seuls les postes non chiffrés sont exclus du sous-total/)).toBeInTheDocument();
     if (state !== "unpriced") {
       expect(screen.getByText(priced.notes)).toBeInTheDocument();
-      const row = screen.getByText("Magasinage lot A").closest("tr")!;
+      const row = within(screen.getByRole("table")).getByText("Magasinage lot A").closest("tr")!;
       expect(within(row).queryByText("À confirmer")).not.toBeInTheDocument();
       expect(row).toHaveTextContent(state === "zero" ? /0\s+F/ : /7\s*880/);
     }
