@@ -99,6 +99,8 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
     [serviceScope, factsMap],
   );
 
+  const incoterm = (factsMap["routing.incoterm"] || "").toUpperCase();
+  const isDapDdp = incoterm === "DAP" || incoterm === "DDP";
   if (scope.length === 0) return null;
 
   return (

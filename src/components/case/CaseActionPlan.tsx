@@ -259,6 +259,11 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                   {answeredClientGaps} réponse{answeredClientGaps > 1 ? 's' : ''} client à traiter
                 </Badge>
               )}
+              {!hasDraftEmail && statusAtLeast(status, "PRICED_DRAFT") && (
+                <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 bg-red-50">
+                  Email client manquant
+                </Badge>
+              )}
             </div>
           )}
 
