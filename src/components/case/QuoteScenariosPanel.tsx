@@ -31,6 +31,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ScenarioProposalPanel, type ScenarioProposalAction } from "./ScenarioProposalPanel";
+import { ScenarioRevisionTable, type ScenarioRevisionRow } from "./ScenarioRevisionTable";
 import { proposalPadRevision } from "@/lib/scenarioProposal";
 import type { SelectedScenarioEstimate } from "./ScenarioEstimateResult";
 import type { Database } from "@/integrations/supabase/types";
@@ -155,6 +156,7 @@ interface QuoteScenariosPanelProps {
   caseId: string;
   actionRef?: Ref<ScenarioPricingAction>;
   onPricingPendingChange?: (pending: boolean) => void;
+  isLocked?: boolean;
 }
 
 export interface ScenarioPricingAction {
@@ -1082,7 +1084,7 @@ function ComparisonBlock({ left, right }: ComparisonBlockProps) {
 
 const NO_SCENARIO = "__none__";
 
-export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange, onSelectedEstimateChange }: QuoteScenariosPanelProps) {
+export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange, onSelectedEstimateChange, isLocked = false }: QuoteScenariosPanelProps) {
   const queryClient = useQueryClient();
   // Une réponse réseau perdue ne doit jamais transformer un rejeu manuel en
   // nouvelle création/révision. La clé reste associée au contenu logique exact
@@ -1100,6 +1102,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
   const [pendingOutputAction, setPendingOutputAction] = useState<string | null>(null);
   const [compareLeftId, setCompareLeftId] = useState<string>(NO_SCENARIO);
   const [compareRightId, setCompareRightId] = useState<string>(NO_SCENARIO);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
 
   const scenariosQuery = useQuery({
     queryKey: ["quote-scenarios", caseId],
@@ -1586,6 +1589,45 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
     },
   }));
 
+  const scenarioCount = new Set(scenarios.map((scenario) => scenario.root_scenario_id ?? scenario.id)).size;
+  const revisionRows: ScenarioRevisionRow[] = scenarios.map((scenario) => {
+    const openPoints = readStoredOpenPoints(scenario.open_points);
+    const scenarioLinks = linksByScenario.get(scenario.id) ?? [];
+    const latestPricing = latestPricingByScenario.get(scenario.id) ?? null;
+    const output = latestPricing ? outputsByPricingRun.get(latestPricing.id) ?? null : null;
+    const isSelected = openSelection?.scenario_id === scenario.id;
+    const fields = projectScopeFields(scenario.scope_snapshot);
+    const headline = fields.filter((field) => ["transport_mode", "movement_direction", "terminal_operation_mode"].includes(field.path)).map((field) => field.value).join(" · ");
+    const assumptions = latestPricing && Array.isArray(latestPricing.assumptions_snapshot)
+      ? latestPricing.assumptions_snapshot.map((entry) => {
+          if (typeof entry === "string") return entry;
+          if (entry && typeof entry === "object") {
+            const record = entry as Record<string, unknown>;
+            return String(record.statement ?? record.label ?? record.code ?? "Hypothèse appliquée");
+          }
+          return "Hypothèse appliquée";
+        })
+      : scenarioLinks.filter((link) => !!link.assumption_id).map((link) => assumptionById.get(String(link.assumption_id))?.statement ?? String(link.assumption_id));
+    const blockedCode = scenario.blocked_reason || (latestPricing?.status === "blocked" ? readScenarioPricingCodes(latestPricing.blockers)[0] : null);
+    const result = latestPricing?.status === "blocked" ? "Bloqué"
+      : latestPricing?.status === "success" ? formatScenarioPricingAmount(latestPricing.indicative_total_ht, latestPricing.currency)
+        : "Non estimée";
+    return {
+      id: scenario.id, revisionNo: scenario.revision_no, title: scenario.title,
+      createdAt: scenario.created_at, selectedAt: isSelected ? openSelection?.selected_at ?? null : null,
+      revisionReason: scenario.revision_reason, headline,
+      openPoints: openPoints.map(formatOpenPoint), assumptions, result,
+      status: isSelected ? "Sélectionnée" : scenario.superseded_by_scenario_id ? "Remplacée" : blockedCode ? scenarioPricingCodeMessage(blockedCode) : "Brouillon",
+      statusTone: isSelected ? "selected" : blockedCode ? "blocked" : "muted", isSelected,
+      canRevise: canReviseScenario(scenario), canSelect: canSelectScenario(scenario),
+      canPrice: isSelected && !["blocked", "superseded", "promoted_to_final"].includes(scenario.status) && !scenario.superseded_by_scenario_id,
+      pricingSucceeded: latestPricing?.status === "success", outputId: output?.id ?? null, pricingRunId: latestPricing?.id ?? null,
+    };
+  });
+
+  const scenarioFor = (scenarioId: string) => scenarioById.get(scenarioId);
+  const outputFor = (outputId: string) => (scenarioOutputsQuery.data ?? []).find((output) => output.id === outputId);
+
   if (scenariosQuery.isLoading) {
     return (
       <Card className="mb-6 border-border/50">
@@ -1615,9 +1657,9 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           <div>
             <CardTitle className="text-sm flex items-center gap-2">
               <Layers className="h-4 w-4 text-sky-600" />
-              Scénarios de périmètre
+              Scénarios et variantes
               <Badge variant="secondary" className="text-[10px] ml-1">
-                {scenarios.length}
+                {scenarioCount} scénario{scenarioCount > 1 ? "s" : ""} · {scenarios.length} révision{scenarios.length > 1 ? "s" : ""}
               </Badge>
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
@@ -1627,17 +1669,21 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           </div>
           {formMode === "none" ? (
             <div className="flex flex-wrap justify-end gap-2">
+              {scenarios.length >= 2 ? <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => setComparisonOpen((open) => !open)} disabled={isLocked}>
+                <GitCompare className="h-3 w-3 mr-1" />Comparer deux révisions
+              </Button> : null}
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs shrink-0"
                 onClick={() => startCreate()}
+                disabled={isLocked}
               >
                 <Plus className="h-3 w-3 mr-1" />
                 Nouveau scénario
               </Button>
               <Button size="sm" variant="outline" className="h-7 text-xs shrink-0"
-                onClick={() => startCreate(true)}>
+                onClick={() => startCreate(true)} disabled={isLocked}>
                 <Plus className="h-3 w-3 mr-1" />
                 Nouveau maritime par groupes
               </Button>
@@ -1656,15 +1702,13 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
             })));
             setDraft(proposalPadRevision(current, proposal, choices)); setReviseTargetId(selected.id); setFormMode("revise");
           } : undefined}
-          disabled={submitting || pricingMutation.isPending} onUseDraft={proposedDraft => {
+          disabled={isLocked || submitting || pricingMutation.isPending} onUseDraft={proposedDraft => {
             setDraft(proposedDraft); setReviseTargetId(null); setFormMode("create");
           }} />}
-        <Alert className="border-amber-200 bg-amber-50/60">
+        <Alert className="border-border bg-muted/30 py-2">
           <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />
-          <AlertDescription className="text-[11px] text-amber-900">
-            Les montants affichés sont des estimations internes non fermes. Une sortie de travail
-            peut produire un PDF et un brouillon non envoyé clairement marqués scénario ; elle ne
-            modifie ni les faits, ni le pricing ou le devis canonique.
+          <AlertDescription className="text-[11px] text-muted-foreground">
+            Les montants affichés sont des estimations internes non fermes. Une sortie de travail peut produire un PDF et un brouillon non envoyé clairement marqués scénario ; elle ne modifie ni les faits, ni le pricing ou le devis canonique.
           </AlertDescription>
         </Alert>
 
@@ -1698,11 +1742,11 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           />
         ) : null}
 
-        {scenarios.length >= 2 ? (
+        {scenarios.length >= 2 && comparisonOpen ? (
           <div className="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-2">
             <div className="flex items-center gap-2">
               <GitCompare className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-[11px] font-medium">Comparer deux scénarios</span>
+              <span className="text-[11px] font-medium">Comparer deux révisions</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(
