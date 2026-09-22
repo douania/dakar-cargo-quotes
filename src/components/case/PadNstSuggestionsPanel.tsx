@@ -241,7 +241,7 @@ export default function PadNstSuggestionsPanel({ padCategoryAlreadySet }: Props)
             <div className="flex items-center gap-2">
               <Anchor className="h-4 w-4 text-blue-600" />
               <CardTitle className="text-sm">Suggestions PAD-NST (assistance opérateur)</CardTitle>
-              <Badge variant="outline" className="text-[10px]">TO_CONFIRM</Badge>
+              <Badge variant="outline" className="text-[10px]">À confirmer</Badge>
             </div>
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="sm">
