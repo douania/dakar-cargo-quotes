@@ -1130,6 +1130,20 @@ export default function CaseView() {
         }
       : null,
   }) : null;
+  const currentPadCategory = facts.find((fact) => fact.fact_key === "cargo.pad_category" && fact.is_current)?.value_text ?? null;
+  const merchandiseSummary = [
+    multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} marchandise` : null,
+    currentPadCategory ? `PAD ${currentPadCategory}` : "catégorie PAD à confirmer",
+  ].filter(Boolean).join(" · ");
+  const coordinationSummary = cockpitState ? [
+    `plan ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}`,
+    cockpitState.totalPartnerRequests > 0 ? `${cockpitState.totalPartnerRequests} demande${cockpitState.totalPartnerRequests > 1 ? "s" : ""} partenaire${cockpitState.totalPartnerRequests > 1 ? "s" : ""}` : null,
+  ].filter(Boolean).join(" · ") : "";
+  const confirmedQuoteSummary = cockpitState ? [
+    cockpitState.selectedVersionNumber !== null ? `version ${cockpitState.selectedVersionNumber}` : null,
+    cockpitState.hasPdf ? "PDF" : null,
+    cockpitState.hasDraftEmail ? "brouillon" : null,
+  ].filter(Boolean).join(" · ") : "";
 
   const focusPilotageAction = (action: PilotageAction) => {
     const target = document.getElementById(action.targetId);
@@ -1404,7 +1418,7 @@ export default function CaseView() {
           );
         })()}
 
-        <details className="mb-4 rounded-lg border p-4" id="section-sources">
+        <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-data">
           <summary className="cursor-pointer font-medium">Données du dossier et contrôles avant devis confirmé</summary>
           <p className="my-3 text-sm text-muted-foreground">Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus.</p>
         {/* Info bar */}
@@ -1447,17 +1461,23 @@ export default function CaseView() {
           </CardContent>
         </Card>
 
+        <div className="mb-4 flex flex-wrap gap-2" aria-label="Actions des outils avancés">
+          <div id="cargo-canonical-action" />
+          <div id="cargo-legacy-sync-action" />
+        </div>
+        <details className="mb-6 border border-border/60 bg-muted/20 p-3 text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">Outils avancés</summary>
         {/* Cargo canonique : preview dry-run (lecture seule) + adoption explicite
             opérateur (commit). onAdopted rafraîchit le case après écriture. */}
         {caseId && (
-          <CargoCanonicalPreviewPanel caseId={caseId} onAdopted={handleRefresh} />
+          <CargoCanonicalPreviewPanel caseId={caseId} onAdopted={handleRefresh} actionPortalId="cargo-canonical-action" />
         )}
 
         {/* Sync explicite cargo canonique → facts legacy (quote_facts uniquement).
             Mécanisme distinct de l'adoption canonique ; ne lance pas le pricing.
             onSynced rafraîchit case/facts/events/gaps (pas de pricingRefreshToken). */}
         {caseId && (
-          <CargoCanonicalLegacyFactsSyncPanel caseId={caseId} onSynced={handleRefresh} />
+          <CargoCanonicalLegacyFactsSyncPanel caseId={caseId} onSynced={handleRefresh} actionPortalId="cargo-legacy-sync-action" />
         )}
 
         {/* ── Thread Intent Display ── */}
@@ -1523,6 +1543,7 @@ export default function CaseView() {
             <p className="text-xs text-muted-foreground mb-4">Aucun intent analysé</p>
           );
         })()}
+        </details>
 
         {/* ── Open Actions (C2/P0.3) — hidden for active dossiers (ORCH-SYNC-2) ── */}
         {['SENT', 'ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(caseData.status) && (
@@ -2106,8 +2127,8 @@ export default function CaseView() {
         </details>
 
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
-        {caseId && <details ref={scenarioPanel} className="mb-4 rounded-lg border p-4" id="section-scenarios">
-          <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires</summary>
+        {caseId && <details ref={scenarioPanel} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
+          <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
           <PadGroupConfirmationsPanel caseId={caseId} onChanged={handleRefresh} onEstimateReview={() => {
             const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
             if (variants) { variants.open = true; variants.scrollIntoView({ behavior: "smooth", block: "start" }); }
@@ -2119,8 +2140,8 @@ export default function CaseView() {
           </details>
         </details>}
 
-        <details className="mb-4 rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Coordination, demandes et préparation du devis confirmé</summary>
+        <details className="mb-4 min-w-0 rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Coordination, demandes et préparation du devis confirmé{coordinationSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {coordinationSummary}</span>}</summary>
           <p className="my-3 text-sm text-muted-foreground">Les blocages ci-dessous concernent le parcours du dossier confirmé ; l’estimation conserve ses propres réserves.</p>
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
@@ -2279,8 +2300,8 @@ export default function CaseView() {
 
 
         </details>
-        <details className="mb-4 rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Devis confirmé : classification, résultats et documents</summary>
+        <details className="mb-4 min-w-0 rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Devis confirmé : classification, résultats et documents{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
         {/* M9b: Output pipeline stepper — read-only progression indicator */}
         {isPipelineVisible && (() => {
           const steps = [
@@ -2460,8 +2481,8 @@ export default function CaseView() {
 
 
         </details>
-        <details className="mb-4 rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Sources, faits et historique</summary>
+        <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-sources">
+          <summary className="cursor-pointer font-medium">Sources, faits et historique<span className="ml-2 text-sm font-normal text-muted-foreground">— {facts.length} fait{facts.length > 1 ? "s" : ""} · {events.length} événement{events.length > 1 ? "s" : ""}</span></summary>
         {/* Tabs */}
         <Tabs defaultValue="facts" className="space-y-4">
           <TabsList className="grid w-full grid-cols-3">

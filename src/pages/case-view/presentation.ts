@@ -119,7 +119,7 @@ export function selectPilotageAction(
     label: `Résoudre ${state.blockingGapsCount} gap(s) bloquant(s)`,
     blocker: `${state.blockingGapsCount} gap(s) bloquant(s)`,
     tone: "red",
-    targetId: "section-sources",
+    targetId: "section-data",
   };
   if (state.draftPartnerRequests > 0) return {
     kind: "draft_partner", label: `Préparer ${state.draftPartnerRequests} demande(s) partenaire(s)`,
@@ -151,7 +151,7 @@ export function selectPilotageAction(
   };
   if (state.status === "ACK_READY_FOR_PRICING") {
     return hasCriticalUnconfirmed
-      ? { kind: "confirm_scope", label: "Confirmer le périmètre du dossier", blocker: "Des services dans le scope restent insuffisamment qualifiés", tone: "amber", targetId: "section-sources" }
+      ? { kind: "confirm_scope", label: "Confirmer le périmètre du dossier", blocker: "Des services dans le scope restent insuffisamment qualifiés", tone: "amber", targetId: "section-data" }
       : { kind: "launch_pricing", label: "Lancer le pricing", blocker: "Aucun blocage majeur", tone: "emerald", targetId: "section-pricing" };
   }
   if (statusBelow(state.status, "PRICED_DRAFT")) return null;
