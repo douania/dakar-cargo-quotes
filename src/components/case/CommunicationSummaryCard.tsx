@@ -12,7 +12,6 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { statusAtLeast } from "@/lib/cockpitStatusConstants";
 import { useCockpitState } from '@/hooks/useCockpitState';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -74,11 +73,6 @@ export function CommunicationSummaryCard({ caseId, clientEmail, blockingClientQu
             Communication client
           </div>
           {isComplete ? (
-          {collectionVerdict !== "neutral" && (
-            <Badge className={collectionVerdict === "sufficient" ? "bg-emerald-500/15 text-emerald-700 border-emerald-200" : "bg-blue-500/15 text-blue-700 border-blue-200"}>
-              {collectionVerdict === "sufficient" ? "Collecte terminée" : collectionVerdict === "in_progress" ? "Collecte en cours" : "Collecte insuffisante"}
-            </Badge>
-          )}
             <Badge className="bg-emerald-500/15 text-emerald-700 border-emerald-200 hover:bg-emerald-500/15">
               <CheckCircle2 className="h-3 w-3 mr-1" />
               Complète
@@ -124,12 +118,6 @@ export function CommunicationSummaryCard({ caseId, clientEmail, blockingClientQu
                     )}
                   </div>
                 </div>
-            {!hasDraftEmail && statusAtLeast(status, "PRICED_DRAFT") && (
-              <div className="flex items-center gap-2 text-red-600">
-                <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                <span className="font-semibold italic">Email client manquant</span>
-              </div>
-            )}
               </div>
             )}
 
