@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // Unrelated panels and I/O are test doubles; no network or customer data.
 const empty: never[] = [];
 const invoke = vi.fn(), estimateAction = vi.fn();
-let caseId = 'case-a', status = 'PRICED_DRAFT', hasSelection = true;
+let caseId = 'case-a', status = 'PRICED_DRAFT', hasSelection = true, totalPartnerRequests = 0, closedPartnerRequests = 0;
 const run: NonNullable<SelectedScenarioEstimate['run']> = { id:'r', scenario_id:'s', run_seq:1, status:'success', qualification:'partial',
   firm_total_ht:0,firm_total_ttc:0,assumptions_snapshot:[],
   completed_at:'2026-09-15T12:00:00Z', currency:'XOF', indicative_total_ht:1000, indicative_total_ttc:1180,
@@ -26,6 +26,7 @@ vi.doMock('@tanstack/react-query',async()=>({
   useQuery:({queryKey}:{queryKey:string[]})=>({isLoading:false,error:null,refetch:vi.fn(),
     data: queryKey[0]==='case-view' ? {id:caseId,status,request_type:'SEA_FCL_IMPORT',puzzle_completeness:70}
       : queryKey[0]==='case-facts' ? facts : queryKey[0]==='case-gaps' ? gaps
+      : queryKey[0]==='cockpit-state' ? {status,totalPartnerRequests,closedPartnerRequests,blockingGapsCount:0,padReviewCount:0}
       : queryKey[0].includes('count') || queryKey[0]==='pricing-provisional-check' ? 0
       : queryKey[0]==='pricing-run-recovery' ? null : empty}),
 }));
@@ -46,7 +47,7 @@ for (const match of source.matchAll(/import (.+) from "(@\/components\/(?:case|p
 }
 const CaseView = (await import('../../CaseView')).default;
 let client: QueryClient;
-beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;invoke.mockReset();estimateAction.mockReset();
+beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPartnerRequests=0;closedPartnerRequests=0;invoke.mockReset();estimateAction.mockReset();
   client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{cleanup();client.clear();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
@@ -61,9 +62,17 @@ it('puts the current estimate first despite a PAD gap, with diagnostics and sour
   expect(container.querySelector('#section-data')).toHaveTextContent('Données du dossier et contrôles avant devis confirmé');
   expect(container.querySelector('#section-sources')).toHaveTextContent('Sources, faits et historique');
   expect(screen.getByText('Marchandises et catégories portuaires').closest('summary')).toHaveTextContent('catégorie PAD à confirmer');
+  expect(screen.getByText('Coordination, demandes et préparation du devis confirmé').closest('summary')).not.toHaveTextContent('plan 0/0');
+  expect(screen.getByText('Coordination, demandes et préparation du devis confirmé').closest('summary')).not.toHaveTextContent('demandes partenaires');
   expect(screen.getByText('Sources, faits et historique').closest('summary')).toHaveTextContent('1 fait · 0 événement');
   expect(container.querySelector('#section-pricing')!.compareDocumentPosition(container.querySelector('#section-scenarios')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(invoke).not.toHaveBeenCalled();
+});
+it('summarizes partner requests only when they exist',()=>{
+  totalPartnerRequests=3;closedPartnerRequests=2;mount();
+  const summary=screen.getByText('Coordination, demandes et préparation du devis confirmé').closest('summary');
+  expect(summary).toHaveTextContent('demandes partenaires 2/3');
+  expect(summary).not.toHaveTextContent('plan');
 });
 it('opens the mounted scenario review without saving or calculating',async()=>{
   mount();
