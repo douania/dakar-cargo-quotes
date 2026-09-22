@@ -173,6 +173,7 @@
 @media print {
   /* Hide app-level chrome only — NOT content headers */
   [data-sidebar],
+  [data-print-layout="root"] > [data-state][data-side],
   .sidebar-trigger,
   header.sticky,
   .print\:hidden {
