@@ -21,6 +21,7 @@ import { MessageSquare, Users, FileQuestion, CheckCircle2, Mail } from 'lucide-r
 interface CommunicationSummaryCardProps {
   caseId: string;
   clientEmail: string | null;
+  openClientQuestions: number;
   blockingClientQuestions: number;
   lastReplyAnalysis: string | null;
   draftsCount: number;
@@ -36,7 +37,7 @@ interface OpenRequestPreview {
   purpose: string | null;
 }
 
-export function CommunicationSummaryCard({ caseId, clientEmail, blockingClientQuestions, lastReplyAnalysis,
+export function CommunicationSummaryCard({ caseId, clientEmail, openClientQuestions, blockingClientQuestions, lastReplyAnalysis,
   draftsCount, closedActionsCount, onOpenDrafts, onOpenClosedActions }: CommunicationSummaryCardProps) {
   const { data: cockpit } = useCockpitState(caseId);
 
@@ -86,7 +87,9 @@ export function CommunicationSummaryCard({ caseId, clientEmail, blockingClientQu
               </Badge>
             ) : (
               <Badge className="bg-amber-500/15 text-amber-700 border-amber-200 hover:bg-amber-500/15">
-                {totalWarnings} point{totalWarnings > 1 ? 's' : ''} en attente
+                {totalWarnings === 0 && !clientEmail
+                  ? "E-mail client manquant"
+                  : `${totalWarnings} point${totalWarnings > 1 ? "s" : ""} en attente`}
               </Badge>
             )}
           </div>
@@ -99,7 +102,7 @@ export function CommunicationSummaryCard({ caseId, clientEmail, blockingClientQu
           </div>
           <div className="flex items-center gap-2">
             <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-            <span>Questions ouvertes au client : <span className="font-medium text-foreground">{openGapsCount}</span>{openGapsCount > 0 ? ` · ${blockingClientQuestions > 0 ? `${blockingClientQuestions} bloquante${blockingClientQuestions > 1 ? "s" : ""}` : "non bloquantes"}` : ""}</span>
+            <span>Questions ouvertes au client : <span className="font-medium text-foreground">{openClientQuestions}</span> · {blockingClientQuestions > 0 ? `${blockingClientQuestions} bloquante${blockingClientQuestions > 1 ? "s" : ""}` : "non bloquantes"}{openGapsCount > 0 ? ` · ${openGapsCount} envoyée${openGapsCount > 1 ? "s" : ""} au client` : ""}</span>
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />

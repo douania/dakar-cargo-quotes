@@ -14,14 +14,6 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   FileText,
   Loader2,
   AlertCircle,
@@ -68,7 +60,7 @@ import {
 } from "./case-view/constants";
 import type { PricingPrecheck } from "./case-view/types";
 import { mapSourceType, toFactPayload, shouldShowPricingPanel, isPricingRerun } from "./case-view/helpers";
-import { FactHistoryPopover } from "./case-view/FactHistoryPopover";
+import { CaseFactsTable, type CaseFact } from "@/components/case/CaseFactsTable";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
@@ -188,6 +180,7 @@ export default function CaseView() {
   const [addFactKey, setAddFactKey] = React.useState<string>("");
   const [addFactValue, setAddFactValue] = React.useState("");
   const [isAddingFact, setIsAddingFact] = React.useState(false);
+  const [showAddFact, setShowAddFact] = React.useState(false);
   const [isSavingFact, setIsSavingFact] = React.useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
   const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
@@ -1030,13 +1023,6 @@ export default function CaseView() {
     .sort();
 
   // ── Group facts by category ──
-  const factsByCategory = facts.reduce<Record<string, typeof facts>>((acc, fact) => {
-    const cat = fact.fact_category || "other";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(fact);
-    return acc;
-  }, {});
-
   // ── Derived suggestions ──
   interface DerivedSuggestion {
     id: string;
@@ -1429,7 +1415,6 @@ export default function CaseView() {
               />
               {/* PRICING-GUARD: Communication warnings — queried locally */}
               <details className="mt-2 rounded border p-3"><summary className="cursor-pointer text-sm">Collecte partenaires et contrôles du devis confirmé</summary>
-                <PartnerCollectionReadinessCard caseId={caseId!} />
                 <PricingReadinessCard caseId={caseId!} />
                 <PricingCommWarnings caseId={caseId!} />
               </details>
@@ -2257,6 +2242,7 @@ export default function CaseView() {
         {caseId && (
           <div className="mb-6">
             <CommunicationSummaryCard caseId={caseId} clientEmail={clientEmail}
+              openClientQuestions={openClientQuestions.length}
               blockingClientQuestions={openClientBlockingQuestions}
               lastReplyAnalysis={latestReplyAnalysis}
               draftsCount={allDrafts.length} closedActionsCount={doneActions.length}
@@ -2522,7 +2508,7 @@ export default function CaseView() {
 
         </details>
         <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-sources">
-          <summary className="cursor-pointer font-medium">Sources, faits et historique<span className="ml-2 text-sm font-normal text-muted-foreground">— {facts.length} fait{facts.length > 1 ? "s" : ""} · {events.length} événement{events.length > 1 ? "s" : ""}</span></summary>
+          <summary className="cursor-pointer font-medium">Sources, faits et historique<span className="ml-2 text-sm font-normal text-muted-foreground">— {facts.length} fait{facts.length > 1 ? "s" : ""} · {events.length} événement{events.length > 1 ? "s" : ""} · {documentsCount} document{documentsCount > 1 ? "s" : ""}</span></summary>
         {/* Tabs */}
         <Tabs defaultValue="facts" className="space-y-4">
           <TabsList className="grid w-full grid-cols-3">
@@ -2532,11 +2518,11 @@ export default function CaseView() {
             </TabsTrigger>
             <TabsTrigger value="documents" className="flex items-center gap-2">
               <Paperclip className="h-4 w-4" />
-              Documents
+              Documents ({documentsCount})
             </TabsTrigger>
             <TabsTrigger value="timeline" className="flex items-center gap-2">
               <History className="h-4 w-4" />
-              Timeline ({events.length})
+              Historique ({events.length})
             </TabsTrigger>
           </TabsList>
 
@@ -2549,7 +2535,17 @@ export default function CaseView() {
                 ? { key: facts.find(f => f.id === editingFactId)?.fact_key ?? "", value: editValue }
                 : addFactKey ? { key: addFactKey, value: addFactValue } : null}
             />
-            {!isLocked && addableFactKeys.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input type="checkbox" checked readOnly className="h-4 w-4" />
+                Faits courants seulement
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs text-muted-foreground">{facts.filter((fact) => fact.confidence !== null && fact.confidence < 0.7).length} fait{facts.filter((fact) => fact.confidence !== null && fact.confidence < 0.7).length > 1 ? "s" : ""} sous 70 % de confiance</span>
+                {!isLocked && addableFactKeys.length > 0 && <Button type="button" size="sm" variant="outline" onClick={() => setShowAddFact((visible) => !visible)}>Ajouter un fait</Button>}
+              </div>
+            </div>
+            {!isLocked && addableFactKeys.length > 0 && showAddFact && (
               <Card className="mb-4">
                 <CardHeader className="py-3">
                   <CardTitle className="text-base">Ajouter un fait</CardTitle>
@@ -2590,14 +2586,14 @@ export default function CaseView() {
                       onKeyDown={(e) => { if (e.key === "Enter") handleAddFact(); }}
                     />
                   )}
-                  <Button size="sm" onClick={handleAddFact} disabled={!addFactKey || !addFactValue || isAddingFact}>
+                  <Button size="sm" variant="outline" onClick={handleAddFact} disabled={!addFactKey || !addFactValue || isAddingFact}>
                     {isAddingFact ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Enregistrer
                   </Button>
                 </CardContent>
               </Card>
             )}
-            {Object.keys(factsByCategory).length === 0 ? (
+            {facts.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center space-y-3">
                   <p className="text-muted-foreground">
@@ -2618,170 +2614,10 @@ export default function CaseView() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-4">
-                {Object.entries(factsByCategory).map(([category, catFacts]) => (
-                  <Card key={category}>
-                    <CardHeader className="py-3">
-                      <CardTitle className="text-base">
-                        {CATEGORY_LABELS[category] || category}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-1/3">Clé</TableHead>
-                            <TableHead>Valeur</TableHead>
-                            <TableHead className="w-24">Confiance</TableHead>
-                            <TableHead className="w-20">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {catFacts.map((fact) => {
-                            const isEditing = editingFactId === fact.id;
-                            const displayValue = (() => {
-                              if (fact.fact_key === "cargo.articles_detail" && Array.isArray(fact.value_json)) {
-                                const articles = fact.value_json as any[];
-                                const hsCount = new Set(articles.map((a: any) => a.hs_code).filter(Boolean)).size;
-                                return `${articles.length} article(s) — ${hsCount} HS`;
-                              }
-                              if (fact.fact_key === "cargo.containers") {
-                                const containersValue = formatContainersValue(fact.value_json);
-                                if (containersValue) return containersValue;
-                              }
-                              return fact.value_text ||
-                                (fact.value_number != null ? String(fact.value_number) : null) ||
-                                (fact.value_json ? JSON.stringify(fact.value_json) : "—");
-                            })();
-
-                            return (
-                              <TableRow key={fact.id}>
-                                <TableCell className="font-mono text-xs">
-                                  {fact.fact_key}
-                                </TableCell>
-                                <TableCell>
-                                  {isEditing ? (
-                                    SELECT_FACT_OPTIONS[fact.fact_key] ? (
-                                      <Select value={editValue} onValueChange={setEditValue}>
-                                        <SelectTrigger className="h-8">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {SELECT_FACT_OPTIONS[fact.fact_key].map((opt) => (
-                                            <SelectItem key={opt.value} value={opt.value}>
-                                              {opt.label}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    ) : fact.fact_key === "cargo.articles_detail" ? (
-                                      <Textarea
-                                        value={editValue}
-                                        onChange={(e) => setEditValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Escape") cancelEdit();
-                                          // No save on Enter — needed for JSON newlines
-                                        }}
-                                        className="h-32 font-mono text-xs"
-                                        autoFocus
-                                      />
-                                    ) : (
-                                      <Input
-                                        value={editValue}
-                                        onChange={(e) => setEditValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") handleSaveFact(fact);
-                                          if (e.key === "Escape") cancelEdit();
-                                        }}
-                                        className="h-8"
-                                        autoFocus
-                                      />
-                                    )
-                                  ) : (
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span>{displayValue}</span>
-                                      {fact.source_type === "manual_input" && (
-                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                          Opérateur
-                                        </Badge>
-                                      )}
-                                      {isMultiLot && MULTI_LOT_AMBIGUOUS_FACTS.has(fact.fact_key) && (
-                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-400 text-amber-600">
-                                          ⚠ Multi-lot
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {fact.confidence != null ? (
-                                    <Badge
-                                      variant="outline"
-                                      className={
-                                        fact.confidence >= 0.8
-                                          ? "border-green-500 text-green-700"
-                                          : fact.confidence >= 0.5
-                                          ? "border-yellow-500 text-yellow-700"
-                                          : "border-red-500 text-red-700"
-                                      }
-                                    >
-                                      {Math.round(fact.confidence * 100)}%
-                                    </Badge>
-                                  ) : (
-                                    "—"
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  {isEditing ? (
-                                    <div className="flex gap-1">
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7"
-                                        onClick={() => handleSaveFact(fact)}
-                                        disabled={isSavingFact}
-                                      >
-                                        {isSavingFact ? (
-                                          <Loader2 className="h-3 w-3 animate-spin" />
-                                        ) : (
-                                          <Check className="h-3 w-3" />
-                                        )}
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7"
-                                        onClick={cancelEdit}
-                                        disabled={isSavingFact}
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex gap-1">
-                                      {EDITABLE_FACT_KEYS.has(fact.fact_key) && !isLocked && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7"
-                                          onClick={() => startEdit(fact)}
-                                        >
-                                          <Pencil className="h-3 w-3" />
-                                        </Button>
-                                      )}
-                                      <FactHistoryPopover caseId={caseId!} factKey={fact.fact_key} />
-                                    </div>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+              <CaseFactsTable caseId={caseId!} facts={facts as CaseFact[]} editingFactId={editingFactId}
+                editValue={editValue} isLocked={isLocked} isMultiLot={isMultiLot} isSavingFact={isSavingFact}
+                onEditValueChange={setEditValue} onStartEdit={startEdit} onCancelEdit={cancelEdit}
+                onSaveFact={handleSaveFact} />
             )}
 
             {/* Service Override Panel */}
