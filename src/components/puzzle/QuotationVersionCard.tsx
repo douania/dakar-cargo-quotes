@@ -159,7 +159,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
     queryKey: ['quotation-versions', caseId, refreshToken],
     queryFn: async (): Promise<QuotationVersion[]> => {
       const { data, error } = await supabase.from('quotation_versions')
-        .select('id, version_number, status, is_selected, snapshot, created_at, created_by')
+        .select('id, version_number, status, is_selected, snapshot, created_at, created_by, pricing_run_id')
         .eq('case_id', caseId).order('version_number', { ascending: false });
       if (error) throw error;
       return (data ?? []).filter((version) => {
@@ -300,7 +300,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
     }
     switch (status) {
       case 'draft':
-        return <Badge variant="secondary">Draft</Badge>;
+        return <Badge variant="secondary">Brouillon</Badge>;
       case 'approved':
         return <Badge className="bg-blue-100 text-blue-700">Approuvée</Badge>;
       case 'superseded':
@@ -364,13 +364,19 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
       <CardContent>
         <ScrollArea className="max-h-[300px]">
           <div className="space-y-3">
-            {versions.map((version) => {
+            {versions.map((version, index) => {
               const snapshot = version.snapshot as any;
               const totalHt = snapshot?.totals?.total_ht;
               const currency = snapshot?.totals?.currency || 'XOF';
               const linesCount = snapshot?.lines?.length || 0;
               const hasDownloadUrl = !!downloadUrls[version.id];
               const qualification = resolveQuoteQualification(snapshot);
+              const previousVersion = versions[index + 1];
+              const previousTotal = (previousVersion?.snapshot as any)?.totals?.total_payable
+                ?? (previousVersion?.snapshot as any)?.totals?.total_ttc
+                ?? (previousVersion?.snapshot as any)?.totals?.total_ht;
+              const displayedTotal = snapshot?.totals?.total_payable ?? snapshot?.totals?.total_ttc ?? totalHt;
+              const sameAsPrevious = previousVersion && typeof displayedTotal === 'number' && displayedTotal === previousTotal;
 
               return (
                 <div 
@@ -402,13 +408,23 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                         )}
                       </div>
 
-                      {totalHt !== undefined && (
-                        <p className="mt-2 text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                          {formatAmount(totalHt)} {currency}
+                      {displayedTotal !== undefined && (
+                        <p className="mt-2 text-lg font-bold">
+                          {formatAmount(displayedTotal)} {currency}
                         </p>
                       )}
+                      {sameAsPrevious && <p className="text-xs text-muted-foreground">même montant que v{previousVersion.version_number}</p>}
 
-                      {getReserveSummary(qualification)}
+                      {qualification.reasons.length > 0 && (
+                        <details className="mt-2 text-xs">
+                          <summary className="cursor-pointer text-amber-700 dark:text-amber-300">Voir les réserves ({qualification.reasons.length})</summary>
+                          <ul className="mt-2 space-y-1 text-muted-foreground">
+                            {qualification.reasons.map((reason, reasonIndex) => (
+                              <li key={`${reason.code}-${reasonIndex}`}>• {REASON_LABELS[reason.code] || reason.message || reason.code}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                     </div>
 
                     <div className="flex flex-col gap-2">
@@ -437,7 +453,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                           className="gap-1 text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-700"
                         >
                           <ExternalLink className="h-3 w-3" />
-                          Ouvrir PDF
+                          Ouvrir le PDF
                         </Button>
                       ) : (
                         <Button
@@ -455,7 +471,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                           ) : (
                             <>
                               <FileDown className="h-3 w-3" />
-                              PDF Draft
+                              Ouvrir le PDF
                             </>
                           )}
                         </Button>

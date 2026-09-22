@@ -2379,10 +2379,6 @@ export default function CaseView() {
           <p className="text-sm">{PAD_REVIEW_FR}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
         </div>}
-        {/* DCQ-MARITIME-FEES-RUNTIME-UI-B3 : propositions maritimes read-only,
-            zone opérateur — jamais mêlées au pricing ferme (proposal_only). */}
-        <MaritimeFeeProposalsPanel caseId={caseId!} />
-
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <details className="mb-6 rounded border p-3">
@@ -2411,6 +2407,12 @@ export default function CaseView() {
             <SendQuotationPanel caseId={caseId!} />
           </div>
         )}
+
+        <details className="mb-6 rounded border border-dashed p-3">
+          <summary className="cursor-pointer font-medium">Propositions maritimes à confirmer</summary>
+          <p className="my-2 text-xs text-muted-foreground">Décisions auditées à consulter avant leur intégration par un nouveau calcul.</p>
+          <MaritimeFeeProposalsPanel caseId={caseId!} />
+        </details>
 
         {/* A1: Commercial outcome banner */}
         {isTerminalOutcome && (
