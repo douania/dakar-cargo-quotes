@@ -6,6 +6,7 @@ import type { ConfirmedPadLine, PadGroup, PadGroupContext, PadGroupDecision } fr
 import type { GroupEvidence } from "../../../supabase/functions/manage-pad-group-confirmation/evidence";
 import { validWeightBasis, type WeightBasis } from "../../../supabase/functions/_shared/quotation-weight-basis";
 import type { WeightFact, WeightReconciliation } from "../../../supabase/functions/_shared/pad-weight-reconciliation";
+import { factKeysForExplicitIssues } from "@/pages/case-view/factConflicts";
 
 type State = {
   mode: "legacy" | "groups"; context: PadGroupContext | null; heads: PadGroupDecision[]; ready: boolean;
@@ -202,7 +203,7 @@ function WeightReconciliationForm({ state, extractedConfidence, onSaved }: { sta
   </fieldset>;
 }
 
-export function PadGroupConfirmationsPanel({ caseId, onChanged, onEstimateReview, dangerousGoodsFalse = false, extractedWeightConfidence, onSummaryChange }: { caseId: string; onChanged: () => void; onEstimateReview: () => void; dangerousGoodsFalse?: boolean; extractedWeightConfidence?: number | null; onSummaryChange?: (summary: string) => void }) {
+export function PadGroupConfirmationsPanel({ caseId, onChanged, onEstimateReview, dangerousGoodsFalse = false, extractedWeightConfidence, onSummaryChange, onConflictFactKeysChange }: { caseId: string; onChanged: () => void; onEstimateReview: () => void; dangerousGoodsFalse?: boolean; extractedWeightConfidence?: number | null; onSummaryChange?: (summary: string) => void; onConflictFactKeysChange?: (factKeys: ReadonlySet<string>) => void }) {
   const query = useQuery({ queryKey: ["pad-group-confirmations", caseId], retry: false, queryFn: async () => {
     const result = await supabase.functions.invoke("manage-pad-group-confirmation", { body: { case_id: caseId, action: "read" } });
     if (result.error) throw result.error;
@@ -218,6 +219,10 @@ export function PadGroupConfirmationsPanel({ caseId, onChanged, onEstimateReview
   useEffect(() => {
     if (summary && onSummaryChange) onSummaryChange(summary);
   }, [onSummaryChange, summary]);
+  const issueCodes = state?.issues.map((issue) => issue.code).join("\u0000") ?? "";
+  useEffect(() => {
+    onConflictFactKeysChange?.(factKeysForExplicitIssues(issueCodes ? issueCodes.split("\u0000") : []));
+  }, [issueCodes, onConflictFactKeysChange]);
   return <section id="section-pad-review" className="my-3 space-y-3" aria-label="Marchandises et catégories portuaires">
     <div className="flex gap-2 flex-wrap">
       <Button size="sm" variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>Actualiser les confirmations</Button>

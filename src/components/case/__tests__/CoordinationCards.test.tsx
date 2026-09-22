@@ -25,7 +25,7 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { CaseActionPlan } from "../CaseActionPlan";
 import { CommunicationSummaryCard } from "../CommunicationSummaryCard";
 import { PartnerCollectionReadinessCard } from "@/components/puzzle/PartnerCollectionReadinessCard";
-import { getPartnerScopeExplanation } from "@/lib/partnerScopePresentation";
+import { getPartnerScopeExplanation, presentPartnerScopeReason } from "@/lib/partnerScopePresentation";
 
 afterEach(cleanup);
 
@@ -75,6 +75,19 @@ it("réserve la phrase DAP/DDP au scope explicitement hors périmètre", () => {
   expect(getPartnerScopeExplanation("out_of_scope", true, actual)).toBe(
     "Hors périmètre DAP de ce devis. À solliciter seulement si le client demande le fret.",
   );
-  expect(getPartnerScopeExplanation("confirmed", true, actual)).toBe(actual);
-  expect(getPartnerScopeExplanation("out_of_scope", false, actual)).toBe(actual);
+  expect(getPartnerScopeExplanation("confirmed", true, actual)).toBe("Explicitement hors périmètre du devis");
+  expect(getPartnerScopeExplanation("out_of_scope", false, actual)).toBe("Explicitement hors périmètre du devis");
+});
+
+it.each([
+  ["freight explicitement hors périmètre", "Explicitement hors périmètre du devis"],
+  ["customs confirmé (scope + facts)", "Confirmé : périmètre et données présents"],
+  ["transit dans le scope mais facts insuffisants", "Dans le périmètre, mais données insuffisantes"],
+  ["document : signal scope absent", "Aucun signal de périmètre dans le dossier"],
+])("présente la raison technique %s en langage opérateur", (reason, expected) => {
+  expect(presentPartnerScopeReason(reason)).toBe(expected);
+});
+
+it("conserve une raison de qualification inconnue", () => {
+  expect(presentPartnerScopeReason("Qualification à confirmer par l’opérateur.")).toBe("Qualification à confirmer par l’opérateur.");
 });

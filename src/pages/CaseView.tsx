@@ -151,6 +151,7 @@ export default function CaseView() {
   const [addFactValue, setAddFactValue] = React.useState("");
   const [isAddingFact, setIsAddingFact] = React.useState(false);
   const [showAddFact, setShowAddFact] = React.useState(false);
+  const [conflictFactKeys, setConflictFactKeys] = React.useState<ReadonlySet<string>>(() => new Set());
   const [isSavingFact, setIsSavingFact] = React.useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<string[]>([]);
   const [isApplyingSuggestion, setIsApplyingSuggestion] = React.useState(false);
@@ -1435,7 +1436,8 @@ export default function CaseView() {
           </CardContent>
         </Card>
 
-        <div className="mb-4 flex flex-wrap gap-2" aria-label="Actions des outils avancés">
+        <div className="mb-4 hidden flex-wrap items-center gap-2 rounded-md border p-3 has-[button]:flex" aria-label="Actions des outils avancés">
+          <span className="mr-1 text-xs font-medium text-muted-foreground">Actions cargo canonique</span>
           <div id="cargo-canonical-action" />
           <div id="cargo-legacy-sync-action" />
         </div>
@@ -2113,6 +2115,7 @@ export default function CaseView() {
             dangerousGoodsFalse={facts.some((fact) => fact.fact_key === "cargo.dangerous_goods" && fact.is_current && (fact.value_text === "false" || fact.value_json === false))}
             extractedWeightConfidence={facts.find((fact) => fact.fact_key === "cargo.weight_kg" && fact.is_current)?.confidence ?? null}
             onSummaryChange={setPadGroupSummary}
+            onConflictFactKeysChange={setConflictFactKeys}
             onEstimateReview={() => {
             const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
             if (variants) { variants.open = true; variants.scrollIntoView({ behavior: "smooth", block: "start" }); }
@@ -2586,6 +2589,7 @@ export default function CaseView() {
             ) : (
               <CaseFactsTable caseId={caseId!} facts={facts as CaseFact[]} editingFactId={editingFactId}
                 editValue={editValue} isLocked={isLocked} isMultiLot={isMultiLot} isSavingFact={isSavingFact}
+                conflictFactKeys={conflictFactKeys}
                 onEditValueChange={setEditValue} onStartEdit={startEdit} onCancelEdit={cancelEdit}
                 onSaveFact={handleSaveFact} />
             )}

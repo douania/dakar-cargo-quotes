@@ -10,8 +10,8 @@ const state = () => ({ mode: "groups", required: true, read_only: false, ready: 
   context: { case_id: "case", scenario_id: "scenario", scope_hash: "a".repeat(64), context_hash: "b".repeat(64), groups: [
     { unit_ref: "a", equipment_code: "20HQ", quantity: 2, ownership: "SOC", total_weight_kg: 36000, description: "Transformateurs — source synthétique", proposed_category: "T02", proposed_basis: "Équipements électriques" },
   ] } });
-function mount() { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-  <PadGroupConfirmationsPanel caseId="case" onChanged={vi.fn()} onEstimateReview={vi.fn()} />
+function mount(onConflictFactKeysChange?: (factKeys: ReadonlySet<string>) => void) { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+  <PadGroupConfirmationsPanel caseId="case" onChanged={vi.fn()} onEstimateReview={vi.fn()} onConflictFactKeysChange={onConflictFactKeysChange} />
 </QueryClientProvider>); }
 it("distinguishes estimation from explicit category/weight confirmation without automatic writes", async () => {
   io.invoke.mockResolvedValue({ data: state(), error: null }); mount();
@@ -91,6 +91,22 @@ it("explains dossier conflict and does not manufacture a source for a range", as
   await userEvent.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
   await userEvent.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
   expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
+});
+
+it("remonte uniquement les clés liées au signal de conflit explicite lu", async () => {
+  const onConflictFactKeysChange = vi.fn();
+  const s = { ...state(), issues: [
+    { unit_ref: "", code: "PAD_GROUP_WEIGHT_CONFLICT" },
+    { unit_ref: "a", code: "PAD_CONFIRMATION_REQUIRED" },
+  ] };
+  io.invoke.mockResolvedValue({ data: s, error: null });
+  mount(onConflictFactKeysChange);
+  await waitFor(() => expect(onConflictFactKeysChange.mock.calls.some(([keys]) =>
+    keys.has("cargo.weight_kg") && keys.has("cargo.weight_per_container_kg")
+  )).toBe(true));
+  const keys = onConflictFactKeysChange.mock.calls.at(-1)?.[0];
+  expect([...keys]).toEqual(["cargo.weight_kg", "cargo.weight_per_container_kg"]);
+  expect(io.invoke).toHaveBeenCalledTimes(1);
 });
 it("never presents a partial sum as a total when a group weight is unknown", async () => {
   const s = state(); s.context.groups[0].total_weight_kg = null as unknown as number;

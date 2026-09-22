@@ -69,6 +69,9 @@ it('puts the current estimate first despite a PAD gap, with diagnostics and sour
   expect(screen.getByRole('tab',{name:'Documents (0)'})).toBeInTheDocument();
   expect(screen.getByRole('tab',{name:'Historique (0)'})).toBeInTheDocument();
   expect(screen.getAllByText('PartnerCollectionReadinessCard')).toHaveLength(1);
+  const cargoActions = container.querySelector('[aria-label="Actions des outils avancés"]');
+  expect(cargoActions).toHaveClass('hidden', 'has-[button]:flex');
+  expect(cargoActions).toHaveTextContent('Actions cargo canonique');
   expect(container.querySelector('#section-pricing')!.compareDocumentPosition(container.querySelector('#section-scenarios')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(invoke).not.toHaveBeenCalled();
 });
