@@ -53,15 +53,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertTriangle,
   ArrowRight,
-  Calculator,
   Check,
-  FileDown,
-  FileText,
   GitCompare,
   Layers,
   Loader2,
-  Mail,
-  Pencil,
   Plus,
   X,
 } from "lucide-react";
@@ -102,7 +97,6 @@ import {
   REGIME_STATUSES,
   RESERVE_CODE_LABELS,
   RESERVE_CODES,
-  SCENARIO_STATUS_LABELS,
   scenarioMutationSignature,
   TERMINAL_MODE_UNSPECIFIED,
   TERMINAL_OPERATION_MODE_LABELS,
@@ -130,15 +124,12 @@ import {
   type UnitKind,
 } from "@/lib/quoteScenarios";
 import {
-  countScenarioAssumptions,
   formatScenarioPricingAmount,
   latestScenarioPricingRuns,
   readScenarioPricingCodes,
   scenarioPricingCodeMessage,
   readScenarioPricingEdgeData,
   readScenarioOutputEdgeData,
-  SCENARIO_PRICING_QUALIFICATION_LABELS,
-  SCENARIO_PRICING_STATUS_LABELS,
   scenarioOutputMutationSignature,
   scenarioOutputsByPricingRun,
   scenarioPricingMutationSignature,
@@ -192,19 +183,6 @@ interface ScenarioPricingSelectBuilder extends PromiseLike<{
 
 const scenarioPricingReader = supabase as unknown as {
   from(relation: string): ScenarioPricingSelectBuilder;
-};
-
-const STATUS_CLASSES: Record<string, string> = {
-  draft: "bg-muted text-foreground border-border",
-  blocked: "bg-destructive/10 text-destructive border-destructive/30",
-  superseded: "bg-muted text-muted-foreground border-border",
-};
-
-const PRICING_STATUS_CLASSES: Record<string, string> = {
-  success: "bg-primary/10 text-primary border-primary/30",
-  blocked: "bg-muted text-foreground border-border",
-  failed: "bg-destructive/10 text-destructive border-destructive/30",
-  superseded: "bg-muted text-muted-foreground border-border",
 };
 
 function errorMessage(err: unknown): string | null {
