@@ -2411,6 +2411,17 @@ export default function CaseView() {
         <details className="mb-6 rounded border border-dashed p-3">
           <summary className="cursor-pointer font-medium">Propositions maritimes à confirmer</summary>
           <p className="my-2 text-xs text-muted-foreground">Décisions auditées à consulter avant leur intégration par un nouveau calcul.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mb-3"
+            onClick={(event) => {
+              const details = event.currentTarget.closest("details");
+              if (details) details.open = true;
+            }}
+          >
+            Voir les propositions
+          </Button>
           <MaritimeFeeProposalsPanel caseId={caseId!} />
         </details>
 

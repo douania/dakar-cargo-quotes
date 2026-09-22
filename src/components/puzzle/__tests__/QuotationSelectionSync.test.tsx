@@ -27,6 +27,12 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+let pricingFixture = {
+  id: 'run-new', run_number: 2, created_at: '2026-09-18T12:00:00Z', completed_at: '2026-09-18T12:00:00Z',
+  total_ht: 2000000, total_ttc: 2100000, currency: 'XOF', tariff_lines: [] as Row[], tariff_sources: [] as Row[], outputs_json: {},
+};
+let pricingVersions: Row[] = [{ version_number: 1, pricing_run_id: 'run-old' }];
+
 class ResizeObserverStub {
   observe() {}
   unobserve() {}

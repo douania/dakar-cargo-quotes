@@ -336,19 +336,6 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
     }
   };
 
-  /** Short reserve summary: first reason + "+N" if more */
-  const getReserveSummary = (qualification: QuoteQualification) => {
-    if (qualification.reasons.length === 0) return null;
-    const first = qualification.reasons[0];
-    const label = REASON_LABELS[first.code] || first.message || first.code;
-    const remaining = qualification.reasons.length - 1;
-    return (
-      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-        ⚠ {label}{remaining > 0 ? ` (+${remaining} autre${remaining > 1 ? 's' : ''})` : ''}
-      </p>
-    );
-  };
-
   return (
     <Card className="border-slate-200 dark:border-slate-800">
       <CardHeader className="pb-3">
