@@ -101,7 +101,9 @@ it("remonte uniquement les clés liées au signal de conflit explicite lu", asyn
   ] };
   io.invoke.mockResolvedValue({ data: s, error: null });
   mount(onConflictFactKeysChange);
-  await waitFor(() => expect(onConflictFactKeysChange).toHaveBeenCalled());
+  await waitFor(() => expect(onConflictFactKeysChange.mock.calls.some(([keys]) =>
+    keys.has("cargo.weight_kg") && keys.has("cargo.weight_per_container_kg")
+  )).toBe(true));
   const keys = onConflictFactKeysChange.mock.calls.at(-1)?.[0];
   expect([...keys]).toEqual(["cargo.weight_kg", "cargo.weight_per_container_kg"]);
   expect(io.invoke).toHaveBeenCalledTimes(1);
