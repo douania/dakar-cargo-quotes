@@ -14,6 +14,8 @@ export interface ScenarioRevisionRow {
   openPoints: string[];
   assumptions: string[];
   result: string;
+  resultLabel: string;
+  firmResult: string | null;
   status: string;
   statusTone: "selected" | "blocked" | "muted";
   isSelected: boolean;
@@ -82,6 +84,10 @@ function RevisionDetail({ row, locked, busy, pendingScenarioId, pendingPricingId
       </div>
     </div>
     <p className="text-xs text-muted-foreground">Les réserves de cette révision vivent dans la carte Estimation et ne sont pas répétées ici.</p>
+    {row.result !== "Non estimée" && row.result !== "Bloqué" ? <div className="grid gap-2 sm:grid-cols-2">
+      <div className="rounded border p-2"><p className="text-xs text-muted-foreground">{row.resultLabel}</p><p className="font-medium">HT {row.result}</p></div>
+      {row.firmResult && <div className="rounded border p-2"><p className="text-xs text-muted-foreground">Socle ferme démontré</p><p className="font-medium">{row.firmResult}</p></div>}
+    </div> : null}
     <div className="flex flex-wrap gap-2">
       {row.canPrice && <Button size="sm" disabled={actionsLocked} onClick={() => onPrice(row.id)}>
         {pendingPricingId === row.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Calculator className="mr-1 h-3 w-3" />}

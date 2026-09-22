@@ -1571,7 +1571,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
   // panneau. Aucun lancement au montage, aucune création/sélection implicite.
   useImperativeHandle(actionRef, () => ({
     estimateSelected: () => {
-      if (scenariosQuery.isLoading || selectionsQuery.isLoading ||
+      if (isLocked || scenariosQuery.isLoading || selectionsQuery.isLoading ||
         scenariosQuery.error || selectionsQuery.error || submitting || formMode !== "none") {
         toast.warning("Terminez la saisie ou le chargement des scénarios avant d’estimer.");
         return;
@@ -1612,11 +1612,16 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
     const result = latestPricing?.status === "blocked" ? "Bloqué"
       : latestPricing?.status === "success" ? formatScenarioPricingAmount(latestPricing.indicative_total_ht, latestPricing.currency)
         : "Non estimée";
+    const firmResult = latestPricing?.status === "success"
+      ? latestPricing.firm_total_ht === 0 ? "Aucun montant ferme démontré" : `HT ${formatScenarioPricingAmount(latestPricing.firm_total_ht, latestPricing.currency)}`
+      : null;
     return {
       id: scenario.id, revisionNo: scenario.revision_no, title: scenario.title,
       createdAt: scenario.created_at, selectedAt: isSelected ? openSelection?.selected_at ?? null : null,
       revisionReason: scenario.revision_reason, headline,
       openPoints: openPoints.map(formatOpenPoint), assumptions, result,
+      resultLabel: latestPricing?.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses",
+      firmResult,
       status: isSelected ? "Sélectionnée" : scenario.superseded_by_scenario_id ? "Remplacée" : blockedCode ? scenarioPricingCodeMessage(blockedCode) : "Brouillon",
       statusTone: isSelected ? "selected" : blockedCode ? "blocked" : "muted", isSelected,
       canRevise: canReviseScenario(scenario), canSelect: canSelectScenario(scenario),
