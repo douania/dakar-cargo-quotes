@@ -309,6 +309,7 @@ describe('QuotationVersionCard <-> SendQuotationPanel selection sync', () => {
     const panel = pair.panel;
 
     expect(await panel().findByText('v1')).toBeInTheDocument();
+    expect(card().getAllByRole('button', { name: 'Générer le PDF' })).toHaveLength(2);
     expect(panel().getByText(amountPattern(1000000))).toBeInTheDocument();
     expect(panel().getByDisplayValue('Corps case-a-v1')).toBeInTheDocument();
 

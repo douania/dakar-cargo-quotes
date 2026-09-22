@@ -461,7 +461,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                           ) : (
                             <>
                               <FileDown className="h-3 w-3" />
-                              Ouvrir le PDF
+                              Générer le PDF
                             </>
                           )}
                         </Button>

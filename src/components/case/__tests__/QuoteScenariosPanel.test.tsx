@@ -42,6 +42,41 @@ function submit() {
 }
 
 describe("scenario creation contract routing", () => {
+  it("renders one row per revision, one selected detail, and never repeats reservations", () => {
+    const original = [{ id: "scenario-r2", root_scenario_id: "root-a", case_id: "synthetic-case", title: "Révision deux", status: "draft",
+      scope_hash: "b".repeat(64), scope_snapshot: buildScopeSnapshot(emptyScenarioDraftV2()).snapshot, open_points: [{ key: "cargo.weight" }],
+      revision_no: 2, revision_reason: "Poids corrigé", created_at: "2026-09-22T10:00:00Z", superseded_by_scenario_id: null },
+    { id: "scenario-r1", root_scenario_id: "root-a", case_id: "synthetic-case", title: "Révision une", status: "superseded",
+      scope_hash: "a".repeat(64), scope_snapshot: buildScopeSnapshot(emptyScenarioDraftV2()).snapshot, open_points: [],
+      revision_no: 1, revision_reason: null, created_at: "2026-09-21T10:00:00Z", superseded_by_scenario_id: "scenario-r2" }];
+    const before = JSON.stringify(original);
+    mocks.queryRows["quote-scenarios"] = original;
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-r2", selected_at: "2026-09-22T11:00:00Z", released_at: null }];
+    mocks.queryRows["quote-scenario-pricing-runs"] = [{ id: "run-r2", scenario_id: "scenario-r2", run_seq: 1, status: "success", qualification: "partial",
+      reservations: ["SCENARIO_DG_UNKNOWN"], blockers: [], assumptions_snapshot: ["Poids opérateur"], firm_total_ht: 0, firm_total_ttc: 0,
+      indicative_total_ht: 350, indicative_total_ttc: 350, currency: "XOF" }];
+    render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    expect(screen.getAllByRole("row")).toHaveLength(3);
+    expect(screen.getAllByLabelText(/Détail de la révision/)).toHaveLength(1);
+    expect(screen.getByText("Les réserves de cette révision vivent dans la carte Estimation et ne sont pas répétées ici.")).toBeVisible();
+    expect(screen.queryByText(/Le caractère dangereux/)).toBeNull();
+    expect(JSON.stringify(original)).toBe(before);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("disables every scenario command when the dossier is locked", () => {
+    mocks.queryRows["quote-scenarios"] = [{ id: "scenario-a", root_scenario_id: "root-a", case_id: "synthetic-case", title: "Synthetic", status: "draft",
+      scope_hash: "a".repeat(64), scope_snapshot: buildScopeSnapshot(emptyScenarioDraftV2()).snapshot, open_points: [], revision_no: 1,
+      created_at: "2026-09-22T10:00:00Z", superseded_by_scenario_id: null }];
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-a", selected_at: "2026-09-22T11:00:00Z", released_at: null }];
+    render(<QuoteScenariosPanel caseId="synthetic-case" isLocked />);
+    for (const name of ["Nouveau scénario", "Nouveau maritime par groupes", "Proposer les groupes et catégories PAD depuis les e-mails", "Recalculer l’estimation", "Réviser le périmètre"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    }
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
   it("routes sourced PAD-only choices to revision of the selected scenario, never creation or pricing", async () => {
     const proposal = { ...proposeGroups("client@example.invalid", [{ id: "22222222-2222-4222-8222-222222222222",
       from_address: "client@example.invalid", body_text: "1.8 cabinets: 55t/unit, 20HQ SOC, UN3536" }]),
@@ -89,6 +124,7 @@ describe("scenario creation contract routing", () => {
     mocks.queryRows["quote-scenarios"] = [{ id: "scenario-a", case_id: "synthetic-case", title: "Synthetic",
       status: "draft", scope_hash: "a".repeat(64), scope_snapshot: buildScopeSnapshot(emptyScenarioDraftV2()).snapshot,
       open_points: [], revision_no: 1 }];
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-a", released_at: null }];
     mocks.queryRows["quote-scenario-pricing-runs"] = [{ id: "run-a", scenario_id: "scenario-a", run_seq: 1,
       status: "success", qualification: "partial", reservations: [], blockers: [], assumptions_snapshot: [],
       firm_total_ht: 0, firm_total_ttc: 0, indicative_total_ht: 350, indicative_total_ttc: 350, currency: "XOF" }];

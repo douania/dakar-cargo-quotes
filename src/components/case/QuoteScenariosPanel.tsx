@@ -31,6 +31,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ScenarioProposalPanel, type ScenarioProposalAction } from "./ScenarioProposalPanel";
+import { ScenarioRevisionTable, type ScenarioRevisionRow } from "./ScenarioRevisionTable";
 import { proposalPadRevision } from "@/lib/scenarioProposal";
 import type { SelectedScenarioEstimate } from "./ScenarioEstimateResult";
 import type { Database } from "@/integrations/supabase/types";
@@ -52,15 +53,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertTriangle,
   ArrowRight,
-  Calculator,
   Check,
-  FileDown,
-  FileText,
   GitCompare,
   Layers,
   Loader2,
-  Mail,
-  Pencil,
   Plus,
   X,
 } from "lucide-react";
@@ -101,7 +97,6 @@ import {
   REGIME_STATUSES,
   RESERVE_CODE_LABELS,
   RESERVE_CODES,
-  SCENARIO_STATUS_LABELS,
   scenarioMutationSignature,
   TERMINAL_MODE_UNSPECIFIED,
   TERMINAL_OPERATION_MODE_LABELS,
@@ -129,15 +124,12 @@ import {
   type UnitKind,
 } from "@/lib/quoteScenarios";
 import {
-  countScenarioAssumptions,
   formatScenarioPricingAmount,
   latestScenarioPricingRuns,
   readScenarioPricingCodes,
   scenarioPricingCodeMessage,
   readScenarioPricingEdgeData,
   readScenarioOutputEdgeData,
-  SCENARIO_PRICING_QUALIFICATION_LABELS,
-  SCENARIO_PRICING_STATUS_LABELS,
   scenarioOutputMutationSignature,
   scenarioOutputsByPricingRun,
   scenarioPricingMutationSignature,
@@ -155,6 +147,7 @@ interface QuoteScenariosPanelProps {
   caseId: string;
   actionRef?: Ref<ScenarioPricingAction>;
   onPricingPendingChange?: (pending: boolean) => void;
+  isLocked?: boolean;
 }
 
 export interface ScenarioPricingAction {
@@ -190,19 +183,6 @@ interface ScenarioPricingSelectBuilder extends PromiseLike<{
 
 const scenarioPricingReader = supabase as unknown as {
   from(relation: string): ScenarioPricingSelectBuilder;
-};
-
-const STATUS_CLASSES: Record<string, string> = {
-  draft: "bg-muted text-foreground border-border",
-  blocked: "bg-destructive/10 text-destructive border-destructive/30",
-  superseded: "bg-muted text-muted-foreground border-border",
-};
-
-const PRICING_STATUS_CLASSES: Record<string, string> = {
-  success: "bg-primary/10 text-primary border-primary/30",
-  blocked: "bg-muted text-foreground border-border",
-  failed: "bg-destructive/10 text-destructive border-destructive/30",
-  superseded: "bg-muted text-muted-foreground border-border",
 };
 
 function errorMessage(err: unknown): string | null {
@@ -1082,7 +1062,7 @@ function ComparisonBlock({ left, right }: ComparisonBlockProps) {
 
 const NO_SCENARIO = "__none__";
 
-export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange, onSelectedEstimateChange }: QuoteScenariosPanelProps) {
+export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange, onSelectedEstimateChange, isLocked = false }: QuoteScenariosPanelProps) {
   const queryClient = useQueryClient();
   // Une réponse réseau perdue ne doit jamais transformer un rejeu manuel en
   // nouvelle création/révision. La clé reste associée au contenu logique exact
@@ -1100,6 +1080,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
   const [pendingOutputAction, setPendingOutputAction] = useState<string | null>(null);
   const [compareLeftId, setCompareLeftId] = useState<string>(NO_SCENARIO);
   const [compareRightId, setCompareRightId] = useState<string>(NO_SCENARIO);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
 
   const scenariosQuery = useQuery({
     queryKey: ["quote-scenarios", caseId],
@@ -1568,7 +1549,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
   // panneau. Aucun lancement au montage, aucune création/sélection implicite.
   useImperativeHandle(actionRef, () => ({
     estimateSelected: () => {
-      if (scenariosQuery.isLoading || selectionsQuery.isLoading ||
+      if (isLocked || scenariosQuery.isLoading || selectionsQuery.isLoading ||
         scenariosQuery.error || selectionsQuery.error || submitting || formMode !== "none") {
         toast.warning("Terminez la saisie ou le chargement des scénarios avant d’estimer.");
         return;
@@ -1585,6 +1566,50 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
       runScenarioPricing(selected);
     },
   }));
+
+  const scenarioCount = new Set(scenarios.map((scenario) => scenario.root_scenario_id ?? scenario.id)).size;
+  const revisionRows: ScenarioRevisionRow[] = scenarios.map((scenario) => {
+    const openPoints = readStoredOpenPoints(scenario.open_points);
+    const scenarioLinks = linksByScenario.get(scenario.id) ?? [];
+    const latestPricing = latestPricingByScenario.get(scenario.id) ?? null;
+    const output = latestPricing ? outputsByPricingRun.get(latestPricing.id) ?? null : null;
+    const isSelected = openSelection?.scenario_id === scenario.id;
+    const fields = projectScopeFields(scenario.scope_snapshot);
+    const headline = fields.filter((field) => ["transport_mode", "movement_direction", "terminal_operation_mode"].includes(field.path)).map((field) => field.value).join(" · ");
+    const assumptions = latestPricing && Array.isArray(latestPricing.assumptions_snapshot)
+      ? latestPricing.assumptions_snapshot.map((entry) => {
+          if (typeof entry === "string") return entry;
+          if (entry && typeof entry === "object") {
+            const record = entry as Record<string, unknown>;
+            return String(record.statement ?? record.label ?? record.code ?? "Hypothèse appliquée");
+          }
+          return "Hypothèse appliquée";
+        })
+      : scenarioLinks.filter((link) => !!link.assumption_id).map((link) => assumptionById.get(String(link.assumption_id))?.statement ?? String(link.assumption_id));
+    const blockedCode = scenario.blocked_reason || (latestPricing?.status === "blocked" ? readScenarioPricingCodes(latestPricing.blockers)[0] : null);
+    const result = latestPricing?.status === "blocked" ? "Bloqué"
+      : latestPricing?.status === "success" ? formatScenarioPricingAmount(latestPricing.indicative_total_ht, latestPricing.currency)
+        : "Non estimée";
+    const firmResult = latestPricing?.status === "success"
+      ? latestPricing.firm_total_ht === 0 ? "Aucun montant ferme démontré" : `HT ${formatScenarioPricingAmount(latestPricing.firm_total_ht, latestPricing.currency)}`
+      : null;
+    return {
+      id: scenario.id, revisionNo: scenario.revision_no, title: scenario.title,
+      createdAt: scenario.created_at, selectedAt: isSelected ? openSelection?.selected_at ?? null : null,
+      revisionReason: scenario.revision_reason, headline,
+      openPoints: openPoints.map(formatOpenPoint), assumptions, result,
+      resultLabel: latestPricing?.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses",
+      firmResult,
+      status: isSelected ? "Sélectionnée" : scenario.superseded_by_scenario_id ? "Remplacée" : blockedCode ? scenarioPricingCodeMessage(blockedCode) : "Brouillon",
+      statusTone: isSelected ? "selected" : blockedCode ? "blocked" : "muted", isSelected,
+      canRevise: canReviseScenario(scenario), canSelect: canSelectScenario(scenario),
+      canPrice: isSelected && !["blocked", "superseded", "promoted_to_final"].includes(scenario.status) && !scenario.superseded_by_scenario_id,
+      pricingSucceeded: latestPricing?.status === "success", outputId: output?.id ?? null, pricingRunId: latestPricing?.id ?? null,
+    };
+  });
+
+  const scenarioFor = (scenarioId: string) => scenarioById.get(scenarioId);
+  const outputFor = (outputId: string) => (scenarioOutputsQuery.data ?? []).find((output) => output.id === outputId);
 
   if (scenariosQuery.isLoading) {
     return (
@@ -1615,9 +1640,9 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           <div>
             <CardTitle className="text-sm flex items-center gap-2">
               <Layers className="h-4 w-4 text-sky-600" />
-              Scénarios de périmètre
+              Scénarios et variantes
               <Badge variant="secondary" className="text-[10px] ml-1">
-                {scenarios.length}
+                {scenarioCount} scénario{scenarioCount > 1 ? "s" : ""} · {scenarios.length} révision{scenarios.length > 1 ? "s" : ""}
               </Badge>
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
@@ -1627,17 +1652,21 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           </div>
           {formMode === "none" ? (
             <div className="flex flex-wrap justify-end gap-2">
+              {scenarios.length >= 2 ? <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => setComparisonOpen((open) => !open)} disabled={isLocked}>
+                <GitCompare className="h-3 w-3 mr-1" />Comparer deux révisions
+              </Button> : null}
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs shrink-0"
                 onClick={() => startCreate()}
+                disabled={isLocked}
               >
                 <Plus className="h-3 w-3 mr-1" />
                 Nouveau scénario
               </Button>
               <Button size="sm" variant="outline" className="h-7 text-xs shrink-0"
-                onClick={() => startCreate(true)}>
+                onClick={() => startCreate(true)} disabled={isLocked}>
                 <Plus className="h-3 w-3 mr-1" />
                 Nouveau maritime par groupes
               </Button>
@@ -1656,15 +1685,13 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
             })));
             setDraft(proposalPadRevision(current, proposal, choices)); setReviseTargetId(selected.id); setFormMode("revise");
           } : undefined}
-          disabled={submitting || pricingMutation.isPending} onUseDraft={proposedDraft => {
+          disabled={isLocked || submitting || pricingMutation.isPending} onUseDraft={proposedDraft => {
             setDraft(proposedDraft); setReviseTargetId(null); setFormMode("create");
           }} />}
-        <Alert className="border-amber-200 bg-amber-50/60">
+        <Alert className="border-border bg-muted/30 py-2">
           <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />
-          <AlertDescription className="text-[11px] text-amber-900">
-            Les montants affichés sont des estimations internes non fermes. Une sortie de travail
-            peut produire un PDF et un brouillon non envoyé clairement marqués scénario ; elle ne
-            modifie ni les faits, ni le pricing ou le devis canonique.
+          <AlertDescription className="text-[11px] text-muted-foreground">
+            Les montants affichés sont des estimations internes non fermes. Une sortie de travail peut produire un PDF et un brouillon non envoyé clairement marqués scénario ; elle ne modifie ni les faits, ni le pricing ou le devis canonique.
           </AlertDescription>
         </Alert>
 
@@ -1698,11 +1725,11 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           />
         ) : null}
 
-        {scenarios.length >= 2 ? (
+        {scenarios.length >= 2 && comparisonOpen ? (
           <div className="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-2">
             <div className="flex items-center gap-2">
               <GitCompare className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-[11px] font-medium">Comparer deux scénarios</span>
+              <span className="text-[11px] font-medium">Comparer deux révisions</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(
@@ -1747,316 +1774,24 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           </p>
         ) : null}
 
-        {scenarios.map((scenario) => {
-          const statusLabel = SCENARIO_STATUS_LABELS[scenario.status] ?? scenario.status;
-          const statusClass = STATUS_CLASSES[scenario.status] ?? "bg-muted text-muted-foreground";
-          const openPoints = readStoredOpenPoints(scenario.open_points);
-          const scenarioLinks = linksByScenario.get(scenario.id) ?? [];
-          const isSelected = openSelection?.scenario_id === scenario.id;
-          const isPending = submitting && pendingId === scenario.id;
-          const isPricingPending = pricingMutation.isPending && pendingPricingId === scenario.id;
-          const revisable = canReviseScenario(scenario);
-          const selectable = canSelectScenario(scenario);
-          const latestPricing = latestPricingByScenario.get(scenario.id) ?? null;
-          const scenarioOutput = latestPricing
-            ? outputsByPricingRun.get(latestPricing.id) ?? null
-            : null;
-          const canPriceScenario = isSelected &&
-            !["blocked", "superseded", "promoted_to_final"].includes(scenario.status) &&
-            !scenario.superseded_by_scenario_id;
-          const fields = projectScopeFields(scenario.scope_snapshot);
-          const headline = fields
-            .filter((f) =>
-              ["transport_mode", "movement_direction", "terminal_operation_mode"].includes(f.path),
-            )
-            .map((f) => f.value)
-            .join(" · ");
-
-          return (
-            <div
-              key={scenario.id}
-              className="rounded-md border border-border/60 bg-background/60 p-2.5 text-xs"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-medium text-foreground">{scenario.title}</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    rév. {scenario.revision_no}
-                  </Badge>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
-                  <Badge variant="outline" className={`text-[10px] ${statusClass}`}>
-                    {statusLabel}
-                  </Badge>
-                  {scenario.superseded_by_scenario_id ? (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] bg-amber-50 text-amber-800 border-amber-200"
-                      title="Une version plus récente remplace celle-ci."
-                    >
-                      Remplacé
-                    </Badge>
-                  ) : null}
-                  {isSelected ? (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-200"
-                    >
-                      <Check className="h-3 w-3 mr-1" />
-                      Sélectionné
-                    </Badge>
-                  ) : null}
-                </div>
-              </div>
-
-              <p className="mt-1 text-muted-foreground">{headline}</p>
-
-              {scenario.blocked_reason ? (
-                <p className="mt-1 text-red-700">
-                  <span className="font-medium">Blocage : </span>
-                  {scenario.blocked_reason}
-                </p>
-              ) : null}
-
-              {scenario.revision_reason ? (
-                <p className="mt-1 text-muted-foreground">
-                  <span className="font-medium">Motif de révision : </span>
-                  {scenario.revision_reason}
-                </p>
-              ) : null}
-
-              <div className="mt-1.5">
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  Points ouverts ({openPoints.length})
-                </span>
-                {openPoints.length === 0 ? (
-                  <span className="text-[11px] text-muted-foreground"> — aucun</span>
-                ) : (
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {openPoints.map((point) => (
-                      <Badge key={point.key} variant="outline" className="text-[10px]">
-                        {formatOpenPoint(point)}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {scenarioLinks.length > 0 ? (
-                <div className="mt-1.5">
-                  <span className="text-[11px] font-medium text-muted-foreground">
-                    Hypothèses et réserves ({scenarioLinks.length})
-                  </span>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {scenarioLinks.map((link) => {
-                      const assumption = link.assumption_id
-                        ? assumptionById.get(link.assumption_id)
-                        : null;
-                      const label = link.assumption_id
-                        ? `Hypothèse : ${assumption?.statement ?? link.assumption_id}`
-                        : `Réserve : ${
-                            RESERVE_CODE_LABELS[link.reserve_code as ReserveCode] ??
-                            link.reserve_code
-                          }`;
-                      return (
-                        <Badge
-                          key={link.id}
-                          variant="outline"
-                          className="text-[10px] max-w-full truncate"
-                          title={link.open_point_key ?? undefined}
-                        >
-                          {label.length > 80 ? `${label.slice(0, 80)}…` : label}
-                        </Badge>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
-              {latestPricing ? (
-                <div className="mt-2 rounded-md border border-violet-200 bg-violet-50/40 p-2 space-y-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-1.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Calculator className="h-3.5 w-3.5 text-violet-700" />
-                      <span className="text-[11px] font-medium text-violet-950">
-                        Estimation isolée · exécution {latestPricing.run_seq}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] ${PRICING_STATUS_CLASSES[latestPricing.status] ?? ""}`}
-                      >
-                        {SCENARIO_PRICING_STATUS_LABELS[latestPricing.status]}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px]">
-                        {SCENARIO_PRICING_QUALIFICATION_LABELS[latestPricing.qualification]}
-                      </Badge>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground">
-                      {formatLocalDate(latestPricing.completed_at)}
-                    </span>
-                  </div>
-
-                  {latestPricing.status === "success" ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <div className="rounded border border-emerald-200 bg-white/70 p-1.5">
-                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Socle ferme démontré
-                        </p>
-                        <p className="font-medium text-emerald-800">
-                          {latestPricing.firm_total_ht === 0 ? "Aucun montant ferme démontré" : <>
-                            HT {formatScenarioPricingAmount(latestPricing.firm_total_ht, latestPricing.currency)}
-                            {" · "}TTC {formatScenarioPricingAmount(latestPricing.firm_total_ttc, latestPricing.currency)}
-                          </>}
-                        </p>
-                      </div>
-                      <div className="rounded border border-violet-200 bg-white/70 p-1.5">
-                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          {latestPricing.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"}
-                        </p>
-                        <p className="font-medium text-violet-900">
-                          HT {formatScenarioPricingAmount(latestPricing.indicative_total_ht, latestPricing.currency)}
-                          {" · "}TTC {formatScenarioPricingAmount(latestPricing.indicative_total_ttc, latestPricing.currency)}
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {(() => {
-                    const blockers = readScenarioPricingCodes(latestPricing.blockers);
-                    const reservations = readScenarioPricingCodes(latestPricing.reservations);
-                    const codes = Array.from(new Set([...blockers, ...reservations]));
-                    return codes.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {codes.map((code) => (
-                          <Badge key={code} title={code} variant="outline" className="text-[10px] bg-white/70">
-                            {scenarioPricingCodeMessage(code)}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : null;
-                  })()}
-
-                  <p className="text-[10px] text-muted-foreground">
-                    {countScenarioAssumptions(latestPricing.assumptions_snapshot)} hypothèse(s) appliquée(s).
-                    Toute sortie reste non ferme, non sélectionnable et sans envoi automatique.
-                  </p>
-
-                  {latestPricing.status === "success" && isSelected ? (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {!scenarioOutput ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 text-[11px] border-violet-300 text-violet-800"
-                          disabled={!!pendingOutputAction || outputMutation.isPending}
-                          onClick={() => createScenarioOutput(scenario, latestPricing)}
-                        >
-                          {pendingOutputAction === `create:${latestPricing.id}` ? (
-                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                          ) : (
-                            <FileText className="h-3 w-3 mr-1" />
-                          )}
-                          Créer sortie de travail
-                        </Button>
-                      ) : (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 text-[11px]"
-                            disabled={!!pendingOutputAction}
-                            onClick={() => exportScenarioPdf(scenarioOutput)}
-                          >
-                            {pendingOutputAction === `pdf:${scenarioOutput.id}` ? (
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                            ) : (
-                              <FileDown className="h-3 w-3 mr-1" />
-                            )}
-                            PDF scénario
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 text-[11px]"
-                            disabled={!!pendingOutputAction}
-                            onClick={() => createScenarioEmailDraft(scenarioOutput)}
-                          >
-                            {pendingOutputAction === `email:${scenarioOutput.id}` ? (
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                            ) : (
-                              <Mail className="h-3 w-3 mr-1" />
-                            )}
-                            Brouillon non envoyé
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                <span>Créé le {formatLocalDate(scenario.created_at)}</span>
-                {scenario.supersedes_scenario_id ? <span>Révision d'une version antérieure</span> : null}
-                {isSelected && openSelection ? (
-                  <span>Sélectionné le {formatLocalDate(openSelection.selected_at)}</span>
-                ) : null}
-                <span>
-                  {latestPricing ? "Estimation isolée disponible" : "Aucune estimation isolée"}
-                </span>
-              </div>
-
-              {formMode === "none" && (revisable || selectable || canPriceScenario) ? (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {revisable ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[11px]"
-                      disabled={submitting}
-                      onClick={() => startRevise(scenario)}
-                    >
-                      <Pencil className="h-3 w-3 mr-1" />
-                      Réviser
-                    </Button>
-                  ) : null}
-                  {selectable && !isSelected ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[11px]"
-                      disabled={submitting}
-                      onClick={() => runSelect(scenario.id)}
-                    >
-                      {isPending ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : (
-                        <Check className="h-3 w-3 mr-1" />
-                      )}
-                      Sélectionner
-                    </Button>
-                  ) : null}
-                  {canPriceScenario ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[11px] border-violet-300 text-violet-800"
-                      disabled={submitting || pricingMutation.isPending || pricingRunsQuery.isLoading}
-                      onClick={() => runScenarioPricing(scenario)}
-                    >
-                      {isPricingPending ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : (
-                        <Calculator className="h-3 w-3 mr-1" />
-                      )}
-                      Estimer isolément
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+        {scenarios.length > 0 && formMode === "none" ? <ScenarioRevisionTable
+          rows={revisionRows}
+          locked={isLocked}
+          busy={submitting || pricingMutation.isPending}
+          pendingScenarioId={pendingId}
+          pendingPricingId={pendingPricingId}
+          pendingOutputAction={pendingOutputAction}
+          onRevise={(scenarioId) => { const scenario = scenarioFor(scenarioId); if (scenario) startRevise(scenario); }}
+          onSelect={runSelect}
+          onPrice={(scenarioId) => { const scenario = scenarioFor(scenarioId); if (scenario) runScenarioPricing(scenario); }}
+          onCreateOutput={(scenarioId) => {
+            const scenario = scenarioFor(scenarioId);
+            const pricing = scenario ? latestPricingByScenario.get(scenario.id) : null;
+            if (scenario && pricing) createScenarioOutput(scenario, pricing);
+          }}
+          onExportPdf={(outputId) => { const output = outputFor(outputId); if (output) void exportScenarioPdf(output); }}
+          onCreateDraft={(outputId) => { const output = outputFor(outputId); if (output) void createScenarioEmailDraft(output); }}
+        /> : null}
       </CardContent>
     </Card>
   );
