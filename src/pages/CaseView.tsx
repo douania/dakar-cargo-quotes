@@ -1112,6 +1112,7 @@ export default function CaseView() {
     (f) => f.fact_key === "contacts.client_name" || f.fact_key === "client_name"
   );
   const clientName = clientFact?.value_text || null;
+  const clientEmail = facts.find((fact) => fact.fact_key === "contacts.client_email" && fact.is_current)?.value_text?.trim() || null;
   const servicePackageFact = facts.find(
     (f) => f.fact_key === "service.package" && f.is_current
   );
@@ -1136,9 +1137,22 @@ export default function CaseView() {
     multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} marchandise` : null,
     padGroupSummary || (currentPadCategory ? `PAD ${currentPadCategory}` : "catégorie PAD à confirmer"),
   ].filter(Boolean).join(" · ");
-  const coordinationSummary = cockpitState && cockpitState.totalPartnerRequests > 0
-    ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}`
-    : "";
+  const coordinationSummary = cockpitState ? [
+    cockpitState.totalPartnerRequests > 0 ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}` : null,
+    pilotage?.action.label ? `étape restante : ${pilotage.action.label}` : null,
+  ].filter(Boolean).join(" · ") : "";
+  const latestReplyAnalysisEvent = events.find((event: any) => event.event_type === "output_generated" && event.event_data?.kind === "reply_analysis_v1") ?? null;
+  const latestReplyAnalysis = latestReplyAnalysisEvent?.created_at
+    ? new Date(latestReplyAnalysisEvent.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+    : null;
+  const openClientQuestions = gaps.filter((gap: any) => gap.gap_key !== PAD_REVIEW_GAP_KEY);
+  const openClientBlockingQuestions = openClientQuestions.filter((gap: any) => gap.is_blocking).length;
+  const openCoordinationBlock = (id: string) => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const confirmedQuoteSummary = cockpitState ? [
     cockpitState.selectedVersionNumber !== null ? `version ${cockpitState.selectedVersionNumber}` : null,
     cockpitState.hasPdf ? "PDF" : null,
@@ -1663,7 +1677,9 @@ export default function CaseView() {
 
         {/* ── Actions clôturées ── */}
         {doneActions.length > 0 && (
-          <Card>
+          <details id="section-closed-actions" className="mb-4 rounded-lg border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Actions clôturées ({doneActions.length})</summary>
+          <Card className="mt-3 border-0 shadow-none">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-5 w-5 text-green-500" />
@@ -1686,6 +1702,7 @@ export default function CaseView() {
               })}
             </CardContent>
           </Card>
+          </details>
         )}
 
         {/* M27b: CL1 tracking moved — single instance near gaps (line ~2147) */}
@@ -1791,7 +1808,9 @@ export default function CaseView() {
         </div>
 
         {allDrafts.length > 0 && (
-          <Card>
+          <details id="section-reply-drafts" className="mb-4 rounded-lg border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Brouillons de réponse ({allDrafts.length})</summary>
+          <Card className="mt-3 border-0 shadow-none">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Mail className="h-5 w-5 text-accent" />
@@ -1827,6 +1846,7 @@ export default function CaseView() {
               ))}
             </CardContent>
           </Card>
+          </details>
         )}
 
         {/* Shared gap save handler — extracted to avoid duplication */}
@@ -2157,8 +2177,8 @@ export default function CaseView() {
           </details>
         </details>}
 
-        <details className="mb-4 min-w-0 rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Coordination, demandes et préparation du devis confirmé{coordinationSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {coordinationSummary}</span>}</summary>
+        <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-coordination">
+          <summary className="cursor-pointer font-medium">Partenaires et coordination{coordinationSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {coordinationSummary}</span>}</summary>
           <p className="my-3 text-sm text-muted-foreground">Les blocages ci-dessous concernent le parcours du dossier confirmé ; l’estimation conserve ses propres réserves.</p>
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
@@ -2217,25 +2237,30 @@ export default function CaseView() {
           </div>
         )}
 
-        {/* COCKPIT-8: Next action priority banner */}
-        {caseId && <NextActionBanner caseId={caseId} />}
-
-        {/* ORCH-ACTION-1: Ready actions panel */}
-        {caseId && <ReadyActionsPanel caseId={caseId} />}
-
         {/* COCKPIT-4: Case Action Plan */}
         {caseId && (
           <div className="mb-6">
+            <NextActionBanner caseId={caseId} />
             <CaseActionPlan caseId={caseId} />
           </div>
         )}
 
+        {/* ORCH-ACTION-1: Ready actions panel */}
+        {caseId && <ReadyActionsPanel caseId={caseId} />}
+
         {/* COCKPIT-3: Communication summary widget */}
         {caseId && (
           <div className="mb-6">
-            <CommunicationSummaryCard caseId={caseId} />
+            <CommunicationSummaryCard caseId={caseId} clientEmail={clientEmail}
+              blockingClientQuestions={openClientBlockingQuestions}
+              lastReplyAnalysis={latestReplyAnalysis}
+              draftsCount={allDrafts.length} closedActionsCount={doneActions.length}
+              onOpenDrafts={() => openCoordinationBlock("section-reply-drafts")}
+              onOpenClosedActions={() => openCoordinationBlock("section-closed-actions")} />
           </div>
         )}
+
+        {caseId && <PartnerCollectionReadinessCard caseId={caseId} />}
 
         {/* COCKPIT-7A: Partner requests summary */}
         {caseId && (

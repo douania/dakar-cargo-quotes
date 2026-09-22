@@ -6,7 +6,7 @@
  * 12 étapes max, décomposant les boucles partenaire et client.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { statusAtLeast, statusAbove } from "@/lib/cockpitStatusConstants";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,10 +31,9 @@ interface Step {
 
 interface CaseActionPlanProps {
   caseId: string;
-  onRemainingStepChange?: (label: string | null) => void;
 }
 
-export function CaseActionPlan({ caseId, onRemainingStepChange }: CaseActionPlanProps) {
+export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useCockpitState(caseId);
 
@@ -190,12 +189,6 @@ export function CaseActionPlan({ caseId, onRemainingStepChange }: CaseActionPlan
 
   const doneCount = steps.filter((s) => s.status === "done").length;
   const totalCount = steps.length;
-  const remainingStep = steps.find((step) => step.status !== "done" && step.status !== "skipped") ?? null;
-
-  useEffect(() => {
-    onRemainingStepChange?.(remainingStep?.label ?? null);
-  }, [onRemainingStepChange, remainingStep?.label]);
-
   const iconForStatus = (s: StepStatus) => {
     switch (s) {
       case "done":
