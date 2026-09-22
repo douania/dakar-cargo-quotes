@@ -162,8 +162,8 @@ export const NUMERIC_FACT_KEYS = new Set([
 
 /** Category labels for display */
 export const CATEGORY_LABELS: Record<string, string> = {
-  cargo: "Cargo",
-  routing: "Routing",
+  cargo: "Marchandise",
+  routing: "Acheminement",
   timing: "Timing",
   pricing: "Tarification",
   documents: "Documents",
@@ -174,6 +174,71 @@ export const CATEGORY_LABELS: Record<string, string> = {
   survey: "Survey",
   other: "Autre",
 };
+
+export const FACT_LABELS: Record<string, string> = {
+  "cargo.description": "Description",
+  "cargo.weight_kg": "Poids total",
+  "cargo.weight_per_container_kg": "Poids par conteneur",
+  "cargo.container_count": "Nombre de conteneurs",
+  "cargo.container_type": "Type de conteneur",
+  "cargo.containers": "Conteneurs",
+  "cargo.articles_detail": "Détail des articles",
+  "cargo.dangerous_goods": "Marchandise dangereuse",
+  "cargo.imo_class": "Classe IMDG",
+  "cargo.un_number": "Numéro ONU",
+  "cargo.hs_code": "Code SH",
+  "cargo.pieces_count": "Nombre de colis",
+  "cargo.value": "Valeur de la marchandise",
+  "cargo.caf_value": "Valeur CAF",
+  "cargo.freight_cost": "Coût du fret",
+  "cargo.freight_currency": "Devise du fret",
+  "cargo.freight_exchange_rate": "Taux de change du fret",
+  "cargo.pad_category": "Catégorie PAD",
+  "cargo.pad_rate_fcfa_per_ton": "Tarif PAD par tonne",
+  "routing.origin_port": "Port de chargement",
+  "routing.destination_port": "Port de déchargement",
+  "routing.destination_city": "Ville de destination",
+  "routing.destination_country": "Pays de destination",
+  "routing.transport_mode": "Mode de transport",
+  "routing.terminal_operation_mode": "Mode d’opération terminal",
+  "routing.incoterm": "Incoterm",
+  "service.mode": "Mode de service",
+  "service.package": "Package de services",
+  "service.overrides": "Ajustements de services",
+  "pricing.dthc_family": "Famille DTHC",
+  "customs.regime_code": "Régime douanier",
+  "regulatory.exemption_title": "Titre d’exonération",
+  "regulatory.dpi_expected": "DPI attendue",
+  "contacts.client_name": "Nom du client",
+  "contacts.client_email": "Adresse e-mail client",
+  "contacts.client_company": "Société cliente",
+  "client.code": "Code client",
+};
+
+export const FACT_DOMAIN_ORDER = [
+  "cargo", "routing", "service", "pricing", "regulatory", "contacts", "other",
+] as const;
+
+export const FACT_DOMAIN_LABELS: Record<(typeof FACT_DOMAIN_ORDER)[number], string> = {
+  cargo: "Marchandise",
+  routing: "Acheminement",
+  service: "Service",
+  pricing: "Tarification",
+  regulatory: "Réglementaire",
+  contacts: "Contacts",
+  other: "Autres",
+};
+
+export function getFactDomain(factKey: string): (typeof FACT_DOMAIN_ORDER)[number] {
+  const prefix = factKey.split(".", 1)[0];
+  if (prefix === "cargo") return "cargo";
+  if (prefix === "routing") return "routing";
+  if (prefix === "service") return "service";
+  if (prefix === "pricing") return "pricing";
+  if (prefix === "regulatory" || prefix === "customs") return "regulatory";
+  if (prefix === "contacts" || prefix === "client") return "contacts";
+  return "other";
+}
 
 export const STATUS_LABELS: Record<string, string> = {
   INTAKE: "Réception",

@@ -65,6 +65,10 @@ it('puts the current estimate first despite a PAD gap, with diagnostics and sour
   expect(screen.getByText('Partenaires et coordination').closest('summary')).not.toHaveTextContent('plan 0/0');
   expect(screen.getByText('Partenaires et coordination').closest('summary')).not.toHaveTextContent('demandes partenaires');
   expect(screen.getByText('Sources, faits et historique').closest('summary')).toHaveTextContent('1 fait · 0 événement');
+  expect(screen.getByText('Sources, faits et historique').closest('summary')).toHaveTextContent('0 document');
+  expect(screen.getByRole('tab',{name:'Documents (0)'})).toBeInTheDocument();
+  expect(screen.getByRole('tab',{name:'Historique (0)'})).toBeInTheDocument();
+  expect(screen.getAllByText('PartnerCollectionReadinessCard')).toHaveLength(1);
   expect(container.querySelector('#section-pricing')!.compareDocumentPosition(container.querySelector('#section-scenarios')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(invoke).not.toHaveBeenCalled();
 });

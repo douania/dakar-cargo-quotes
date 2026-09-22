@@ -43,17 +43,26 @@ it("affiche les trois lignes client et ouvre les blocs existants", async () => {
   const openDrafts = vi.fn();
   const openClosed = vi.fn();
   render(<CommunicationSummaryCard caseId="case-test" clientEmail={null}
-    blockingClientQuestions={1} lastReplyAnalysis={null}
+    openClientQuestions={2} blockingClientQuestions={1} lastReplyAnalysis={null}
     draftsCount={1} closedActionsCount={2}
     onOpenDrafts={openDrafts} onOpenClosedActions={openClosed} />);
   expect(screen.getByText(/Adresse e-mail/)).toHaveTextContent("manquante");
-  expect(screen.getByText(/Questions ouvertes au client/)).toHaveTextContent("1 bloquante");
+  expect(screen.getByText(/Questions ouvertes au client/)).toHaveTextContent("2 · 1 bloquante · 1 envoyée au client");
   expect(screen.getByText(/Dernière réponse client analysée/)).toHaveTextContent("aucune");
   expect(screen.queryByText("Complète")).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Brouillons de réponse (1)" }));
   await userEvent.click(screen.getByRole("button", { name: "Actions clôturées (2)" }));
   expect(openDrafts).toHaveBeenCalledOnce();
   expect(openClosed).toHaveBeenCalledOnce();
+});
+
+it("nomme l’e-mail manquant lorsque c’est le seul défaut", () => {
+  state.cockpit = { ...state.cockpit, openClientGaps: 0 };
+  render(<CommunicationSummaryCard caseId="case-test" clientEmail={null}
+    openClientQuestions={0} blockingClientQuestions={0} lastReplyAnalysis={null}
+    draftsCount={0} closedActionsCount={0} onOpenDrafts={vi.fn()} onOpenClosedActions={vi.fn()} />);
+  expect(screen.getByText("E-mail client manquant")).toBeInTheDocument();
+  expect(screen.getByText(/Questions ouvertes au client/)).toHaveTextContent("0 · non bloquantes");
 });
 
 it("affiche l’état de collecte directe déjà calculé", () => {
