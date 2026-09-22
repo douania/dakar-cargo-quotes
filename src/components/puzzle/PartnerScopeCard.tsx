@@ -53,7 +53,7 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
         .in("fact_key", [
           "routing.transport_mode", "routing.origin_port", "routing.destination_port",
           "routing.origin_country", "routing.destination_country", "routing.destination_city",
-          "routing.final_destination", "routing.incoterm",
+          "routing.final_destination", "routing.incoterm", "service.package",
           "cargo.description", "cargo.articles_detail", "cargo.container_type",
           "cargo.container_count", "cargo.weight_kg", "cargo.volume_cbm",
           "cargo.fcl_lcl", "cargo.containers", "cargo.hs_code",
@@ -99,8 +99,8 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
     [serviceScope, factsMap],
   );
 
-  const incoterm = (factsMap["routing.incoterm"] || "").toUpperCase();
-  const isDapDdp = incoterm === "DAP" || incoterm === "DDP";
+  const packageOrIncoterm = `${factsMap["service.package"] ?? ""} ${factsMap["routing.incoterm"] ?? ""}`.toUpperCase();
+  const isDapDdp = packageOrIncoterm.includes("DAP") || packageOrIncoterm.includes("DDP");
 
   if (scope.length === 0) return null;
 
@@ -123,7 +123,7 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
           const qualification = qItem?.qualification ?? "unconfirmed";
 
           return (
-            <ScopeBlock key={item.purpose} item={item} qualification={qualification} isDapDdp={isDapDdp} />
+            <ScopeBlock key={item.purpose} item={item} qualification={qualification} isDapDdp={isDapDdp} explanation={qItem?.reason ?? "Qualification à confirmer par l’opérateur."} />
           );
         })}
       </div>
@@ -131,7 +131,7 @@ export function PartnerScopeCard({ caseId, threadId }: Props) {
   );
 }
 
-function ScopeBlock({ item, qualification, isDapDdp }: { item: PartnerScopeItem; qualification: string; isDapDdp: boolean }) {
+function ScopeBlock({ item, qualification, isDapDdp, explanation }: { item: PartnerScopeItem; qualification: string; isDapDdp: boolean; explanation: string }) {
   const conf = CONFIDENCE_STYLE[item.confidence];
   const isOutOfScope = qualification === "out_of_scope";
   const isUnconfirmed = qualification === "unconfirmed";
@@ -142,11 +142,11 @@ function ScopeBlock({ item, qualification, isDapDdp }: { item: PartnerScopeItem;
         <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${isOutOfScope ? "text-muted-foreground" : "text-primary"}`} />
         <span className={`text-xs font-medium ${isOutOfScope ? "text-muted-foreground" : ""}`}>{item.label}</span>
         <Badge className={`text-[9px] ${conf.className}`}>
-          {conf.label}
+          Priorité {conf.label.toLowerCase()}
         </Badge>
         {isOutOfScope && (
           <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
-            {isDapDdp ? "DAP/DDP hors périmètre" : "hors périmètre"}
+            hors périmètre
           </Badge>
         )}
         {isUnconfirmed && !isOutOfScope && (
@@ -155,14 +155,14 @@ function ScopeBlock({ item, qualification, isDapDdp }: { item: PartnerScopeItem;
           </Badge>
         )}
       </div>
-      <ul className="ml-6 space-y-0.5">
+      <p className="ml-6 text-[11px] text-muted-foreground">
+        {isOutOfScope && isDapDdp ? "Hors périmètre DAP de ce devis. À solliciter seulement si le client demande le fret." : explanation}
+      </p>
+      <div className="ml-6 flex flex-wrap gap-1.5" aria-label={`Éléments attendus pour ${item.label}`}>
         {item.requiredItems.map((ri) => (
-          <li key={ri} className="text-[11px] text-muted-foreground flex items-start gap-1">
-            <span className="text-muted-foreground/50 mt-0.5">·</span>
-            {ri}
-          </li>
+          <Badge key={ri} variant="outline" className="text-[10px] font-normal text-foreground">{ri}</Badge>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }

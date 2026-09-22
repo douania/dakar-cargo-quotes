@@ -12,14 +12,20 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { statusAtLeast } from "@/lib/cockpitStatusConstants";
 import { useCockpitState } from '@/hooks/useCockpitState';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Users, FileQuestion, CheckCircle2, AlertCircle } from 'lucide-react';
+import { MessageSquare, Users, FileQuestion, CheckCircle2, Mail } from 'lucide-react';
 
 interface CommunicationSummaryCardProps {
   caseId: string;
+  clientEmail: string | null;
+  blockingClientQuestions: number;
+  lastReplyAnalysis: string | null;
+  draftsCount: number;
+  closedActionsCount: number;
+  onOpenDrafts: () => void;
+  onOpenClosedActions: () => void;
 }
 
 interface OpenRequestPreview {
@@ -29,7 +35,8 @@ interface OpenRequestPreview {
   purpose: string | null;
 }
 
-export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardProps) {
+export function CommunicationSummaryCard({ caseId, clientEmail, blockingClientQuestions, lastReplyAnalysis,
+  draftsCount, closedActionsCount, onOpenDrafts, onOpenClosedActions }: CommunicationSummaryCardProps) {
   const { data: cockpit } = useCockpitState(caseId);
 
   // Mini-query locale : preview rows uniquement (colonnes minimales, demandes ouvertes, limit 4)
@@ -55,15 +62,12 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
     pendingPartnerFacts: pendingFactsCount, 
     openClientGaps: openGapsCount, 
     answeredClientGaps = 0,
-    collectionVerdict,
-    hasDraftEmail,
-    status
   } = cockpit;
   
   const rows = previewRows ?? [];
   const nonAnsweredClientGaps = Math.max(0, openGapsCount - answeredClientGaps);
   const totalWarnings = openPartnerRequests + pendingFactsCount + openGapsCount;
-  const isComplete = totalWarnings === 0;
+  const isComplete = totalWarnings === 0 && !!clientEmail;
 
   return (
     <Card className="border-border/50">
@@ -71,14 +75,9 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <MessageSquare className="h-4 w-4" />
-            Communication
+            Communication client
           </div>
           <div className="flex items-center gap-1.5">
-            {collectionVerdict && collectionVerdict !== "neutral" && (
-              <Badge className={collectionVerdict === "sufficient" ? "bg-emerald-500/15 text-emerald-700 border-emerald-200" : "bg-blue-500/15 text-blue-700 border-blue-200"}>
-                {collectionVerdict === "sufficient" ? "Collecte terminée" : collectionVerdict === "in_progress" ? "Collecte en cours" : "Collecte insuffisante"}
-              </Badge>
-            )}
             {isComplete ? (
               <Badge className="bg-emerald-500/15 text-emerald-700 border-emerald-200 hover:bg-emerald-500/15">
                 <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -92,8 +91,20 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
           </div>
         </div>
 
-        {(!isComplete || (!hasDraftEmail && statusAtLeast(status, "PRICED_DRAFT"))) && (
-          <div className="space-y-1.5 text-xs text-muted-foreground">
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Mail className={`h-3.5 w-3.5 shrink-0 ${clientEmail ? "text-emerald-600" : "text-destructive"}`} />
+            <span>Adresse e-mail : <span className={clientEmail ? "font-medium text-foreground" : "font-medium text-destructive"}>{clientEmail ?? "manquante"}</span></span>
+          </div>
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+            <span>Questions ouvertes au client : <span className="font-medium text-foreground">{openGapsCount}</span>{openGapsCount > 0 ? ` · ${blockingClientQuestions > 0 ? `${blockingClientQuestions} bloquante${blockingClientQuestions > 1 ? "s" : ""}` : "non bloquantes"}` : ""}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            <span>Dernière réponse client analysée : <span className="font-medium text-foreground">{lastReplyAnalysis ?? "aucune"}</span></span>
+          </div>
+          {!isComplete && <div className="space-y-1.5 pt-1">
             {openPartnerRequests > 0 && (
               <div className="flex items-start gap-2">
                 <Users className="h-3.5 w-3.5 mt-0.5 text-amber-600 shrink-0" />
@@ -142,14 +153,12 @@ export function CommunicationSummaryCard({ caseId }: CommunicationSummaryCardPro
               </div>
             )}
 
-            {!hasDraftEmail && statusAtLeast(status, "PRICED_DRAFT") && (
-              <div className="flex items-center gap-2 text-red-600">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                <span className="font-semibold italic">Email client manquant</span>
-              </div>
-            )}
-          </div>
-        )}
+          </div>}
+          {(draftsCount > 0 || closedActionsCount > 0) && <div className="flex flex-wrap gap-2 pt-2">
+            {draftsCount > 0 && <Button type="button" size="sm" variant="outline" onClick={onOpenDrafts}>Brouillons de réponse ({draftsCount})</Button>}
+            {closedActionsCount > 0 && <Button type="button" size="sm" variant="outline" onClick={onOpenClosedActions}>Actions clôturées ({closedActionsCount})</Button>}
+          </div>}
+        </div>
       </CardContent>
     </Card>
   );

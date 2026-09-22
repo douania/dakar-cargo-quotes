@@ -34,7 +34,7 @@ interface CaseActionPlanProps {
 }
 
 export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
@@ -189,8 +189,6 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
 
   const doneCount = steps.filter((s) => s.status === "done").length;
   const totalCount = steps.length;
-  const remainingCount = totalCount - doneCount;
-
   const iconForStatus = (s: StepStatus) => {
     switch (s) {
       case "done":
@@ -217,13 +215,13 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
               </div>
               <Badge
                 className={
-                  remainingCount === 0
+                  doneCount === totalCount
                     ? "bg-emerald-500/15 text-emerald-700 border-emerald-200 hover:bg-emerald-500/15"
                     : "bg-muted text-muted-foreground border-border hover:bg-muted"
                 }
                 variant="secondary"
               >
-                {remainingCount === 0 ? "Terminé" : `${remainingCount} étape${remainingCount > 1 ? 's' : ''} restante${remainingCount > 1 ? 's' : ''}`}
+                {doneCount}/{totalCount} terminées
               </Badge>
             </div>
           </CollapsibleTrigger>
@@ -294,7 +292,12 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                         {iconForStatus(step.status)}
                         <span>{step.label}</span>
                       </div>
-                      {step.note && step.status !== "done" && (
+                        {step.status === "blocked" && (
+                          <span className="text-muted-foreground">
+                            — bloqué : {step.note ?? `${blockingGapsCount} point${blockingGapsCount > 1 ? "s" : ""} à résoudre`}
+                          </span>
+                        )}
+                        {step.note && step.status !== "done" && step.status !== "blocked" && (
                         <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
                           {step.note}
                         </div>
