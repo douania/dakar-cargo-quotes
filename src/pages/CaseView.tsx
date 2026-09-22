@@ -44,6 +44,7 @@ import {
   Send,
   Anchor,
   Printer,
+  ArrowRight,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";

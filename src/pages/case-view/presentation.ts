@@ -175,8 +175,9 @@ function finiteAmount(value: unknown): number | null {
 
 function readConfirmedQuote(state: CockpitState): PilotageViewModel["confirmedQuote"] {
   if (state.selectedVersionNumber === null || !state.selectedVersionSnapshot) return null;
-  const totals = state.selectedVersionSnapshot.totals;
-  if (!totals || typeof totals !== "object" || Array.isArray(totals)) return null;
+  const totalsValue = state.selectedVersionSnapshot.totals;
+  if (!totalsValue || typeof totalsValue !== "object" || Array.isArray(totalsValue)) return null;
+  const totals = totalsValue as Record<string, unknown>;
   const amount = finiteAmount(totals.total_payable) ?? finiteAmount(totals.total_ttc);
   const currency = typeof totals.currency === "string" && totals.currency.trim() ? totals.currency.trim() : null;
   if (amount === null || currency === null) return null;
