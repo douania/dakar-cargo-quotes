@@ -2506,8 +2506,8 @@ export default function CaseView() {
                 : addFactKey ? { key: addFactKey, value: addFactValue } : null}
             />
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input type="checkbox" checked readOnly className="h-4 w-4" />
+              <label className="flex items-center gap-2 text-sm text-muted-foreground" title="Les faits remplacés sont consultables via l'historique de chaque fait">
+                <input type="checkbox" checked disabled className="h-4 w-4" />
                 Faits courants seulement
               </label>
               <div className="flex flex-wrap items-center gap-3">
