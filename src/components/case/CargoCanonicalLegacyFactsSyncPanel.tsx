@@ -20,6 +20,7 @@
  */
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -118,10 +119,13 @@ async function readErrorBody(error: unknown): Promise<SyncEnvelope | null> {
 export function CargoCanonicalLegacyFactsSyncPanel({
   caseId,
   onSynced,
+  actionPortalId,
 }: {
   caseId: string;
   /** Appelé après une synchronisation réussie (refresh case/facts/events/gaps). */
   onSynced?: () => void;
+  /** Zone opératoire séparée de la prévisualisation. */
+  actionPortalId?: string;
 }) {
   const [state, setState] = useState<PanelState>("idle");
   const [preview, setPreview] = useState<SyncData | null>(null);
@@ -200,6 +204,55 @@ export function CargoCanonicalLegacyFactsSyncPanel({
   const facts = preview?.facts ?? [];
   const skipped = preview?.skipped ?? [];
   const canSync = state === "done" && facts.length > 0;
+  const actionTarget = actionPortalId ? document.getElementById(actionPortalId) : null;
+  const syncControl = canSync ? (
+    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <Button
+        variant="default"
+        className="gap-2"
+        disabled={syncing}
+        onClick={() => setConfirmOpen(true)}
+      >
+        {syncing ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <ArrowRightLeft className="h-4 w-4" />
+        )}
+        Synchroniser vers facts legacy
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Synchroniser vers les facts legacy ?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              <p>
+                Cette action écrit <strong>uniquement</strong> les facts
+                legacy listés ci-dessous (<strong>quote_facts</strong>).
+              </p>
+              <ul className="list-disc pl-5 space-y-0.5">
+                <li><strong>cargo_lines</strong> / <strong>cargo_equipment</strong> ne sont pas modifiés.</li>
+                <li><strong>quote_gaps</strong> ne sera pas résolu.</li>
+                <li>Le pricing n'est <strong>pas</strong> lancé automatiquement.</li>
+              </ul>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={syncing}>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={syncing}
+            onClick={(e) => {
+              e.preventDefault();
+              void handleSync();
+            }}
+          >
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Confirmer la synchronisation
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  ) : null;
 
   return (
     <Card className="mb-6">
@@ -235,54 +288,7 @@ export function CargoCanonicalLegacyFactsSyncPanel({
         {state === "done" && preview && (
           <div className="space-y-4">
             {/* Bouton sync explicite — séparé d'« Adopter le cargo canonique » */}
-            {canSync && (
-              <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-                <Button
-                  variant="default"
-                  className="gap-2"
-                  disabled={syncing}
-                  onClick={() => setConfirmOpen(true)}
-                >
-                  {syncing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ArrowRightLeft className="h-4 w-4" />
-                  )}
-                  Synchroniser vers facts legacy
-                </Button>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Synchroniser vers les facts legacy ?</AlertDialogTitle>
-                    <AlertDialogDescription asChild>
-                      <div className="space-y-2 text-sm">
-                        <p>
-                          Cette action écrit <strong>uniquement</strong> les facts
-                          legacy listés ci-dessous (<strong>quote_facts</strong>).
-                        </p>
-                        <ul className="list-disc pl-5 space-y-0.5">
-                          <li><strong>cargo_lines</strong> / <strong>cargo_equipment</strong> ne sont pas modifiés.</li>
-                          <li><strong>quote_gaps</strong> ne sera pas résolu.</li>
-                          <li>Le pricing n'est <strong>pas</strong> lancé automatiquement.</li>
-                        </ul>
-                      </div>
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={syncing}>Annuler</AlertDialogCancel>
-                    <AlertDialogAction
-                      disabled={syncing}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        void handleSync();
-                      }}
-                    >
-                      {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      Confirmer la synchronisation
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
+            {syncControl && (actionTarget ? createPortal(syncControl, actionTarget) : syncControl)}
 
             {/* Facts à écrire */}
             <div>

@@ -1132,7 +1132,7 @@ export default function CaseView() {
   }) : null;
   const currentPadCategory = facts.find((fact) => fact.fact_key === "cargo.pad_category" && fact.is_current)?.value_text ?? null;
   const merchandiseSummary = [
-    multiLotLineCount > 0 ? `${multiLotLineCount} groupe${multiLotLineCount > 1 ? "s" : ""}` : null,
+    multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} marchandise` : null,
     currentPadCategory ? `PAD ${currentPadCategory}` : "catégorie PAD à confirmer",
   ].filter(Boolean).join(" · ");
   const coordinationSummary = cockpitState ? [
@@ -1461,19 +1461,23 @@ export default function CaseView() {
           </CardContent>
         </Card>
 
+        <div className="mb-4 flex flex-wrap gap-2" aria-label="Actions des outils avancés">
+          <div id="cargo-canonical-action" />
+          <div id="cargo-legacy-sync-action" />
+        </div>
         <details className="mb-6 border border-border/60 bg-muted/20 p-3 text-muted-foreground">
           <summary className="cursor-pointer font-medium text-foreground">Outils avancés</summary>
         {/* Cargo canonique : preview dry-run (lecture seule) + adoption explicite
             opérateur (commit). onAdopted rafraîchit le case après écriture. */}
         {caseId && (
-          <CargoCanonicalPreviewPanel caseId={caseId} onAdopted={handleRefresh} />
+          <CargoCanonicalPreviewPanel caseId={caseId} onAdopted={handleRefresh} actionPortalId="cargo-canonical-action" />
         )}
 
         {/* Sync explicite cargo canonique → facts legacy (quote_facts uniquement).
             Mécanisme distinct de l'adoption canonique ; ne lance pas le pricing.
             onSynced rafraîchit case/facts/events/gaps (pas de pricingRefreshToken). */}
         {caseId && (
-          <CargoCanonicalLegacyFactsSyncPanel caseId={caseId} onSynced={handleRefresh} />
+          <CargoCanonicalLegacyFactsSyncPanel caseId={caseId} onSynced={handleRefresh} actionPortalId="cargo-legacy-sync-action" />
         )}
 
         {/* ── Thread Intent Display ── */}

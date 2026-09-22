@@ -23,6 +23,7 @@
  */
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -124,10 +125,13 @@ const fmt = (v: number | null | undefined): string =>
 export function CargoCanonicalPreviewPanel({
   caseId,
   onAdopted,
+  actionPortalId,
 }: {
   caseId: string;
   /** Appelé après une adoption réussie (refresh UI côté parent). */
   onAdopted?: () => void;
+  /** Zone opératoire séparée de la prévisualisation. */
+  actionPortalId?: string;
 }) {
   const [state, setState] = useState<PanelState>("idle");
   const [result, setResult] = useState<DeriveResult | null>(null);
@@ -257,6 +261,56 @@ export function CargoCanonicalPreviewPanel({
     !!derivedPayload?.case_id &&
     !!derivedPayload?.source &&
     !!derivedPayload?.cargo_payload;
+  const actionTarget = actionPortalId ? document.getElementById(actionPortalId) : null;
+  const adoptionControl = canAdopt ? (
+    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <Button
+        variant="default"
+        className="gap-2"
+        disabled={adopting}
+        onClick={() => setConfirmOpen(true)}
+      >
+        {adopting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <PackageCheck className="h-4 w-4" />
+        )}
+        Adopter le cargo canonique
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Adopter le cargo canonique ?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              <p>
+                Cette action écrit <strong>uniquement</strong> le cargo
+                canonique.
+              </p>
+              <ul className="list-disc pl-5 space-y-0.5">
+                <li>Cible : <strong>cargo_lines</strong> / <strong>cargo_equipment</strong>.</li>
+                <li><strong>quote_facts</strong> ne sera pas modifié.</li>
+                <li><strong>quote_gaps</strong> ne sera pas résolu.</li>
+                <li>Le pricing n'est <strong>pas</strong> lancé automatiquement.</li>
+              </ul>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={adopting}>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={adopting}
+            onClick={(e) => {
+              e.preventDefault();
+              void handleAdopt();
+            }}
+          >
+            {adopting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Confirmer l'adoption
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  ) : null;
 
   return (
     <Card className="mb-6">
@@ -300,58 +354,7 @@ export function CargoCanonicalPreviewPanel({
             </div>
 
             {/* Adoption explicite opérateur — visible uniquement après dry-run 2xx. */}
-            {canAdopt && (
-              <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-                <Button
-                  variant="default"
-                  className="gap-2"
-                  disabled={adopting}
-                  onClick={() => setConfirmOpen(true)}
-                >
-                  {adopting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <PackageCheck className="h-4 w-4" />
-                  )}
-                  Adopter le cargo canonique
-                </Button>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Adopter le cargo canonique ?</AlertDialogTitle>
-                    <AlertDialogDescription asChild>
-                      <div className="space-y-2 text-sm">
-                        <p>
-                          Cette action écrit <strong>uniquement</strong> le cargo
-                          canonique.
-                        </p>
-                        <ul className="list-disc pl-5 space-y-0.5">
-                          <li>Cible : <strong>cargo_lines</strong> / <strong>cargo_equipment</strong>.</li>
-                          <li><strong>quote_facts</strong> ne sera pas modifié.</li>
-                          <li><strong>quote_gaps</strong> ne sera pas résolu.</li>
-                          <li>Le pricing n'est <strong>pas</strong> lancé automatiquement.</li>
-                        </ul>
-                      </div>
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={adopting}>Annuler</AlertDialogCancel>
-                    <AlertDialogAction
-                      disabled={adopting}
-                      onClick={(e) => {
-                        // Empêche la fermeture auto : on pilote l'état pendant l'appel.
-                        e.preventDefault();
-                        void handleAdopt();
-                      }}
-                    >
-                      {adopting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : null}
-                      Confirmer l'adoption
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
+            {adoptionControl && (actionTarget ? createPortal(adoptionControl, actionTarget) : adoptionControl)}
 
             {topError && (
               <Alert variant="destructive">
