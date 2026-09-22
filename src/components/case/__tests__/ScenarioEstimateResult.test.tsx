@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { ScenarioEstimateResult, type SelectedScenarioEstimate } from "../ScenarioEstimateResult";
 import { PricingFreshnessNotice } from "../../puzzle/PricingFreshnessNotice";
+import { classifyEstimateReservations } from "@/pages/case-view/estimatePresentation";
 import { storageStayInformation, demurrageStayInformation, unknownCarrierStayInformation } from "../../../../supabase/functions/_shared/stay-information";
 afterEach(cleanup);
 it("shows two documented references and hypothetical group examples without selecting a carrier or changing the total", () => {
@@ -78,6 +79,11 @@ it("displays current detailed partial result without pricing unknown posts as ze
   expect(screen.getByText(/Sous-total indicatif/)).toBeInTheDocument();
   expect(screen.getByText("PAD groupe a")).toBeInTheDocument();
   expect(screen.getByText("À confirmer")).toBeInTheDocument(); expect(screen.getByText("Destination à préciser")).toBeInTheDocument();
+  const table = screen.getByRole("table", { name: "Prestations de cette estimation" });
+  expect(within(table).getAllByRole("columnheader").map(cell => cell.textContent)).toEqual([
+    "Prestation", "Montant", "Base", "Statut", "Détail",
+  ]);
+  expect(within(table).getByText("Destination à préciser").closest("tr")).toHaveTextContent("À confirmer");
 });
 it("shows each stay franchise, tier calculation and source without changing totals",()=>{
   const e=estimate();
@@ -114,7 +120,6 @@ it("groups unpriced PAD posts, preserves zero-priced services, and opens review 
   const before=JSON.stringify(e);
   render(<ScenarioEstimateResult estimate={e} onReview={review} />);
   expect(screen.getByText(/Droit de passage portuaire — 2 postes non chiffrés/)).toBeInTheDocument();
-  expect(screen.getByText(/Détail des prestations et sources/).closest('details')).not.toHaveAttribute('open');
   await userEvent.click(screen.getByRole('button',{name:'Vérifier les choix PAD par groupe'}));
   expect(review).toHaveBeenCalledTimes(1); expect(JSON.stringify(e)).toBe(before);
 });
@@ -125,6 +130,41 @@ it("keeps unknown support codes tucked away and human-readable reservations avai
   expect(screen.getByText('Point de contrôle à examiner dans les détails techniques.')).toBeInTheDocument();
   expect(screen.getByText(/FUTURE_CODE/).closest('details')).not.toHaveAttribute('open');
   expect(screen.queryByText('SCENARIO_DG_UNKNOWN',{selector:'li'})).toBeNull();
+});
+
+it("classifies blockers and uncertain reservations as actionable while keeping standard mentions folded", () => {
+  const lines = [
+    { id: "priced", amount: 1000, notes: "Mention liée au poste chiffré.", source: { type: "CALCULATED" } },
+    { id: "pending", amount: null, notes: "Tarif partenaire à confirmer.", source: { type: "TO_CONFIRM" } },
+  ];
+  const before = JSON.stringify(lines);
+  const groups = classifyEstimateReservations({
+    lines,
+    blockers: ["RATE_PENDING_CONFIRMATION"],
+    reservations: ["SCENARIO_DAP_SERVICES_ONLY", "FUTURE_CODE"],
+  });
+  expect(groups.actionable.map(item => item.message)).toEqual(expect.arrayContaining([
+    "Tarif partenaire à confirmer.",
+    expect.stringContaining("tarifs restent à confirmer"),
+    "Point de contrôle à examiner dans les détails techniques.",
+  ]));
+  expect(groups.standard.map(item => item.message)).toEqual(expect.arrayContaining([
+    "Mention liée au poste chiffré.",
+    expect.stringContaining("prestations DAP"),
+  ]));
+  expect(JSON.stringify(lines)).toBe(before);
+});
+
+it("places the stay section after the service table", () => {
+  const e = estimate();
+  e.run!.tariff_lines = [{ id: "warehouse_franchise_example", category: "Magasinage",
+    description: "Magasinage exemple", amount: 0, source: { type: "CALCULATED" },
+    stay_information: storageStayInformation({ unit_ref: "example", equipment_code: "40HQ", quantity: 1,
+      ownership: "COC", provider: "DPW", storage_p1_code: "412", storage_days: 10, demurrage_days: null }, 10000, true, "Sous hypothèse") }];
+  render(<ScenarioEstimateResult estimate={e} />);
+  const table = screen.getByRole("table", { name: "Prestations de cette estimation" });
+  const stay = screen.getByRole("region", { name: "Franchises et tranches de séjour" });
+  expect(table.compareDocumentPosition(stay) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 it("does not call an empty or failed scenario available",()=>{
   const e=estimate(); e.run=null;
@@ -138,7 +178,7 @@ it("does not call an empty or failed scenario available",()=>{
 it("opens the exact service details from an unpriced transport action",async()=>{
   render(<ScenarioEstimateResult estimate={estimate()} />);
   await userEvent.click(screen.getByRole('link',{name:'Consulter les postes et tarifs manquants'}));
-  expect(screen.getByText(/Détail des prestations et sources/).closest('details')).toHaveAttribute('open');
+  expect(screen.getByText('Destination à préciser').closest('details')).toHaveAttribute('open');
 });
 
 it.each(["calculated", "unpriced", "mixed", "zero"] as const)(
