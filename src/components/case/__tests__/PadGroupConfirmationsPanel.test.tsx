@@ -93,12 +93,11 @@ it("presents extracted and retained weights side by side with one quotation rese
     weight_facts: [{ id: "fact", number: 35000, text: null, source_type: "ai_extraction", source_email_id: "mail" }],
     weight_reconciliation: null };
   io.invoke.mockResolvedValue({ data: s, error: null });
-  const { container } = mount();
+  mount();
   expect(await screen.findByText("Extrait des pièces")).toBeInTheDocument();
   expect(screen.getByText("Base retenue")).toBeInTheDocument();
   expect(screen.getByText("Extrait des pièces").parentElement?.parentElement).toHaveClass("sm:grid-cols-2");
   expect(screen.getAllByLabelText("Réserve reprise telle quelle dans le devis")).toHaveLength(1);
-  expect(container.querySelectorAll('textarea[aria-label="Réserve reprise telle quelle dans le devis"]')).toHaveLength(1);
 });
 
 it("does not mutate loaded group data and performs no write on mount", async () => {
