@@ -25,7 +25,6 @@ import {
   
   RefreshCw,
   Play,
-  Pencil,
   Check,
   X,
   Calculator,
@@ -51,11 +50,9 @@ import ImoClassificationNotice from "@/components/case/ImoClassificationNotice";
 import { TASK_STATUS_COLORS } from "@/features/quotation/constants";
 import {
   SELECT_FACT_OPTIONS,
-  MULTI_LOT_AMBIGUOUS_FACTS,
   CLIENT_RESOLVABLE_GAP_KEYS,
   EDITABLE_FACT_KEYS,
   NUMERIC_FACT_KEYS,
-  CATEGORY_LABELS,
   STATUS_LABELS,
 } from "./case-view/constants";
 import type { PricingPrecheck } from "./case-view/types";
@@ -94,33 +91,6 @@ import { formatScenarioPricingAmount } from "@/lib/scenarioPricing";
 
 function formatPackageLabel(packageKey: string): string {
   return packageKey.trim().replace(/_/g, " ");
-}
-
-function formatContainersValue(value: unknown): string | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
-
-  const parts = value.map((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-
-    const container = item as Record<string, unknown>;
-    const type = typeof container.type === "string" ? container.type.trim() : "";
-    if (!type) return null;
-
-    const rawQuantity = container.quantity;
-    const quantity =
-      typeof rawQuantity === "number" && Number.isFinite(rawQuantity)
-        ? rawQuantity
-        : 1;
-    const cocSoc =
-      typeof container.coc_soc === "string" && container.coc_soc.trim()
-        ? ` (${container.coc_soc.trim().toUpperCase()})`
-        : "";
-
-    return `${quantity} × ${type}${cocSoc}`;
-  });
-
-  if (parts.some((part) => part === null)) return null;
-  return parts.join(", ");
 }
 
 export default function CaseView() {
@@ -251,7 +221,7 @@ export default function CaseView() {
   });
 
   // ── Fetch documents count ──
-  const { data: documentsCount = 0 } = useQuery({
+  const { data: documentsCount } = useQuery({
     queryKey: ["case-documents-count", caseId],
     queryFn: async () => {
       const { count, error } = await supabase
@@ -2186,7 +2156,7 @@ export default function CaseView() {
                 <p className="text-sm text-muted-foreground">
                   {['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
                     ? 'Prend en compte les nouveaux documents et extracteurs déployés'
-                    : `${documentsCount} document(s) uploadé(s) — ${facts?.length ?? 0} fait(s) extrait(s)`}
+                    : `${documentsCount ?? 0} document(s) uploadé(s) — ${facts?.length ?? 0} fait(s) extrait(s)`}
                 </p>
               </div>
               <Button
@@ -2508,7 +2478,7 @@ export default function CaseView() {
 
         </details>
         <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-sources">
-          <summary className="cursor-pointer font-medium">Sources, faits et historique<span className="ml-2 text-sm font-normal text-muted-foreground">— {facts.length} fait{facts.length > 1 ? "s" : ""} · {events.length} événement{events.length > 1 ? "s" : ""} · {documentsCount} document{documentsCount > 1 ? "s" : ""}</span></summary>
+          <summary className="cursor-pointer font-medium">Sources, faits et historique<span className="ml-2 text-sm font-normal text-muted-foreground">— {facts.length} fait{facts.length > 1 ? "s" : ""} · {events.length} événement{events.length > 1 ? "s" : ""}{typeof documentsCount === "number" ? ` · ${documentsCount} document${documentsCount > 1 ? "s" : ""}` : ""}</span></summary>
         {/* Tabs */}
         <Tabs defaultValue="facts" className="space-y-4">
           <TabsList className="grid w-full grid-cols-3">
@@ -2518,7 +2488,7 @@ export default function CaseView() {
             </TabsTrigger>
             <TabsTrigger value="documents" className="flex items-center gap-2">
               <Paperclip className="h-4 w-4" />
-              Documents ({documentsCount})
+              Documents{typeof documentsCount === "number" ? ` (${documentsCount})` : ""}
             </TabsTrigger>
             <TabsTrigger value="timeline" className="flex items-center gap-2">
               <History className="h-4 w-4" />

@@ -30,7 +30,7 @@ it("présente libellés, clés, domaines et origines sans mutation ni appel au m
   expect(screen.getByText("Acheminement")).toBeInTheDocument();
   expect(screen.getByText("Ville de destination")).toBeInTheDocument();
   expect(screen.getByText("routing.destination_city")).toBeInTheDocument();
-  expect(screen.getByText("unknown.key")).toBeInTheDocument();
+  expect(screen.getAllByText("unknown.key")).toHaveLength(2);
   expect(screen.getByText("Opérateur")).toBeInTheDocument();
   expect(screen.getByText("Extraction")).toBeInTheDocument();
   expect(screen.getByText("Partenaire")).toBeInTheDocument();
