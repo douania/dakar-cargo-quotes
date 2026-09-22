@@ -52,7 +52,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { e
       {run.status === "success" ? <>
         <p className="font-semibold text-lg">{run.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"} : HT {formatScenarioPricingAmount(run.indicative_total_ht, run.currency)} · TTC {formatScenarioPricingAmount(run.indicative_total_ttc, run.currency)}</p>
         <p className="text-sm text-muted-foreground">Estimation non ferme, distincte du devis confirmé. Les postes à confirmer ne sont pas gratuits.</p>
-        {lines.length > 0 && <div className="overflow-x-auto rounded border"><table className="w-full text-sm">
+        {lines.length > 0 && <div id="estimate-service-details" className="overflow-x-auto rounded border"><table className="w-full text-sm">
           <caption className="sr-only">Prestations de cette estimation</caption>
           <thead><tr><th className="text-left p-2">Prestation</th><th className="text-right p-2 whitespace-nowrap">Montant</th><th className="text-left p-2">Base</th><th className="text-left p-2">Statut</th><th className="text-left p-2">Détail</th></tr></thead>
           <tbody>{lines.map((line, i) => {
@@ -60,7 +60,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { e
             const reference = typeof source.reference === "string" ? source.reference : null;
             const note = typeof line.notes === "string" ? line.notes : null;
             const hasDetails = Boolean(note || reference || isStayLine(line));
-            return <tr className="border-t align-top" key={`${String(line.id ?? "line")}-${i}`}>
+            return <tr className="border-t align-top" data-estimate-status={isPricedEstimateLine(line) || isExcludedEstimateLine(line) ? "settled" : "pending"} key={`${String(line.id ?? "line")}-${i}`}>
               <td className="p-2">{String(line.description ?? line.category ?? "Prestation")}</td>
               <td className="text-right p-2 whitespace-nowrap">{isExcludedEstimateLine(line) ? "Exclu sous hypothèse" : isPricedEstimateLine(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
               <td className="p-2 max-w-sm">{estimateLineBase(line)}</td>
@@ -126,7 +126,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { e
             <span>{item.label} — {item.count} poste{item.count > 1 ? "s" : ""} non chiffré{item.count > 1 ? "s" : ""}</span>
             {item.scenario && onReview ? <Button size="sm" variant="outline" onClick={onReview} disabled={pending}>{item.action}</Button>
               : <a className="underline" href="#estimate-service-details" onClick={event => {
-                const details = event.currentTarget.closest("section[aria-label='Résultat de l’estimation sélectionnée']")?.querySelector<HTMLDetailsElement>("#estimate-service-details");
+                 const details = event.currentTarget.closest("section[aria-label='Résultat de l’estimation sélectionnée']")?.querySelector<HTMLDetailsElement>("#estimate-service-details tr[data-estimate-status='pending'] details");
                 if (details) details.open = true;
               }}>{item.action}</a>}
           </li>)}</ul>

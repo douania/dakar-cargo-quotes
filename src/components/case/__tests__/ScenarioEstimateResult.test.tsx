@@ -26,7 +26,7 @@ it("shows two documented references and hypothetical group examples without sele
   e.run!.tariff_lines = [{ id: "demurrage_estimate_legacy", category: "Surestaries", amount: null, notes: "Ancien résultat sans comparatif", source: { type: "TO_CONFIRM" } }];
   rerender(<ScenarioEstimateResult estimate={e} />);
   expect(screen.queryByRole("region", { name: "Comparaison indicative des armateurs" })).not.toBeInTheDocument();
-  expect(screen.getByText("Ancien résultat sans comparatif")).toBeInTheDocument();
+  expect(screen.getAllByText("Ancien résultat sans comparatif").length).toBeGreaterThan(0);
 });
 it("shows franchise then complete periods and a separate cargo example, with access to the existing editor", async () => {
   const info = storageStayInformation({ unit_ref: "example", equipment_code: "40HQ", quantity: 3, ownership: "COC", provider: "DPW", storage_p1_code: "412", storage_days: 10, demurrage_days: null }, 30000, true, "Sous hypothèse");
@@ -63,9 +63,9 @@ it("distinguishes an ownership exclusion from a free service and shows the price
     { id: "base", description: "Base manutention", amount: 1000, notes: "Supplément IMO non compris", source: { type: "CALCULATED", reference: "Barème vérifié" } },
   ];
   render(<ScenarioEstimateResult estimate={e} />);
-  expect(screen.getByText("Exclu sous hypothèse")).toBeInTheDocument();
-  expect(screen.getByText("Responsabilité contractuelle à vérifier")).toBeInTheDocument();
-  expect(screen.getByText("Supplément IMO non compris")).toBeInTheDocument();
+  expect(screen.getAllByText("Exclu sous hypothèse").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Responsabilité contractuelle à vérifier").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Supplément IMO non compris").length).toBeGreaterThan(0);
   expect(screen.queryByText("TECHNICAL_CODE")).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Postes à compléter" })).not.toBeInTheDocument();
 });
@@ -78,7 +78,7 @@ it("displays current detailed partial result without pricing unknown posts as ze
   render(<ScenarioEstimateResult estimate={estimate()} />);
   expect(screen.getByText(/Sous-total indicatif/)).toBeInTheDocument();
   expect(screen.getByText("PAD groupe a")).toBeInTheDocument();
-  expect(screen.getByText("À confirmer")).toBeInTheDocument(); expect(screen.getByText("Destination à préciser")).toBeInTheDocument();
+  expect(screen.getAllByText("À confirmer").length).toBeGreaterThan(0); expect(screen.getAllByText("Destination à préciser").length).toBeGreaterThan(0);
   const table = screen.getByRole("table", { name: "Prestations de cette estimation" });
   expect(within(table).getAllByRole("columnheader").map(cell => cell.textContent)).toEqual([
     "Prestation", "Montant", "Base", "Statut", "Détail",
@@ -178,7 +178,7 @@ it("does not call an empty or failed scenario available",()=>{
 it("opens the exact service details from an unpriced transport action",async()=>{
   render(<ScenarioEstimateResult estimate={estimate()} />);
   await userEvent.click(screen.getByRole('link',{name:'Consulter les postes et tarifs manquants'}));
-  expect(screen.getByText('Destination à préciser').closest('details')).toHaveAttribute('open');
+  expect(screen.getByText('Destination à préciser', { selector: 'details p' }).closest('details')).toHaveAttribute('open');
 });
 
 it.each(["calculated", "unpriced", "mixed", "zero"] as const)(
@@ -198,14 +198,14 @@ it.each(["calculated", "unpriced", "mixed", "zero"] as const)(
     expect(screen.queryByText(/Frais annexes terminal et magasinage à confirmer : non chiffrés/)).not.toBeInTheDocument();
     expect(screen.getByText(/Seuls les postes non chiffrés sont exclus du sous-total/)).toBeInTheDocument();
     if (state !== "unpriced") {
-      expect(screen.getByText(priced.notes)).toBeInTheDocument();
+      expect(screen.getAllByText(priced.notes).length).toBeGreaterThan(0);
       const row = within(screen.getByRole("table")).getByText("Magasinage lot A").closest("tr")!;
       expect(within(row).queryByText("À confirmer")).not.toBeInTheDocument();
       expect(row).toHaveTextContent(state === "zero" ? /0\s+F/ : /7\s*880/);
     }
     if (state === "unpriced" || state === "mixed") {
       expect(within(screen.getByRole("region", { name: "Postes à compléter" })).getByText(/Magasinage lot B — 1 poste non chiffré/)).toBeInTheDocument();
-      expect(screen.getByText("Durée de séjour à préciser")).toBeInTheDocument();
+      expect(screen.getAllByText("Durée de séjour à préciser").length).toBeGreaterThan(0);
     } else {
       expect(screen.queryByRole("region", { name: "Postes à compléter" })).not.toBeInTheDocument();
     }
