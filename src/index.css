@@ -179,25 +179,30 @@
     display: none !important;
   }
 
-  /* SidebarInset: remove flex constraint */
-  [data-panel-group] {
+  /* Let the complete dossier flow across print pages instead of clipping it to the viewport. */
+  [data-print-layout="root"],
+  [data-print-layout="inset"] {
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
     display: block !important;
   }
 
-  /* Fix: neutralize sidebar flex layout for full-width print */
-  .min-h-screen.flex {
-    display: block !important;
-  }
-
-  /* Fix: SidebarInset — remove all sidebar-relative positioning */
-  [data-sidebar] ~ main,
-  main.relative.flex.min-h-svh {
+  /* Neutralize sidebar layout and the application's scrolling container. */
+  [data-print-layout="inset"],
+  [data-print-layout="content"] {
     margin-left: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
     min-height: auto !important;
+    overflow: visible !important;
+  }
+
+  [data-print-layout="content"] {
+    display: block !important;
+    height: auto !important;
   }
 
   /* Full-width clean layout for case content */

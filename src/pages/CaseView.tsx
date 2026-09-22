@@ -1135,10 +1135,9 @@ export default function CaseView() {
     multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} marchandise` : null,
     currentPadCategory ? `PAD ${currentPadCategory}` : "catégorie PAD à confirmer",
   ].filter(Boolean).join(" · ");
-  const coordinationSummary = cockpitState ? [
-    `plan ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}`,
-    cockpitState.totalPartnerRequests > 0 ? `${cockpitState.totalPartnerRequests} demande${cockpitState.totalPartnerRequests > 1 ? "s" : ""} partenaire${cockpitState.totalPartnerRequests > 1 ? "s" : ""}` : null,
-  ].filter(Boolean).join(" · ") : "";
+  const coordinationSummary = cockpitState && cockpitState.totalPartnerRequests > 0
+    ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}`
+    : "";
   const confirmedQuoteSummary = cockpitState ? [
     cockpitState.selectedVersionNumber !== null ? `version ${cockpitState.selectedVersionNumber}` : null,
     cockpitState.hasPdf ? "PDF" : null,
