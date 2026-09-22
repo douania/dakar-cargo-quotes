@@ -1115,7 +1115,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
             <div className="flex items-center gap-2 flex-wrap">
               <ListChecks className="h-4 w-4 text-muted-foreground" />
               <CardTitle className="text-sm">Candidats de classification</CardTitle>
-              <Badge variant="outline" className="text-[10px]">MAP-5B</Badge>
+              <Badge variant="outline" className="text-[10px]">Validation des candidats</Badge>
               {state === "success" || state === "empty" ? (
                 <Badge variant="secondary" className="text-[10px]">{count} candidat(s)</Badge>
               ) : null}
@@ -1166,7 +1166,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
               </div>
               <div className="flex items-center gap-2 pb-1">
                 <Switch id="ccc-is-current" checked={isCurrent} onCheckedChange={setIsCurrent} />
-                <Label htmlFor="ccc-is-current" className="text-xs">is_current uniquement</Label>
+                <Label htmlFor="ccc-is-current" className="text-xs">Candidats actuels uniquement</Label>
               </div>
               <Button
                 size="sm"
@@ -1190,7 +1190,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 <div className="flex items-center gap-2">
                   <ListChecks className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm font-medium">Catégorie PAD depuis description</span>
-                  <Badge variant="outline" className="text-[10px]">alias validé only</Badge>
+                  <Badge variant="outline" className="text-[10px]">Alias validés uniquement</Badge>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
                   <Button
@@ -1225,7 +1225,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 Cherche un alias PAD validé correspondant exactement à cargo.description et crée un
                 candidat à valider. Aucun montant calculé, aucune propagation, aucun pricing.
                 {" "}Si aucun alias ne correspond, « Proposer enrichissement alias PAD » capture la
-                description comme proposition à valider (review only), sans alias validé ni pricing.
+                 description comme proposition à relire, sans alias validé ni calcul du devis.
               </p>
             </div>
 

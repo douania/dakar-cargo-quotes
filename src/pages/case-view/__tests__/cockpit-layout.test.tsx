@@ -92,6 +92,17 @@ it('refreshes PAD confirmations when dossier data is refreshed',async()=>{
   expect(invalidate).toHaveBeenCalledWith({queryKey:['pad-group-confirmations',caseId]});
   expect(invoke).not.toHaveBeenCalled();
 });
+it('keeps the single classification help closed by default in the merchandise section',async()=>{
+  const {container}=mount();
+  const merchandise=container.querySelector('#section-scenarios') as HTMLDetailsElement;
+  merchandise.open=true;
+  const help=screen.getByText('Aide à la classification').closest('details');
+  expect(help).not.toHaveAttribute('open');
+  expect(help).toContainElement(screen.getByRole('button',{name:'Rechercher une catégorie PAD'}));
+  expect(screen.getAllByText('PadNstSuggestionsPanel')).toHaveLength(1);
+  expect(screen.getAllByText('CommodityClassificationCandidatesPanel')).toHaveLength(1);
+  expect(invoke).not.toHaveBeenCalled();
+});
 it('opens the proposal review when no scenario is selected',async()=>{
   hasSelection=false;mount(); await userEvent.click(screen.getByRole('button',{name:'Préparer l’estimation'}));
   expect(screen.getByText('Groupes de test à vérifier')).toBeVisible();

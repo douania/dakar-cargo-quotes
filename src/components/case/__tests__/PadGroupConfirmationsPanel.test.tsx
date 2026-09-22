@@ -16,13 +16,14 @@ function mount() { return render(<QueryClientProvider client={new QueryClient({ 
 it("distinguishes estimation from explicit category/weight confirmation without automatic writes", async () => {
   io.invoke.mockResolvedValue({ data: state(), error: null }); mount();
   expect(await screen.findByText(/catégorie proposée T02/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
   expect(io.invoke).toHaveBeenCalledTimes(1);
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("Source et justification de la catégorie"), "Document électrique source");
   await user.type(screen.getByLabelText("Source du poids et de l’allocation du groupe"), "Deux unités de 18 tonnes dans la source");
-  await user.click(screen.getByRole("checkbox"));
-  await user.click(screen.getByRole("button", { name: "Confirmer pour le devis" }));
+  await user.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
+  await user.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
+  await user.click(screen.getByRole("button", { name: "Confirmer T02 pour le devis" }));
   await waitFor(() => expect(io.invoke).toHaveBeenCalledWith("manage-pad-group-confirmation", { body: expect.objectContaining({ action: "record",
     decision: expect.objectContaining({ unit_ref: "a", category: "T02", expected_head_id: null, expected_context_hash: "b".repeat(64) }) }) }));
 });
@@ -33,18 +34,19 @@ it("locked dossier never offers an enabled confirmation even with completed fiel
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("Source et justification de la catégorie"), "Synthetic evidence");
   await user.type(screen.getByLabelText("Source du poids et de l’allocation du groupe"), "Synthetic weight evidence");
-  await user.click(screen.getByRole("checkbox"));
-  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeDisabled();
+  await user.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
+  await user.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
   expect(io.invoke).toHaveBeenCalledTimes(1);
 });
 it("missing weight prevents confirmation and service failure exposes no usable confirmation", async () => {
   const s = state(); s.context.groups[0].total_weight_kg = null as unknown as number;
   io.invoke.mockResolvedValue({ data: s, error: null }); const rendered = mount();
   expect(await screen.findByText("Poids total : à préciser")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
   rendered.unmount(); io.invoke.mockResolvedValue({ data: null, error: new Error("unavailable") }); mount();
   expect(await screen.findByRole("alert")).toHaveTextContent("Lecture des confirmations indisponible");
-  expect(screen.queryByRole("button", { name: "Confirmer pour le devis" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Confirmer T02 pour le devis/ })).not.toBeInTheDocument();
 });
 
 it("prefills editable proposals, never attests, clears category evidence on category change", async () => {
@@ -53,13 +55,17 @@ it("prefills editable proposals, never attests, clears category evidence on cate
   expect(await screen.findByText(/Extrait client : 2 transformers/)).toBeInTheDocument();
   expect(screen.getByLabelText("Source et justification de la catégorie")).toHaveValue("Proposition à vérifier (T02) : Équipements électriques");
   expect(screen.getByLabelText("Source du poids et de l’allocation du groupe")).toHaveValue(s.assistance.a.weightDraft);
-  expect(screen.getByRole("checkbox")).not.toBeChecked();
-  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeDisabled();
-  const user = userEvent.setup(); await user.click(screen.getByRole("checkbox"));
-  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeEnabled();
+  expect(screen.getByRole("checkbox", { name: "Source vérifiée" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" })).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
+  const user = userEvent.setup(); await user.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
+  await user.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeEnabled();
   await user.selectOptions(screen.getByLabelText("Catégorie PAD"), "T03");
   expect(screen.getByLabelText("Source et justification de la catégorie")).toHaveValue("");
-  expect(screen.getByRole("checkbox")).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Source vérifiée" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" })).not.toBeChecked();
   expect(io.invoke).toHaveBeenCalledTimes(1);
 });
 
@@ -70,8 +76,9 @@ it("explains dossier conflict and does not manufacture a source for a range", as
   expect(await screen.findByRole("alert")).toHaveTextContent(/35.*000 kg/);
   expect(screen.getByRole("alert")).toHaveTextContent("Remplir les justifications ne résout pas cet écart");
   expect(screen.getByLabelText("Source du poids et de l’allocation du groupe")).toHaveValue("");
-  await userEvent.click(screen.getByRole("checkbox"));
-  expect(screen.getByRole("button", { name: "Confirmer pour le devis" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
+  await userEvent.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
 });
 it("never presents a partial sum as a total when a group weight is unknown", async () => {
   const s = state(); s.context.groups[0].total_weight_kg = null as unknown as number;
@@ -81,6 +88,28 @@ it("never presents a partial sum as a total when a group weight is unknown", asy
   expect(screen.getByRole("alert")).not.toHaveTextContent("scénario : 0 kg");
 });
 
+it("presents extracted and retained weights side by side with one quotation reserve", async () => {
+  const s = { ...state(), issues: [{ unit_ref: "", code: "PAD_GROUP_WEIGHT_CONFLICT" }], all_heads: [],
+    weight_facts: [{ id: "fact", number: 35000, text: null, source_type: "ai_extraction", source_email_id: "mail" }],
+    weight_reconciliation: null };
+  io.invoke.mockResolvedValue({ data: s, error: null });
+  mount();
+  expect(await screen.findByText("Extrait des pièces")).toBeInTheDocument();
+  expect(screen.getByText("Base retenue")).toBeInTheDocument();
+  expect(screen.getByText("Extrait des pièces").parentElement?.parentElement).toHaveClass("sm:grid-cols-2");
+  expect(screen.getAllByLabelText("Réserve reprise telle quelle dans le devis")).toHaveLength(1);
+});
+
+it("does not mutate loaded group data and performs no write on mount", async () => {
+  const s = state();
+  const before = JSON.stringify(s);
+  io.invoke.mockResolvedValue({ data: s, error: null }); mount();
+  await screen.findByText(/catégorie proposée T02/);
+  expect(JSON.stringify(s)).toBe(before);
+  expect(io.invoke).toHaveBeenCalledTimes(1);
+  expect(io.invoke).toHaveBeenCalledWith("manage-pad-group-confirmation", { body: { case_id: "case", action: "read" } });
+});
+
 it("range can be retained explicitly with reserve, never automatically attested", async () => {
   const s = { ...state(), assistance: { a: { excerpt: "10–18t/container", reference: "mail", calculation: "2 × 18 000 kg = 36 000 kg", weightDraft: "", warnings: [] } } };
   io.invoke.mockResolvedValue({ data: s, error: null }); mount();
@@ -88,10 +117,11 @@ it("range can be retained explicitly with reserve, never automatically attested"
   const user = userEvent.setup();
   await user.selectOptions(screen.getByLabelText("Nature du poids retenu"), "provisional");
   expect((screen.getByLabelText("Source du poids et de l’allocation du groupe") as HTMLTextAreaElement).value).toContain("Base de cotation");
-  expect(screen.getByRole("checkbox")).not.toBeChecked();
-  expect(screen.getByRole("button", { name: "Retenir avec réserve pour le devis" })).toBeDisabled();
-  await user.click(screen.getByRole("checkbox"));
-  await user.click(screen.getByRole("button", { name: "Retenir avec réserve pour le devis" }));
+  expect(screen.getByRole("checkbox", { name: "Source vérifiée" })).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
+  await user.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
+  await user.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
+  await user.click(screen.getByRole("button", { name: "Confirmer T02 pour le devis" }));
   await waitFor(() => expect(io.invoke).toHaveBeenCalledWith("manage-pad-group-confirmation", { body: expect.objectContaining({ action: "record", decision: expect.objectContaining({ weight_basis: "provisional", weight_reservation: expect.stringContaining("révisables") }) }) }));
 });
 

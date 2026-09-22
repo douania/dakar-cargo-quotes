@@ -1131,9 +1131,10 @@ export default function CaseView() {
       : null,
   }) : null;
   const currentPadCategory = facts.find((fact) => fact.fact_key === "cargo.pad_category" && fact.is_current)?.value_text ?? null;
+  const [padGroupSummary, setPadGroupSummary] = useState("");
   const merchandiseSummary = [
     multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} marchandise` : null,
-    currentPadCategory ? `PAD ${currentPadCategory}` : "catégorie PAD à confirmer",
+    padGroupSummary || (currentPadCategory ? `PAD ${currentPadCategory}` : "catégorie PAD à confirmer"),
   ].filter(Boolean).join(" · ");
   const coordinationSummary = cockpitState && cockpitState.totalPartnerRequests > 0
     ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}`
@@ -2128,10 +2129,27 @@ export default function CaseView() {
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
         {caseId && <details ref={scenarioPanel} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
           <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
-          <PadGroupConfirmationsPanel caseId={caseId} onChanged={handleRefresh} onEstimateReview={() => {
+          <PadGroupConfirmationsPanel caseId={caseId} onChanged={handleRefresh}
+            dangerousGoodsFalse={facts.some((fact) => fact.fact_key === "cargo.dangerous_goods" && fact.is_current && (fact.value_text === "false" || fact.value_json === false))}
+            extractedWeightConfidence={facts.find((fact) => fact.fact_key === "cargo.weight_kg" && fact.is_current)?.confidence ?? null}
+            onSummaryChange={setPadGroupSummary}
+            onEstimateReview={() => {
             const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
             if (variants) { variants.open = true; variants.scrollIntoView({ behavior: "smooth", block: "start" }); }
           }} />
+          <details className="mt-3 rounded-md border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Aide à la classification</summary>
+            <p className="my-3 text-sm text-muted-foreground">Prévisualisations et recherches pour préparer la décision opérateur.</p>
+            <Button variant="outline" size="sm" onClick={(event) => {
+              const container = event.currentTarget.closest("details");
+              const nested = container?.querySelector("[data-pad-classification-tools] button") as HTMLButtonElement | null;
+              nested?.click();
+            }}>Rechercher une catégorie PAD</Button>
+            <div className="mt-3" data-pad-classification-tools>
+              <PadNstSuggestionsPanel padCategoryAlreadySet={currentPadCategory} />
+              <CommodityClassificationCandidatesPanel caseId={caseId} />
+            </div>
+          </details>
           <details id="section-scenario-variants" className="mt-3">
           <summary className="cursor-pointer text-sm">Variantes, choix de l’estimation et historique</summary>
           <p className="my-3 text-sm text-muted-foreground">Retenir une catégorie pour l’estimation ne la confirme pas pour le devis. Aucun fait client n’est modifié automatiquement.</p>
@@ -2361,15 +2379,6 @@ export default function CaseView() {
           <p className="text-sm">{PAD_REVIEW_FR}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
         </div>}
-        {/* PAD-NST-2E-C-D : Panneau Suggestions PAD-NST (assistance opérateur, frontend-only, TO_CONFIRM) */}
-        {(() => {
-          const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
-          return <PadNstSuggestionsPanel padCategoryAlreadySet={padCatFact?.value_text ?? null} />;
-        })()}
-
-        {/* MAP-5A : lecture seule candidats classification */}
-        <CommodityClassificationCandidatesPanel caseId={caseId!} />
-
         {/* DCQ-MARITIME-FEES-RUNTIME-UI-B3 : propositions maritimes read-only,
             zone opérateur — jamais mêlées au pricing ferme (proposal_only). */}
         <MaritimeFeeProposalsPanel caseId={caseId!} />
