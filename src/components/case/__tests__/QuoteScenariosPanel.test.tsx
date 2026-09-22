@@ -124,6 +124,7 @@ describe("scenario creation contract routing", () => {
     mocks.queryRows["quote-scenarios"] = [{ id: "scenario-a", case_id: "synthetic-case", title: "Synthetic",
       status: "draft", scope_hash: "a".repeat(64), scope_snapshot: buildScopeSnapshot(emptyScenarioDraftV2()).snapshot,
       open_points: [], revision_no: 1 }];
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-a", released_at: null }];
     mocks.queryRows["quote-scenario-pricing-runs"] = [{ id: "run-a", scenario_id: "scenario-a", run_seq: 1,
       status: "success", qualification: "partial", reservations: [], blockers: [], assumptions_snapshot: [],
       firm_total_ht: 0, firm_total_ttc: 0, indicative_total_ht: 350, indicative_total_ttc: 350, currency: "XOF" }];
