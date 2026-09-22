@@ -2153,7 +2153,7 @@ export default function CaseView() {
           <details id="section-scenario-variants" className="mt-3">
           <summary className="cursor-pointer text-sm">Variantes, choix de l’estimation et historique</summary>
           <p className="my-3 text-sm text-muted-foreground">Retenir une catégorie pour l’estimation ne la confirme pas pour le devis. Aucun fait client n’est modifié automatiquement.</p>
-          <QuoteScenariosPanel key={caseId} caseId={caseId} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} />
+          <QuoteScenariosPanel key={caseId} caseId={caseId} isLocked={!!isLocked} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} />
           </details>
         </details>}
 
@@ -2411,17 +2411,6 @@ export default function CaseView() {
         <details className="mb-6 rounded border border-dashed p-3">
           <summary className="cursor-pointer font-medium">Propositions maritimes à confirmer</summary>
           <p className="my-2 text-xs text-muted-foreground">Décisions auditées à consulter avant leur intégration par un nouveau calcul.</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mb-3"
-            onClick={(event) => {
-              const details = event.currentTarget.closest("details");
-              if (details) details.open = true;
-            }}
-          >
-            Voir les propositions
-          </Button>
           <MaritimeFeeProposalsPanel caseId={caseId!} />
         </details>
 
