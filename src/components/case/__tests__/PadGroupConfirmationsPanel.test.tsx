@@ -69,6 +69,18 @@ it("prefills editable proposals, never attests, clears category evidence on cate
   expect(io.invoke).toHaveBeenCalledTimes(1);
 });
 
+it("choosing another category opens the weight details and focuses the PAD selector", async () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  io.invoke.mockResolvedValue({ data: state(), error: null }); mount();
+  await screen.findByText(/catégorie proposée T02/);
+  const details = screen.getByText("Poids et références détaillées").closest("details")!;
+  expect(details).not.toHaveAttribute("open");
+  await userEvent.click(screen.getByRole("button", { name: "Choisir une autre catégorie" }));
+  expect(details).toHaveAttribute("open");
+  expect(screen.getByLabelText("Catégorie PAD")).toHaveFocus();
+  expect(io.invoke).toHaveBeenCalledTimes(1);
+});
+
 it("explains dossier conflict and does not manufacture a source for a range", async () => {
   const s = { ...state(), dossier_weight_kg: 35000, issues: [{ unit_ref: "", code: "PAD_GROUP_WEIGHT_CONFLICT" }],
     assistance: { a: { excerpt: "10–18t/unit", reference: "mail", calculation: "2 × 18 000 kg = 36 000 kg", weightDraft: "", warnings: ["Borne haute, poids exact non confirmé"] } } };
