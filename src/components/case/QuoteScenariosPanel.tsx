@@ -1774,7 +1774,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
           </p>
         ) : null}
 
-        {scenarios.length > 0 ? <ScenarioRevisionTable
+        {scenarios.length > 0 && formMode === "none" ? <ScenarioRevisionTable
           rows={revisionRows}
           locked={isLocked}
           busy={submitting || pricingMutation.isPending}
