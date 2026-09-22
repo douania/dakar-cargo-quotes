@@ -70,7 +70,7 @@ export function NextActionBanner({ caseId }: Props) {
         <div className="flex items-center gap-2 flex-wrap">
           {iconMap[result.kind]}
           <span className="text-sm font-medium">Action prioritaire</span>
-          <Badge className={`${colorMap[result.color]} text-xs font-medium`}>
+          <Badge className={`${colorMap[result.tone]} text-xs font-medium`}>
             {result.label}
           </Badge>
         </div>
