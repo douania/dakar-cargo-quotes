@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,8 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, line,
   const [categoryConfirmed, setCategoryConfirmed] = useState(false);
   const [weightBasis, setWeightBasis] = useState<WeightBasis>(head?.weight_basis ?? "confirmed");
   const [reservation, setReservation] = useState(head?.weight_reservation ?? "");
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const categorySelectRef = useRef<HTMLSelectElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmed = head?.action === "confirm" && head.context_hash === context.context_hash;
@@ -93,7 +95,12 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, line,
         </div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={pending || missing.length > 0} onClick={() => record("confirm")}>Confirmer {category || "la catégorie"} pour le devis</Button>
-          <Button size="sm" variant="outline" disabled={pending || readOnly} onClick={() => { setCategory(""); setSource(""); setSourceVerified(false); setCategoryConfirmed(false); }}>Choisir une autre catégorie</Button>
+          <Button size="sm" variant="outline" disabled={pending || readOnly} onClick={() => {
+            setCategory(""); setSource(""); setSourceVerified(false); setCategoryConfirmed(false);
+            detailsRef.current?.setAttribute("open", "");
+            const select = categorySelectRef.current;
+            if (select) { select.scrollIntoView({ block: "center" }); select.focus({ preventScroll: true }); }
+          }}>Choisir une autre catégorie</Button>
           {head?.action === "confirm" && <Button size="sm" variant="outline" disabled={readOnly || pending || !sourceVerified || !categoryConfirmed || source.trim().length < 3 || weightSource.trim().length < 3} onClick={() => record("revoke")}>Retirer la confirmation</Button>}
         </div>
       </div>
@@ -101,7 +108,7 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, line,
     <p className="text-sm">Poids total : {group.total_weight_kg === null ? "à préciser" : `${group.total_weight_kg.toLocaleString("fr-FR")} kg`}</p>
     <p className="text-sm">Estimation : {group.proposed_category ? `catégorie proposée ${group.proposed_category}` : "catégorie non retenue"}. {group.proposed_basis}</p>
     {issues.map(code => <p className="text-sm text-amber-700" key={code}>{messages[code] ?? "Confirmation non exploitable : revoir ce groupe et ses sources."}</p>)}
-    <details className="rounded border p-3">
+    <details ref={detailsRef} className="rounded border p-3">
       <summary className="cursor-pointer text-sm">Poids et références détaillées</summary>
       <p className="my-2 text-sm text-muted-foreground">Vérifiez la nature du groupe, son allocation et son poids. Cette décision ne modifie pas les faits client et ne confirme ni l’IMO ni les autres frais.</p>
       <p className="text-sm mb-2">Les textes proposés restent à relire et modifiables. Leur préremplissage ne confirme rien.</p>
@@ -129,7 +136,7 @@ function GroupDecision({ group, context, head, issues, readOnly, evidence, line,
             onChange={e => { setReservation(e.target.value); setSourceVerified(false); setCategoryConfirmed(false); }} />
         </label>}
         <label className="text-sm">Catégorie PAD
-          <select className="block w-full border rounded p-2 bg-background" value={category} onChange={e => { setCategory(e.target.value); setSource(""); setSourceVerified(false); setCategoryConfirmed(false); }} disabled={pending || readOnly}>
+          <select ref={categorySelectRef} className="block w-full border rounded p-2 bg-background" value={category} onChange={e => { setCategory(e.target.value); setSource(""); setSourceVerified(false); setCategoryConfirmed(false); }} disabled={pending || readOnly}>
             <option value="">Choisir</option>
             {[...Array.from({ length: 14 }, (_, i) => `T${String(i + 1).padStart(2, "0")}`), ...Array.from({ length: 5 }, (_, i) => `P0${i + 1}`)].map(c => <option key={c} value={c}>{c}</option>)}
           </select>
