@@ -34,7 +34,7 @@ interface CaseActionPlanProps {
 }
 
 export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
@@ -189,7 +189,6 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
 
   const doneCount = steps.filter((s) => s.status === "done").length;
   const totalCount = steps.length;
-
   const iconForStatus = (s: StepStatus) => {
     switch (s) {
       case "done":
@@ -222,13 +221,13 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                 }
                 variant="secondary"
               >
-                {doneCount}/{totalCount} étapes
+                {doneCount}/{totalCount} terminées
               </Badge>
             </div>
           </CollapsibleTrigger>
 
           {/* COCKPIT-6: Operational counters — always visible */}
-          {(draftPartnerRequests > 0 || unsentPartnerRequests > 0 || pendingPartnerFacts > 0 || draftedClientGaps > 0 || blockingGapsCount > 0 || answeredClientGaps > 0) && (
+          {(draftPartnerRequests > 0 || unsentPartnerRequests > 0 || pendingPartnerFacts > 0 || draftedClientGaps > 0 || blockingGapsCount > 0 || answeredClientGaps > 0 || (!hasDraftEmail && statusAtLeast(status, "PRICED_DRAFT"))) && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {draftPartnerRequests > 0 && (
                 <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 bg-amber-50">
@@ -260,6 +259,11 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                   {answeredClientGaps} réponse{answeredClientGaps > 1 ? 's' : ''} client à traiter
                 </Badge>
               )}
+              {!hasDraftEmail && statusAtLeast(status, "PRICED_DRAFT") && (
+                <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 bg-red-50">
+                  Email client manquant
+                </Badge>
+              )}
             </div>
           )}
 
@@ -287,8 +291,13 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                       >
                         {iconForStatus(step.status)}
                         <span>{step.label}</span>
+                        {step.status === "blocked" && (
+                          <span className="text-muted-foreground">
+                            — bloqué : {step.note ?? `${blockingGapsCount} point${blockingGapsCount > 1 ? "s" : ""} à résoudre`}
+                          </span>
+                        )}
                       </div>
-                      {step.note && step.status !== "done" && (
+                        {step.note && step.status !== "done" && step.status !== "blocked" && (
                         <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
                           {step.note}
                         </div>
