@@ -1141,7 +1141,10 @@ export default function CaseView() {
     cockpitState.totalPartnerRequests > 0 ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}` : null,
     pilotage?.action?.label ? `étape restante : ${pilotage.action.label}` : null,
   ].filter(Boolean).join(" · ") : "";
-  const latestReplyAnalysisEvent = events.find((event) => event.event_type === "output_generated" && event.event_data?.kind === "reply_analysis_v1") ?? null;
+  const latestReplyAnalysisEvent = events.find((event) => {
+    if (event.event_type !== "output_generated" || !event.event_data || Array.isArray(event.event_data) || typeof event.event_data !== "object") return false;
+    return event.event_data.kind === "reply_analysis_v1";
+  }) ?? null;
   const latestReplyAnalysis = latestReplyAnalysisEvent?.created_at
     ? new Date(latestReplyAnalysisEvent.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
     : null;
