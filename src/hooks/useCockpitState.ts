@@ -13,6 +13,12 @@ import {
   computeCollectionVerdict,
   type CollectionVerdict,
 } from "@/lib/cockpitStatusConstants";
+import { PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
+import {
+  EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
+  computeSeaFreightPartnerAction,
+  type SeaFreightPartnerActionSpec,
+} from "@/lib/seaFreightPartnerAction";
 
 export interface CockpitState {
   // Case
@@ -22,6 +28,7 @@ export interface CockpitState {
   // Gaps
   blockingGapsCount: number;
   padReviewCount: number;
+  hasPadWeightReview: boolean;
 
   // Partner requests
   totalPartnerRequests: number;
@@ -53,8 +60,11 @@ export interface CockpitState {
   // Version pipeline
   hasSelectedVersion: boolean;
   selectedVersionId: string | null;
+  selectedVersionNumber: number | null;
+  selectedVersionSnapshot: Record<string, unknown> | null;
   hasPdf: boolean;
   hasDraftEmail: boolean;
+  seaFreightAction: SeaFreightPartnerActionSpec | null;
 }
 
 export function useCockpitState(caseId: string | undefined) {
@@ -88,12 +98,12 @@ export function useCockpitState(caseId: string | undefined) {
         // All open gaps (not just blocking) — needed for client gap intersection
         supabase
           .from("quote_gaps")
-          .select("gap_key, is_blocking")
+          .select("gap_key, is_blocking, question_fr")
           .eq("case_id", caseId!)
           .eq("status", "open"),
         supabase
           .from("external_quote_requests")
-          .select("id, status, email_sent_at, is_selected, partner_name")
+          .select("id, status, email_sent_at, is_selected, partner_name, purpose")
           .eq("case_id", caseId!),
         supabase
           .from("external_quote_response_facts")
@@ -112,13 +122,16 @@ export function useCockpitState(caseId: string | undefined) {
           .eq("case_id", caseId!),
         supabase
           .from("quotation_versions")
-          .select("id, is_selected")
+          .select("id, is_selected, version_number, snapshot")
           .eq("case_id", caseId!),
       ]);
 
       const status = (caseRes.data?.status as string) ?? "INTAKE";
       const blockingGapsCount = gapsRes.count ?? 0;
       const padReviewCount = (allOpenGapsRes.data ?? []).filter(g => g.gap_key === PAD_REVIEW_GAP_KEY && g.is_blocking).length;
+      const hasPadWeightReview = (allOpenGapsRes.data ?? []).some(
+        (g) => g.gap_key === PAD_REVIEW_GAP_KEY && g.is_blocking && g.question_fr === PAD_WEIGHT_REVIEW_FR,
+      );
       const totalClientGaps = clientGapsTotalRes.count ?? 0;
 
       // P1-CGR-FINAL: intersection with open gaps for true "active" count
@@ -155,6 +168,7 @@ export function useCockpitState(caseId: string | undefined) {
         email_sent_at: string | null;
         is_selected: boolean;
         partner_name: string | null;
+        purpose: string | null;
       }>;
       const totalPartnerRequests = requests.length;
       let draftPartnerRequests = 0;
@@ -182,6 +196,13 @@ export function useCockpitState(caseId: string | undefined) {
         requests.some(
           (r) => RESPONSE_PHASE_STATUSES.has(r.status) || r.status === "closed",
         );
+      const hasOnlySeaFreightPartnerBlockingGap = blockingGapsCount === 1 &&
+        (allOpenGapsRes.data ?? []).some(
+          (gap) => gap.is_blocking && gap.gap_key === EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
+        );
+      const seaFreightAction = hasOnlySeaFreightPartnerBlockingGap
+        ? computeSeaFreightPartnerAction(requests)
+        : null;
 
       // P2-A: collection verdict
       const verdictResult = computeCollectionVerdict(requests, pendingFactsByRequestId);
@@ -190,10 +211,16 @@ export function useCockpitState(caseId: string | undefined) {
       const versions = (versionsRes.data ?? []) as Array<{
         id: string;
         is_selected: boolean;
+        version_number: number;
+        snapshot: unknown;
       }>;
       const selectedVersion = versions.find((v) => v.is_selected);
       const hasSelectedVersion = !!selectedVersion;
       const selectedVersionId = selectedVersion?.id ?? null;
+      const selectedVersionNumber = selectedVersion?.version_number ?? null;
+      const selectedVersionSnapshot = selectedVersion?.snapshot && typeof selectedVersion.snapshot === "object" && !Array.isArray(selectedVersion.snapshot)
+        ? selectedVersion.snapshot as Record<string, unknown>
+        : null;
 
       let hasPdf = false;
       let hasDraftEmail = false;
@@ -220,6 +247,7 @@ export function useCockpitState(caseId: string | undefined) {
         isTerminal: TERMINAL_STATUSES.has(status),
         blockingGapsCount,
         padReviewCount,
+        hasPadWeightReview,
         totalPartnerRequests,
         draftPartnerRequests,
         unsentPartnerRequests,
@@ -241,8 +269,11 @@ export function useCockpitState(caseId: string | undefined) {
         openClientGaps,
         hasSelectedVersion,
         selectedVersionId,
+        selectedVersionNumber,
+        selectedVersionSnapshot,
         hasPdf,
         hasDraftEmail,
+        seaFreightAction,
       };
     },
   });

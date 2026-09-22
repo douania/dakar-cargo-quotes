@@ -44,6 +44,7 @@ import {
   Send,
   Anchor,
   Printer,
+  ArrowRight,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -94,6 +95,10 @@ import { PartnerCollectionReadinessCard } from "@/components/puzzle/PartnerColle
 import { PartnerRequestsSummary } from "@/components/puzzle/PartnerRequestsSummary";
 import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDetailView";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
+import { useCockpitState } from "@/hooks/useCockpitState";
+import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
+import { buildPilotageViewModel, type PilotageAction } from "./case-view/presentation";
+import { formatScenarioPricingAmount } from "@/lib/scenarioPricing";
 
 function formatPackageLabel(packageKey: string): string {
   return packageKey.trim().replace(/_/g, " ");
@@ -197,6 +202,8 @@ export default function CaseView() {
   const [pricingRefreshToken, setPricingRefreshToken] = useState(0);
   const [versionRefreshToken, setVersionRefreshToken] = useState(0);
   const navigate = useNavigate();
+  const { data: cockpitState } = useCockpitState(caseId);
+  const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
 
   // ── Fetch quote_cases ──
   const {
@@ -1112,6 +1119,28 @@ export default function CaseView() {
     typeof servicePackageFact?.value_text === "string" && servicePackageFact.value_text.trim()
       ? formatPackageLabel(servicePackageFact.value_text)
       : null;
+  const pilotage = cockpitState ? buildPilotageViewModel({
+    cockpit: cockpitState,
+    hasCriticalUnconfirmed,
+    selectedEstimate: selectedEstimate?.caseId === caseId
+      ? {
+          status: selectedEstimate.run?.status ?? null,
+          totalTtc: selectedEstimate.run?.indicative_total_ttc ?? null,
+          currency: selectedEstimate.run?.currency ?? null,
+        }
+      : null,
+  }) : null;
+
+  const focusPilotageAction = (action: PilotageAction) => {
+    const target = document.getElementById(action.targetId);
+    if (!target) return;
+    for (let parent: HTMLElement | null = target; parent; parent = parent.parentElement) {
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+  };
 
   // ── Loading state ──
   if (caseLoading) {
@@ -1209,6 +1238,45 @@ export default function CaseView() {
             })()}
           </div>
         </div>
+
+        {pilotage && <section aria-label="Pilotage du dossier" className="sticky top-0 z-20 mb-6 space-y-3 border bg-background/95 p-4 shadow-sm backdrop-blur print:static print:shadow-none">
+          <ol aria-label="Progression du devis" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {pilotage.steps.map((step) => <li key={step.key} aria-current={step.current ? "step" : undefined} className="flex min-w-0 items-center gap-2 text-xs">
+              {step.done
+                ? <CheckCircle className="h-4 w-4 shrink-0 text-green-600" />
+                : <span className={`h-4 w-4 shrink-0 rounded-full border-2 ${step.current ? "border-primary" : "border-muted-foreground/30"}`} />}
+              <span className={step.current ? "font-semibold text-foreground" : step.done ? "font-medium text-foreground" : "text-muted-foreground"}>{step.label}</span>
+            </li>)}
+          </ol>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className="border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Action attendue</p>
+              <p className="mt-1 font-semibold">{pilotage.action?.label ?? "Aucune action attendue"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Blocage principal : {pilotage.action?.blocker ?? "aucun"}</p>
+              {pilotage.action && <Button className="mt-3 print:hidden" size="sm" onClick={() => focusPilotageAction(pilotage.action as PilotageAction)}>
+                {pilotage.action.label}
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>}
+            </div>
+            <div className="border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Devis confirmé</p>
+              {pilotage.confirmedQuote ? <>
+                <p className="mt-1 font-semibold">Version {pilotage.confirmedQuote.versionNumber}</p>
+                <p className="text-lg font-bold">{formatScenarioPricingAmount(pilotage.confirmedQuote.amount, pilotage.confirmedQuote.currency)}</p>
+                <p className="text-xs text-muted-foreground">Montant du snapshot sélectionné</p>
+              </> : <p className="mt-1 text-sm text-muted-foreground">Aucun devis client sélectionné</p>}
+            </div>
+            <div className="border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Estimation scénario</p>
+              {pilotage.estimate ? <>
+                <p className="mt-1 text-lg font-bold">{formatScenarioPricingAmount(pilotage.estimate.amount, pilotage.estimate.currency)}</p>
+                <p className="text-xs text-muted-foreground">Écart : {pilotage.variance
+                  ? formatScenarioPricingAmount(pilotage.variance.amount, pilotage.variance.currency)
+                  : "non comparable"}</p>
+              </> : <p className="mt-1 text-sm text-muted-foreground">Estimation non disponible</p>}
+            </div>
+          </div>
+        </section>}
 
         {/* Pricing Launch Panel — visible for pricing-eligible statuses
             Lot 4.1: also visible upstream when canProvisionalDdp === true,
@@ -1336,7 +1404,7 @@ export default function CaseView() {
           );
         })()}
 
-        <details className="mb-4 rounded-lg border p-4">
+        <details className="mb-4 rounded-lg border p-4" id="section-sources">
           <summary className="cursor-pointer font-medium">Données du dossier et contrôles avant devis confirmé</summary>
           <p className="my-3 text-sm text-muted-foreground">Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus.</p>
         {/* Info bar */}
