@@ -6,7 +6,7 @@
  * 12 étapes max, décomposant les boucles partenaire et client.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { statusAtLeast, statusAbove } from "@/lib/cockpitStatusConstants";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,9 +31,10 @@ interface Step {
 
 interface CaseActionPlanProps {
   caseId: string;
+  onRemainingStepChange?: (label: string | null) => void;
 }
 
-export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
+export function CaseActionPlan({ caseId, onRemainingStepChange }: CaseActionPlanProps) {
   const [open, setOpen] = useState(false);
   const { data, isLoading } = useCockpitState(caseId);
 
@@ -189,6 +190,11 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
 
   const doneCount = steps.filter((s) => s.status === "done").length;
   const totalCount = steps.length;
+  const remainingStep = steps.find((step) => step.status !== "done" && step.status !== "skipped") ?? null;
+
+  useEffect(() => {
+    onRemainingStepChange?.(remainingStep?.label ?? null);
+  }, [onRemainingStepChange, remainingStep?.label]);
 
   const iconForStatus = (s: StepStatus) => {
     switch (s) {
@@ -222,7 +228,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                 }
                 variant="secondary"
               >
-                {doneCount}/{totalCount} étapes
+                {doneCount}/{totalCount} terminées
               </Badge>
             </div>
           </CollapsibleTrigger>
@@ -263,7 +269,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
             </div>
           )}
 
-          <CollapsibleContent>
+          <CollapsibleContent forceMount className="data-[state=closed]:block">
             {(["communication", "consolidation"] as const).map((group) => {
               const groupSteps = steps.filter((s) => s.group === group);
               if (groupSteps.length === 0) return null;
@@ -287,6 +293,9 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                       >
                         {iconForStatus(step.status)}
                         <span>{step.label}</span>
+                        {step.status === "blocked" && (
+                          <span className="text-muted-foreground">— bloqué : {step.note ?? `${blockingGapsCount} point${blockingGapsCount > 1 ? "s" : ""} à résoudre`}</span>
+                        )}
                       </div>
                       {step.note && step.status !== "done" && (
                         <div className="ml-6 text-[10px] text-muted-foreground/50 italic">

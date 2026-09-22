@@ -249,7 +249,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
               ) : (
                 <Radar className="h-3 w-3 mr-1" />
               )}
-              Scanner
+              Scanner les e-mails
             </Button>
             <Button
               size="sm"

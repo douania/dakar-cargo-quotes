@@ -44,7 +44,7 @@ export function PartnerCollectionReadinessCard({ caseId }: Props) {
       icon: <Minus className="h-4 w-4 text-muted-foreground" />,
       label: 'Direct',
       badgeClass: 'bg-muted text-muted-foreground',
-      detail: 'Aucune collecte partenaire — pricing direct possible.',
+      detail: 'Pricing direct, aucune sollicitation nécessaire',
     },
     insufficient: {
       icon: <XCircle className="h-4 w-4 text-destructive" />,
