@@ -2414,15 +2414,47 @@ STOP et demander arbitrage CTO si :
 - Neuf fichiers code/tests plus présente clôture ; aucun SQL/Auth/RLS/migration/écriture Cloud/envoi/commit/push/déploiement. HEAD inchangé. Retour local : retirer uniquement ce diff, préserver la clôture antérieure ; aucun rollback DB.
 - Suite sous GO publication distinct : commit/push work, reconstruction privée et déploiement coordonné quotation-engine/export-quotation-version-pdf/create-quotation-email-draft, puis relance et recette privée sans envoi ; les anciens runs ne sont pas réécrits.
 
-#### Livraison privée du comparatif — 21 septembre 2026 — PARTIAL, correctif de recette
+#### Livraison privée du comparatif — 21 septembre 2026 — PASS recette comparative / PARTIAL métier
 
 - GO distinct utilisateur : commit/push work, déploiement privé et recette sans envoi. 62af098→d727cdff7f1cebe2d270156023a746dacbff9ffc poussé, 10 fichiers +346/-5 ; Lovable synchronisé, non publié, visibilité projet workspace_edit (ne pas confondre le réglage public d'une publication future).
 - Build privé PASS ; quotation-engine/export-quotation-version-pdf/create-quotation-email-draft déployées, accusés et sondes200/401 ; arbre supabase f62fae236d047bfc683a33c216481df3bde3948f inchangé. Empreinte de bundle runtime NOT_VERIFIED.
 - Recette authentifiée : run6 aa477b43-30ba-4f94-93b1-09873d4df097, succès technique, totaux HT47925930/TTC48024930 XOF et ferme0 inchangés ; comparaison absente, donc recette fonctionnelle FAIL.
 - Cause vérifiée : contexte séjour avec pays « Senegal » et port absent ; le contexte transport contient explicitement IMPORT/Senegal/Dakar Port. Le test initial utilisait SN et port dans séjour.
 - Correctif borné sous GO du lot : alias SN/Senegal/Sénégal et port transport en secours uniquement pour la comparaison documentaire et contexte import Sénégal ; valeurs séjour explicites prioritaires, aucune sélection tarifaire ni garde de calcul modifiée.
-- Tests après correctif : 38 Deno ciblés avec typage PASS, bundles isolés PASS ; tests négatifs pays/port/sens, priorité contexte séjour, non-mutation, montant null/TO_CONFIRM et magasinage inchangé. Contre-revue et nouvelle recette avant clôture finale.
+- Tests après correctif : 38 Deno ciblés avec typage PASS, bundles isolés PASS ; tests négatifs pays/port/sens, priorité contexte séjour, non-mutation, montant null/TO_CONFIRM et magasinage inchangé. Contre-revue indépendante PASS avec 32 Deno réexécutés ; 17 UI/typecheck PASS avant ce correctif backend seulement, dettes globales inchangées.
+- Correctif poussé d727cdff→70d1539758bb4b86a25c0bd4cf6c640329a33fa4, 3 fichiers +47/-2 ; arbre supabase 5e62ea20046f310c9a8b0eda9edde3867303e37d. Ensemble depuis62af098 : 10 fichiers +391/-5 avant présente clôture locale non commitée.
+- Blocage de synchronisation historique levé : GitHub/Lovable ec7dc079994846412c72829294c313b6ce3ceac6 inclut70d1539 ; comparaison GitHub montre seulement .lovable/plan.md ajouté (30 lignes). Local70d1539 et clôture documentaire non commitée préservés, aucune synchronisation locale destructive.
+- Intégrité SELECT après run6 : empreintes des1428faits/16franchises/35barèmes/35paliers/219tarifs inchangées ; pricing canonique175/versions14 stables, runs scénario24→25. Aucun autre recalcul tenté sur sources obsolètes.
+- Livraison corrective confirmée par compte rendu Lovable transmis utilisateur et visible dans l'éditeur : build20s/HTTP200, quotation-engine seule déployée, OPTIONS200/POSTsansauth401, arbre5e62ea20 et HEADec7dc079 inchangés ; projet workspace_edit/is_published=false revérifié par connecteur. Empreinte bundle runtime NOT_VERIFIED.
+- Recette authentifiée navigateur : run7 bb075738-8e8a-4353-8350-8cba7d33b6a0 à17:57:55UTC, success/partial, comparaison persistée et visible sur3×40HC COC seulement ; franchises10j, tranches11–20/21+, exemples15/20/25j et réserves/sources lisibles. Exemple25j : CMA1830300/Hapag1692369FCFA ; hypothétique, hors totaux.
+- Intégrité finale : 1428faits et quatre catalogues byte-identiques par empreintes avant/après ; lignes run6/run7 identiques hors notes/stay_information, HT47925930/TTC48024930/ferme0 stables, canoniques175/versions14 inchangés ; un seul nouveau run scénario25→26. Aucun code/test modifié ni commit supplémentaire à cette recette.
+- Reste métier : magasinage3lots et surestaries effectives à confirmer, aucun armateur/durée/franchise applicable promu ; hypothèse danger inconnu explicitée. PDF visuel live NOT_RUN ; prochaine étape métier : qualifier désignation magasinage DPW et conditions réellement applicables, sans prétendre tous les barèmes à jour.
 - Aucun changement DB/Auth/RLS/migration/fait/barème ni envoi. Retour : revert des commits du lot puis reconstruction privée/redéploiement coordonné ; conserver les runs historiques.
+
+#### Qualification magasinage DPW — 22 septembre 2026 — PARTIAL documentaire
+
+- GO utilisateur sur magasinage DPW/conditions réellement applicables ; audit sources/code/SELECT seulement, pas de publication ni adoption automatique. Queue historique sans nouvelle entrée ; arbitrages antérieurs/hors lot conservés.
+- Préflight work local70d1539, GitHubec7dc079 ; comparaison distante confirme uniquement .lovable/plan.md ajouté, clôture précédente locale préservée. Aucun code absent ni divergence applicative inexpliquée ; pas de changement HEAD.
+- FAQ DPW https://dpw-prod-cd-1.dpworld.com/senegal/faqs relue22/09 : franchise générale10j sec local,2j frigo,21j Mali ; aucun taux magasinage publié dans cette page, aucune assimilation automatique aux lots IMO ou danger inconnu.
+- Lecture PDF visuelle : DPW_TARIFS_2025_0001.pdf est un dépliant THC copyright2024, sans magasinage ; trois ligneswarehouseDPW6000/12000/12000XOF/EVP/j citent ce PDF, donc taux non justifiés par la pièce. Arrêté2015 local p.2 art.3 renvoie au tarifSEMPOS homologué22/03/2002 sans en donner la grille ; actualité non déduite.
+- Politique existante P1×1,111 :414=394FCFA/t/j extrapolé ;419=1964 observéTOM, nonDPW ; P2/P3 restent historiques. Catalogue des désignations consulté explicitement dakar_terminal2014, pas preuve d'applicationDPW. Codes414transformateurs/419accessoires/417batteries restent candidats non adoptés.
+- SELECT dossier5e9cd222 : aucune hypothèse pricing.container_stay_estimate ; dernier run7 inchangé, lot1DG/UN3536, lots2/3danger inconnu. RéférentielIMOclasse9 ALL indiqueMAX_3_DAYS (QHSSEv4,01/07/2025), contrainte de séjour et non franchise gratuite, actualité à corroborer sur pièce.
+- Point technique conservé : garde magasinage exigeSN+port explicite dansscenarioStay, tandis que le runner du cas transmetSenegal/port danstransport ; correctif70d1539 limité au comparatif surestaries.20HQ etdangerinconnu restent également nonéligibles ; aucune garde assouplie.
+- Contre-revue indépendante lecture seule PASS du constat. Tests NOT_RUN, aucun patch applicatif ni changement DB/Auth/RLS/barème/fait/scénario, aucun recalcul/envoi/commit/push/déploiement ; présente note uniquement, rollback documentaire local possible.
+- Rectification utilisateur : grille Dakar Terminal déjà acceptée comme base informative P1×1,111/P2-P3 historiques ; obtenir une nouvelle grille DPW n’est pas un préalable à cette estimation. Les pièces complémentaires servent à corroborer l’application contractuelle/IMO, non à bloquer la restitution historique. Désignations et franchises propres aux lots restent à qualifier.
+
+#### Rattachement magasinage sans durée — 22 septembre 2026 — PASS local / PARTIAL livraison
+
+- GO utilisateur après confirmation du PDF Dakar Terminal : permettre la préparation informative sans inventer durée, catégorie confirmée ou franchise applicable. Queue : arbitrages historiques conservés, pièces routières/CSC hors lot toujours manquantes ; aucun nouveau GO déduit.
+- Préflight work local70d1539→70d1539 ; fetch origin/work ec7dc079, diff distant limité à .lovable/plan.md (+30), aucun code applicatif divergent. Notes locales antérieures préservées.
+- Quatre fichiers applicatifs/tests : validateur partagé séjour et son test, formulaire ContainerStayEstimateFields et son test. Aucune modification des règles monétaires ni du fichier moteur gelé.
+- Hypothèse sans durées autorisée uniquement avec providerDPW et code410–419 explicites ; dates/source/identité exactes et rejets des valeurs invalides conservés. Deux durées null restent null et aucun montant séjour n’est produit.
+- Aperçu du brouillon affiche franchise applicable à confirmer, référence DPW10j distincte de DT5j/10jMali, trois périodes relatives et taux P1×1,111/P2-P3 historiques ; sources et observation TOM distinctes. Aucun choix de catégorie automatiquement adopté.
+- Après enregistrement/liaison et nouveau calcul isolé : chemin informatif existant disponible ; exemple sur poids du lot uniquement si conditions franchise déjà éligibles. Routage SN/port, exclusions20HQ/IMO/inconnu non assouplis ; GoTrans non recalculé.
+- Tests :78Deno ciblés avec typage PASS,27UI PASS,typecheck/build/config97/bundles isolés PASS. Lint ciblé1prefer-const identique au fichier origin/work : PASS_WITH_BASELINE. CI complète et recette Cloud NOT_RUN.
+- Contre-revue indépendante lecture seule PASS,30Deno avec typage rejoués ; erreur de typage du nouveau test corrigée avant clôture. Aucun blocage restant sur ce diff local.
+- Aucun commit/push/déploiement, SQL/migration/DB/Auth/RLS/fait/catalogue/envoi ; runtime inchangé. Retour local : retirer uniquement ces quatre changements et cette clôture, conserver les notes antérieures.
+- Suite : GO publication distinct pour commit/push work, preview privée et bundles consommateurs séjour, puis recette sans envoi. La qualification/adoption des catégories réelles et franchises n’est pas prétendue accomplie par ce correctif.
 
 ## 11. Procédure de reprise dans une nouvelle session
 

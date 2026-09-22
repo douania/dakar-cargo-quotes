@@ -34,3 +34,29 @@ it("malformed rows render without mutation and remain invalid", () => {
   render(<ContainerStayEstimateFields value={value} onChange={() => { throw new Error("unexpected write"); }} />);
   expect(screen.getByRole("alert").textContent).toContain("Lot malformé"); expect(stayBasisError(JSON.parse(value))).not.toBeNull();
 });
+it("designation can be prepared without invented days; sourced tiers preview does not confirm franchise", () => {
+  let raw = "";
+  function Form() {
+    const [value, set] = useState(JSON.stringify({ schema_version: 1, source: "Grille Dakar Terminal p.34, catégorie sous hypothèse", verified_on: "2026-09-22",
+      groups: [{ unit_ref: "sample", equipment_code: "20HQ", quantity: 13, ownership: "SOC", provider: "DPW", storage_p1_code: "414", storage_days: null, demurrage_days: null }] }));
+    raw = value; return <ContainerStayEstimateFields value={value} onChange={set} />;
+  }
+  render(<Form />);
+  const before = raw;
+  expect(screen.getByRole("region", { name: "Repères magasinage lot 1" }).textContent).toContain("Franchise applicable : à confirmer");
+  for (const rate of [394, 599, 775]) expect(screen.getByText(new RegExp(`${rate} FCFA/tonne/jour`))).toBeTruthy();
+  expect(screen.getByText(/La grille Dakar Terminal indique 5 jours/)).toBeTruthy();
+  expect(screen.getByText(/Aperçu du brouillon/)).toBeTruthy();
+  expect(stayBasisError(JSON.parse(raw))).toBeNull();
+  const draft: AssumptionDraft = { statement: "Catégorie seulement", basis: "Grille historique", assumptionType: "other", valueType: "json", valueInput: raw,
+    scopeKey: "case", assumedFactKey: CONTAINER_STAY_KEY, gapKey: "", sourceType: "operator_guidance", riskLevel: "medium", clientVisible: true };
+  const body = buildAssumptionRequestBody("11111111-1111-4111-8111-111111111111", "create", "storage-category-001", draft);
+  expect(body.ok).toBe(true); expect(body.body?.assumed_value).toEqual(JSON.parse(raw));
+  expect(raw).toBe(before);
+  fireEvent.change(screen.getByLabelText("Code magasinage retenu sous hypothèse"), { target: { value: "419" } });
+  expect(screen.getByText(/Observation chez un autre opérateur/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Terminal retenu sous hypothèse"), { target: { value: "UNKNOWN" } });
+  expect(screen.queryByRole("region", { name: "Repères magasinage lot 1" })).toBeNull();
+  expect(stayBasisError(JSON.parse(raw))).not.toBeNull();
+  expect(JSON.parse(raw).groups[0]).toMatchObject({ storage_days: null, demurrage_days: null });
+});

@@ -23,8 +23,11 @@ export function stayBasisError(raw: unknown): string | null {
       !text(g.unit_ref) || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(g.unit_ref) || refs.has(g.unit_ref) ||
       !text(g.equipment_code) || !integer(g.quantity, 1, 1000000) ||
       (g.storage_days !== null && !integer(g.storage_days, 1, 3660)) || (g.demurrage_days !== null && !integer(g.demurrage_days, 1, 3660)) ||
-      (g.storage_days === null && g.demurrage_days === null) ||
-      !["SOC", "COC"].includes(String(g.ownership)) || !["DPW", "UNKNOWN"].includes(String(g.provider))) return "Lot : référence unique, équipement, propriété, quantité et jours de séjour entiers positifs requis.";
+      // A sourced designation may be linked before a forecast duration exists.
+      // Null durations still prevent every monetary stay calculation downstream.
+      (g.storage_days === null && g.demurrage_days === null &&
+        !(g.provider === "DPW" && typeof g.storage_p1_code === "string" && /^41[0-9]$/.test(g.storage_p1_code))) ||
+      !["SOC", "COC"].includes(String(g.ownership)) || !["DPW", "UNKNOWN"].includes(String(g.provider))) return "Lot : référence unique, équipement, propriété et quantité requis ; renseigner des jours entiers positifs ou une désignation magasinage 410–419 sous hypothèse DPW sans durée.";
     refs.add(g.unit_ref);
   }
   return null;

@@ -141,6 +141,33 @@ Deno.test("stay: independent durations, no recycling of missing terminal/carrier
   assertEquals(out.lines.find(l => l.category === "Surestaries")?.amount, null);
   assertEquals(out.lines.find(l => l.category === "Magasinage")?.amount, 0);
 });
+Deno.test("storage designation without durations: linked information only, no monetary stay amount", async () => {
+  const req = request();
+  Object.assign(req.scenarioStay.basis.groups[0], { storage_p1_code: "414", storage_days: null, demurrage_days: null });
+  const before = JSON.stringify(req);
+  assertEquals(stayBasisError(req.scenarioStay.basis), null);
+  assert(resolveStayGroup(req.scenarioStay.basis, unit(), "2026-09-22").group);
+  assertEquals(assessDpwStorageFranchise(storage(), req.scenarioStay.basis.groups[0], unit(), "2026-09-22").amount, null);
+  const out = await generateQuotationLines(db(), req);
+  const lines = out.lines.filter(l => ["Magasinage", "Surestaries"].includes(l.category));
+  assert(lines.every(l => l.amount === null));
+  const info = lines.find(l => l.id === "warehouse_franchise_lot-1")?.stay_information;
+  assertEquals(info?.tiers.map(t => t.rate), [394, 599, 775]);
+  assertEquals(info?.example?.amount, 23640); // 30 tonnes × 2 illustrative days ×394; not in totals
+  assertEquals(computeScenarioTotals(lines.map(l => ({ ...l })), new Set()).indicative_total_ht, 0);
+  assertEquals(JSON.stringify(req), before);
+  for (const patch of [{ storage_p1_code: null }, { storage_p1_code: "420" }, { storage_p1_code: "421" }, { provider: "UNKNOWN" },
+    { storage_days: undefined }, { storage_days: 0 }, { storage_days: 1.5 }, { storage_days: 3661 }]) {
+    const b = structuredClone(req.scenarioStay.basis); Object.assign(b.groups[0], patch); assert(stayBasisError(b));
+  }
+  // Missing dangerous-goods qualification cannot acquire a franchise or example.
+  Object.assign(req.scenarioCargoContext.cargo_units[0], { dangerous_goods: null });
+  const reserved = (await generateQuotationLines(db(), req)).lines.find(l => l.id === "warehouse_franchise_lot-1");
+  assertEquals(reserved?.amount, null);
+  assertEquals(reserved?.stay_information?.free_days, null);
+  assertEquals(reserved?.stay_information?.example, null);
+  assert(reserved?.stay_information?.tiers.every(t => t.relative));
+});
 Deno.test("stay: canonical RORO/CONRO fact survives missing scenario mode, cannot yield DPW zero", async () => {
   for (const mode of ["RORO", "CONRO"]) {
     const req = request(8);
