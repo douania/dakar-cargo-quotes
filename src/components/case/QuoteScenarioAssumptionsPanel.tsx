@@ -48,7 +48,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Check, Lightbulb, Link2, Loader2, Pencil, Plus, ShieldCheck, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Check, Lightbulb, Link2, Loader2, MoreHorizontal, Pencil, Plus, ShieldCheck, X } from "lucide-react";
 import {
   AssumptionPromotionDialog,
   type PromotableAssumption,
@@ -70,7 +71,6 @@ import {
   ASSUMPTION_VALUE_TYPE_LABELS,
   ASSUMPTION_VALUE_TYPES,
   buildAssumptionRequestBody,
-  formatAssumptionValue,
   type AssumptionDraft,
   type AssumptionOperation,
   type AssumptionRiskLevel,
@@ -78,6 +78,10 @@ import {
   type AssumptionType,
   type AssumptionValueType,
 } from "@/lib/scenarioAssumptions";
+import {
+  presentAssumptionValue,
+  technicalAssumptionValue,
+} from "@/pages/case-view/assumptionPresentation";
 
 type QuoteScenarioAssumption =
   Database["public"]["Tables"]["quote_scenario_assumptions"]["Row"];
@@ -675,6 +679,13 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
           // `allowedActionsForStatus` (transitions P1-A1) laisse sans action :
           // compatibilité client et promotion sont deux gestes distincts.
           const promotable = canPromote(a.status, a.assumed_value_type, a.assumed_fact_key);
+          const presentation = presentAssumptionValue({
+            scopeKey: a.scope_key,
+            assumptionType: a.assumption_type,
+            assumedFactKey: a.assumed_fact_key,
+            valueType: a.assumed_value_type,
+            value: a.assumed_value,
+          });
 
           if (formMode === "revise" && reviseTargetId === a.id) {
             return (
@@ -699,10 +710,10 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
               <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline" className="text-[10px]">
-                    {a.scope_key}
+                     Portée : {presentation.scopeLabel}
                   </Badge>
                   <Badge variant="outline" className="text-[10px]">
-                    {ASSUMPTION_TYPE_LABELS[a.assumption_type] ?? a.assumption_type}
+                     Type : {presentation.typeLabel}
                   </Badge>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
@@ -735,18 +746,21 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
 
               <p className="mt-1.5 text-foreground">{a.statement}</p>
 
-              <p className="mt-1 text-muted-foreground">
-                <span className="font-medium">Valeur supposée : </span>
-                <span className="font-mono">
-                  {formatAssumptionValue(a.assumed_value_type, a.assumed_value)}
-                </span>
-                {a.assumed_value_type ? (
-                  <span className="ml-1 text-[10px]">
-                    ({ASSUMPTION_VALUE_TYPE_LABELS[a.assumed_value_type as AssumptionValueType] ??
-                      a.assumed_value_type})
-                  </span>
-                ) : null}
-              </p>
+              <div className="mt-2 space-y-2">
+                {presentation.groups.map((group, groupIndex) => <section key={`${a.id}-group-${groupIndex}`} className="rounded border border-border/50 p-2">
+                  {group.title && <h4 className="font-medium mb-1">{group.title}</h4>}
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                    {group.rows.map(row => <div key={`${groupIndex}-${row.label}`} className="min-w-0">
+                      <dt className="text-muted-foreground">{row.label}</dt>
+                      <dd className="break-words">{row.value}</dd>
+                    </div>)}
+                  </dl>
+                </section>)}
+                {a.assumed_value_type === "json" && <details>
+                  <summary className="cursor-pointer text-[11px] text-muted-foreground">Détail technique</summary>
+                  <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-[11px]">{technicalAssumptionValue(a.assumed_value)}</pre>
+                </details>}
+              </div>
 
               {a.basis ? (
                 <p className="mt-1 text-muted-foreground">
@@ -775,52 +789,24 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
               </div>
 
               {(actions.length > 0 || promotable) && formMode === "none" ? (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {promotable ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[11px] border-violet-300 text-violet-800 hover:bg-violet-100"
-                      disabled={submitting}
-                      onClick={() =>
-                        setPromotionTarget({
-                          id: a.id,
-                          status: a.status,
-                          statement: a.statement,
-                          assumed_value: a.assumed_value,
-                          assumed_value_type: a.assumed_value_type,
-                          assumed_fact_key: a.assumed_fact_key,
-                          scope_key: a.scope_key,
-                        })
-                      }
-                    >
-                      <ShieldCheck className="h-3 w-3 mr-1" />
-                      Promouvoir en fait
-                    </Button>
-                  ) : null}
-                  {actions.map((action) => (
-                    <Button
-                      key={action}
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[11px]"
-                      disabled={submitting}
-                      onClick={() =>
-                        action === "revise" ? startRevise(a) : runTransition(a.id, action)
-                      }
-                    >
-                      {isPending ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : action === "revise" ? (
-                        <Pencil className="h-3 w-3 mr-1" />
-                      ) : action === "confirm_client" ? (
-                        <Check className="h-3 w-3 mr-1" />
-                      ) : (
-                        <X className="h-3 w-3 mr-1" />
-                      )}
-                      {ACTION_LABELS[action]}
-                    </Button>
-                  ))}
+                <div className="mt-2 flex items-center gap-1.5">
+                  {actions.includes("revise") && <Button size="sm" className="h-7 text-xs" disabled={submitting} onClick={() => startRevise(a)}>
+                    {isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Pencil className="h-3 w-3 mr-1" />}Réviser
+                  </Button>}
+                  {(promotable || actions.some(action => action !== "revise")) && <Popover>
+                    <PopoverTrigger asChild><Button size="icon" variant="outline" className="h-7 w-7" disabled={submitting} aria-label="Autres actions">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button></PopoverTrigger>
+                    <PopoverContent align="start" className="w-52 p-1">
+                      {promotable && <Button variant="ghost" className="w-full justify-start text-xs" onClick={() => setPromotionTarget({
+                        id: a.id, status: a.status, statement: a.statement, assumed_value: a.assumed_value,
+                        assumed_value_type: a.assumed_value_type, assumed_fact_key: a.assumed_fact_key, scope_key: a.scope_key,
+                      })}><ShieldCheck className="h-3 w-3 mr-2" />Promouvoir en fait</Button>}
+                      {actions.filter(action => action !== "revise").map(action => <Button key={action} variant="ghost" className="w-full justify-start text-xs" onClick={() => runTransition(a.id, action)}>
+                        {action === "confirm_client" ? <Check className="h-3 w-3 mr-2" /> : <X className="h-3 w-3 mr-2" />}{ACTION_LABELS[action]}
+                      </Button>)}
+                    </PopoverContent>
+                  </Popover>}
                 </div>
               ) : null}
             </div>
