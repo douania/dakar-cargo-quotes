@@ -352,19 +352,21 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
         <ScrollArea className="max-h-[300px]">
           <div className="space-y-3">
             {versions.map((version, index) => {
-              const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[] } | null;
-              const totalHt = snapshot?.totals?.total_ht;
-              const currency = snapshot?.totals?.currency || 'XOF';
+              const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[]; meta?: Record<string, unknown> } | null;
+              const totalHt = Number(snapshot?.totals?.total_ht);
+              const currency = String(snapshot?.totals?.currency || 'XOF');
               const linesCount = snapshot?.lines?.length || 0;
               const hasDownloadUrl = !!downloadUrls[version.id];
               const qualification = resolveQuoteQualification(snapshot);
               const previousVersion = versions[index + 1];
               const previousSnapshot = previousVersion?.snapshot as { totals?: Record<string, unknown> } | null;
-              const previousTotal = previousSnapshot?.totals?.total_payable
+              const previousTotalValue = previousSnapshot?.totals?.total_payable
                 ?? previousSnapshot?.totals?.total_ttc
                 ?? previousSnapshot?.totals?.total_ht;
-              const displayedTotal = snapshot?.totals?.total_payable ?? snapshot?.totals?.total_ttc ?? totalHt;
-              const sameAsPrevious = previousVersion && typeof displayedTotal === 'number' && displayedTotal === previousTotal;
+              const displayedTotalValue = snapshot?.totals?.total_payable ?? snapshot?.totals?.total_ttc ?? totalHt;
+              const displayedTotal = Number(displayedTotalValue);
+              const previousTotal = Number(previousTotalValue);
+              const sameAsPrevious = previousVersion && Number.isFinite(displayedTotal) && displayedTotal === previousTotal;
 
               return (
                 <div 
@@ -396,7 +398,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                         )}
                       </div>
 
-                      {displayedTotal !== undefined && (
+                      {Number.isFinite(displayedTotal) && (
                         <p className="mt-2 text-lg font-bold">
                           {formatAmount(displayedTotal)} {currency}
                         </p>
