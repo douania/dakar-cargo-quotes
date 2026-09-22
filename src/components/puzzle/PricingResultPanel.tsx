@@ -195,6 +195,13 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
   const nextVersionNumber = versions.length > 0
     ? Math.max(...versions.map(v => v.version_number)) + 1
     : 1;
+  const currentRunAlreadyVersioned = versions.some((version) => version.pricing_run_id === pricingRun.id);
+  const officialSourceCount = new Set(
+    tariffSources
+      .filter((source: any) => String(source?.type ?? '').toUpperCase() === 'OFFICIAL')
+      .map((source: any) => String(source?.reference ?? '').trim())
+      .filter(Boolean),
+  ).size;
 
   // Lot 3D-3: QQM commercial qualification (preview only)
   const qualification = resolveQualificationFromRun(pricingRun);
@@ -284,7 +291,6 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <PricingFreshnessNotice pricingAt={pricingRun.completed_at} estimateAt={latestEstimateAt} />
         {/* Regime Blocker Alert */}
         {(() => {
           const outputs = pricingRun.outputs_json as any;
@@ -347,74 +353,42 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
           );
         })()}
 
-        {/* Summary Section — always reads root columns (backward compat) */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-lg">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              {formatAmount(totalPayable)}
-            </p>
-            <p className="text-xs text-muted-foreground">Total à payer ({pricingRun.currency || 'XOF'})</p>
-            {hasDetailedCommercialTotals && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                Sous-total avant TVA SODATRA : {formatAmount(subtotalBeforeSodatraVat)}
-              </p>
-            )}
+        {/* Operator summary — values are read from the saved pricing run only. */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Synthèse du pricing confirmé">
+          <div className="border p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Total à payer</p>
+            <p className="mt-1 text-2xl font-bold">{formatAmount(totalPayable)} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
+            {hasDetailedCommercialTotals && <p className="mt-1 text-xs text-muted-foreground">Sous-total avant TVA SODATRA : {formatAmount(subtotalBeforeSodatraVat)}</p>}
           </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-              {formatAmount(tariffLines.reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0))}
-            </p>
-            <p className="text-xs text-muted-foreground">Total lignes ({pricingRun.currency || 'XOF'})</p>
+          <div className="border p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Total des lignes</p>
+            <p className="mt-1 text-2xl font-bold">{formatAmount(tariffLines.reduce((sum: number, line: any) => sum + (Number(line.amount) || 0), 0))} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
+            <p className="mt-1 text-xs text-muted-foreground">Sous-total des lignes enregistrées</p>
           </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold">{tariffLines.length}</p>
-            <p className="text-xs text-muted-foreground">Lignes tarifaires</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              {calculatedCount} calculées · {toConfirmCount > 0 && <span className="text-amber-600 dark:text-amber-400">{toConfirmCount} à confirmer</span>}
-              {toConfirmCount > 0 && informationalCount > 0 && ' · '}
-              {informationalCount > 0 && <span>{informationalCount} info</span>}
+          <div className="border p-4">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Lignes</p>
+            <p className="mt-1 text-2xl font-bold">{tariffLines.length}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{calculatedCount} calculées · {toConfirmCount} à confirmer · {informationalCount} pour information</p>
+          </div>
+          <div className={toConfirmCount > 0 ? "border border-amber-400/60 p-4" : "border p-4"}>
+            <p className="text-xs font-medium uppercase text-muted-foreground">À confirmer</p>
+            <p className="mt-1 text-2xl font-bold">{toConfirmCount}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {toConfirmCount > 0
+                ? tariffLines.filter((line: any) => line.source?.type === 'TO_CONFIRM').map((line: any, index: number) => line.category || line.service_code || line.charge_code || `Ligne ${index + 1}`).join(' · ')
+                : 'Aucun poste'}
             </p>
           </div>
-          <div className="text-center">
-            {toConfirmCount > 0 ? (
-              <>
-                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{toConfirmCount}</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">À confirmer</p>
-                <div className="mt-1 space-y-0.5">
-                  {tariffLines
-                    .filter((l: any) => l.source?.type === 'TO_CONFIRM')
-                    .slice(0, 3)
-                    .map((l: any, i: number) => (
-                      <p key={i} className="text-[10px] text-amber-600/80 dark:text-amber-400/80 truncate max-w-[120px] mx-auto">
-                        {l.category || l.service_code || l.charge_code || `Ligne ${i + 1}`}
-                      </p>
-                    ))}
-                  {toConfirmCount > 3 && (
-                    <p className="text-[10px] text-amber-600/60">+{toConfirmCount - 3} autres</p>
-                  )}
-                </div>
-              </>
-            ) : qualification.level === 'firm' ? (
-              <>
-                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">✓</p>
-                <p className="text-xs text-muted-foreground">Tout confirmé</p>
-              </>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">⚠</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Sous réserve</p>
-                {primaryReasonLabel && (
-                  <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 truncate max-w-[140px] mx-auto mt-0.5">
-                    {primaryReasonLabel}
-                  </p>
-                )}
-              </>
-            )}
+        </div>
+
+        <div className="flex flex-col gap-2 border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <p>{officialSourceCount} barème{officialSourceCount > 1 ? 's' : ''} officiel{officialSourceCount > 1 ? 's' : ''} cité{officialSourceCount > 1 ? 's' : ''}</p>
+            <PricingFreshnessNotice pricingAt={pricingRun.completed_at} estimateAt={latestEstimateAt} />
           </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold">{versions.length}</p>
-            <p className="text-xs text-muted-foreground">Versions créées</p>
-          </div>
+          <Button variant="ghost" size="sm" className="shrink-0 justify-start" onClick={() => setLinesExpanded(value => !value)} aria-expanded={linesExpanded}>
+            Détail des lignes {linesExpanded ? '▾' : '▸'}
+          </Button>
         </div>
 
         {/* Provisional / partial total warning (Lot 3D-3) */}
@@ -444,22 +418,6 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
             </p>
           </div>
         ) : null}
-
-        {/* Tariff Sources */}
-        {tariffSources.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {tariffSources.slice(0, 5).map((source: any, idx: number) => (
-              <Badge key={idx} variant="secondary" className="text-xs">
-                {source.table || source.source || `Source ${idx + 1}`}
-              </Badge>
-            ))}
-            {tariffSources.length > 5 && (
-              <Badge variant="outline" className="text-xs">
-                +{tariffSources.length - 5} autres
-              </Badge>
-            )}
-          </div>
-        )}
 
         {/* Multi-lot: Per-lot collapsible sections */}
         {isMultiLot && lots.length > 0 && (
@@ -585,15 +543,6 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
         {/* Mono-lot: Flat tariff lines (fallback when not multi-lot) */}
         {!isMultiLot && tariffLines.length > 0 && (
           <Collapsible open={linesExpanded} onOpenChange={setLinesExpanded}>
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" size="sm" className="w-full justify-between">
-                <span className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Détail des lignes tarifaires
-                </span>
-                {linesExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </Button>
-            </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="mt-2 border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
@@ -712,8 +661,9 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogTrigger asChild>
             <Button
-              className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-              disabled={isCreating || isLocked}
+              className="w-full gap-2"
+              title={currentRunAlreadyVersioned ? `Le Pricing Run #${pricingRun.run_number} est déjà versionné` : undefined}
+              disabled={isCreating || isLocked || currentRunAlreadyVersioned}
             >
               {isCreating ? (
                 <>
@@ -723,7 +673,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
               ) : (
                 <>
                   <FileText className="h-4 w-4" />
-                  Créer version de devis v{nextVersionNumber}
+                  Créer la version v{nextVersionNumber}
                 </>
               )}
             </Button>

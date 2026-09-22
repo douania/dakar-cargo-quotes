@@ -47,6 +47,7 @@ export interface QuotationVersion {
   snapshot: any;
   created_at: string;
   created_by: string | null;
+  pricing_run_id: string | null;
 }
 
 interface UsePricingResultDataReturn {
@@ -114,7 +115,7 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
     try {
       const { data, error: fetchError } = await supabase
         .from('quotation_versions')
-        .select('id, version_number, status, is_selected, snapshot, created_at, created_by')
+        .select('id, version_number, status, is_selected, snapshot, created_at, created_by, pricing_run_id')
         .eq('case_id', caseId)
         .order('version_number', { ascending: false });
 
