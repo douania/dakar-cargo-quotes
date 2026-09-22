@@ -291,12 +291,12 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
                       >
                         {iconForStatus(step.status)}
                         <span>{step.label}</span>
-                      </div>
                         {step.status === "blocked" && (
                           <span className="text-muted-foreground">
                             — bloqué : {step.note ?? `${blockingGapsCount} point${blockingGapsCount > 1 ? "s" : ""} à résoudre`}
                           </span>
                         )}
+                      </div>
                         {step.note && step.status !== "done" && step.status !== "blocked" && (
                         <div className="ml-6 text-[10px] text-muted-foreground/50 italic">
                           {step.note}
