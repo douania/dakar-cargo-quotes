@@ -22,6 +22,12 @@ interface Props {
   threadId?: string | null;
 }
 
+export function getPartnerScopeExplanation(qualification: string, isDapDdp: boolean, explanation: string) {
+  return qualification === "out_of_scope" && isDapDdp
+    ? "Hors périmètre DAP de ce devis. À solliciter seulement si le client demande le fret."
+    : explanation;
+}
+
 const CONFIDENCE_STYLE: Record<string, { label: string; className: string }> = {
   high: { label: "Élevée", className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
   medium: { label: "Moyenne", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
@@ -156,7 +162,7 @@ function ScopeBlock({ item, qualification, isDapDdp, explanation }: { item: Part
         )}
       </div>
       <p className="ml-6 text-[11px] text-muted-foreground">
-        {isOutOfScope && isDapDdp ? "Hors périmètre DAP de ce devis. À solliciter seulement si le client demande le fret." : explanation}
+        {getPartnerScopeExplanation(qualification, isDapDdp, explanation)}
       </p>
       <div className="ml-6 flex flex-wrap gap-1.5" aria-label={`Éléments attendus pour ${item.label}`}>
         {item.requiredItems.map((ri) => (
