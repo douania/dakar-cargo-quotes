@@ -352,16 +352,17 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
         <ScrollArea className="max-h-[300px]">
           <div className="space-y-3">
             {versions.map((version, index) => {
-              const snapshot = version.snapshot as any;
+              const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[] } | null;
               const totalHt = snapshot?.totals?.total_ht;
               const currency = snapshot?.totals?.currency || 'XOF';
               const linesCount = snapshot?.lines?.length || 0;
               const hasDownloadUrl = !!downloadUrls[version.id];
               const qualification = resolveQuoteQualification(snapshot);
               const previousVersion = versions[index + 1];
-              const previousTotal = (previousVersion?.snapshot as any)?.totals?.total_payable
-                ?? (previousVersion?.snapshot as any)?.totals?.total_ttc
-                ?? (previousVersion?.snapshot as any)?.totals?.total_ht;
+              const previousSnapshot = previousVersion?.snapshot as { totals?: Record<string, unknown> } | null;
+              const previousTotal = previousSnapshot?.totals?.total_payable
+                ?? previousSnapshot?.totals?.total_ttc
+                ?? previousSnapshot?.totals?.total_ht;
               const displayedTotal = snapshot?.totals?.total_payable ?? snapshot?.totals?.total_ttc ?? totalHt;
               const sameAsPrevious = previousVersion && typeof displayedTotal === 'number' && displayedTotal === previousTotal;
 

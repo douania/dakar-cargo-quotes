@@ -198,8 +198,8 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
   const currentRunAlreadyVersioned = versions.some((version) => version.pricing_run_id === pricingRun.id);
   const officialSourceCount = new Set(
     tariffSources
-      .filter((source: any) => String(source?.type ?? '').toUpperCase() === 'OFFICIAL')
-      .map((source: any) => String(source?.reference ?? '').trim())
+      .filter((source: Record<string, unknown>) => String(source?.type ?? '').toUpperCase() === 'OFFICIAL')
+      .map((source: Record<string, unknown>) => String(source?.reference ?? '').trim())
       .filter(Boolean),
   ).size;
 
@@ -362,7 +362,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
           </div>
           <div className="border p-4">
             <p className="text-xs font-medium uppercase text-muted-foreground">Total des lignes</p>
-            <p className="mt-1 text-2xl font-bold">{formatAmount(tariffLines.reduce((sum: number, line: any) => sum + (Number(line.amount) || 0), 0))} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
+            <p className="mt-1 text-2xl font-bold">{formatAmount(tariffLines.reduce((sum: number, line: Record<string, unknown>) => sum + (Number(line.amount) || 0), 0))} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
             <p className="mt-1 text-xs text-muted-foreground">Sous-total des lignes enregistrées</p>
           </div>
           <div className="border p-4">
@@ -375,7 +375,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
             <p className="mt-1 text-2xl font-bold">{toConfirmCount}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {toConfirmCount > 0
-                ? tariffLines.filter((line: any) => line.source?.type === 'TO_CONFIRM').map((line: any, index: number) => line.category || line.service_code || line.charge_code || `Ligne ${index + 1}`).join(' · ')
+                ? tariffLines.filter((line: Record<string, unknown>) => (line.source as Record<string, unknown> | undefined)?.type === 'TO_CONFIRM').map((line: Record<string, unknown>, index: number) => String(line.category || line.service_code || line.charge_code || `Ligne ${index + 1}`)).join(' · ')
                 : 'Aucun poste'}
             </p>
           </div>
