@@ -119,6 +119,8 @@ function SendQuotationPanelInner({ caseId }: SendQuotationPanelProps) {
   const localHasSubject = !!editSubject.trim();
   const localHasBody = !!editBody.trim();
 
+  const recipientMissing = !!ownerDraft && !localHasRecipient;
+
   const hasUnsavedChanges = !!ownerDraft && (
     editTo.trim() !== (ownerDraft.to_addresses?.[0] ?? '') ||
     editSubject.trim() !== (ownerDraft.subject ?? '') ||
@@ -397,7 +399,11 @@ function SendQuotationPanelInner({ caseId }: SendQuotationPanelProps) {
                 onChange={(e) => setEditTo(e.target.value)}
                 placeholder="email@client.com"
                 type="email"
+                aria-invalid={recipientMissing}
+                aria-describedby={recipientMissing ? "quotation-recipient-error" : undefined}
+                className={recipientMissing ? "border-destructive focus-visible:ring-destructive" : undefined}
               />
+              {recipientMissing && <p id="quotation-recipient-error" role="alert" className="text-xs text-destructive">Destinataire requis avant le marquage comme envoyé.</p>}
             </div>
 
             <div className="space-y-1.5">
@@ -460,6 +466,9 @@ function SendQuotationPanelInner({ caseId }: SendQuotationPanelProps) {
         )}
 
         {/* Mark as sent button with confirmation */}
+        {!isFinalized && (
+          <p className="text-xs text-muted-foreground">Envoi manuel hors application. Débloqué dès que le destinataire est renseigné.</p>
+        )}
         {!isFinalized && (
           <AlertDialog key={selectedVersion?.id}>
             <AlertDialogTrigger asChild>
