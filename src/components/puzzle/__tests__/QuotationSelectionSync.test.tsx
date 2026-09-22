@@ -276,7 +276,7 @@ describe('QuotationVersionCard <-> SendQuotationPanel selection sync', () => {
       <SendQuotationPanel caseId="case-a" />
     </QueryClientProvider>);
     await screen.findByDisplayValue('Devis case-a-v1');
-    fireEvent.click(screen.getByRole('button', { name: /Créer version de devis v2/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Créer la version v2/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmer et créer' }));
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('generate-quotation-version', {
       body: { case_id: 'case-a', pricing_run_id: 'run-new' },
