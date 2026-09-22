@@ -1141,12 +1141,12 @@ export default function CaseView() {
     cockpitState.totalPartnerRequests > 0 ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}` : null,
     pilotage?.action?.label ? `étape restante : ${pilotage.action.label}` : null,
   ].filter(Boolean).join(" · ") : "";
-  const latestReplyAnalysisEvent = events.find((event: any) => event.event_type === "output_generated" && event.event_data?.kind === "reply_analysis_v1") ?? null;
+  const latestReplyAnalysisEvent = events.find((event) => event.event_type === "output_generated" && event.event_data?.kind === "reply_analysis_v1") ?? null;
   const latestReplyAnalysis = latestReplyAnalysisEvent?.created_at
     ? new Date(latestReplyAnalysisEvent.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
     : null;
-  const openClientQuestions = gaps.filter((gap: any) => gap.gap_key !== PAD_REVIEW_GAP_KEY);
-  const openClientBlockingQuestions = openClientQuestions.filter((gap: any) => gap.is_blocking).length;
+  const openClientQuestions = gaps.filter((gap) => gap.gap_key !== PAD_REVIEW_GAP_KEY);
+  const openClientBlockingQuestions = openClientQuestions.filter((gap) => gap.is_blocking).length;
   const openCoordinationBlock = (id: string) => {
     const target = document.getElementById(id);
     if (!target) return;
