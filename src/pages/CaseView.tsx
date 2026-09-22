@@ -2318,7 +2318,7 @@ export default function CaseView() {
 
         </details>
         <details className="mb-4 min-w-0 rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Devis confirmé : classification, résultats et documents{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
+          <summary className="cursor-pointer font-medium">Devis confirmé, versions et envoi{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
         {/* M9b: Output pipeline stepper — read-only progression indicator */}
         {isPipelineVisible && (() => {
           const steps = [

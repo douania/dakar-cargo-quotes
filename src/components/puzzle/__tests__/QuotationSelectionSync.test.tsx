@@ -6,11 +6,19 @@ import { QuotationVersionCard } from '../QuotationVersionCard';
 import { SendQuotationPanel } from '../SendQuotationPanel';
 import { PricingResultPanel } from '../PricingResultPanel';
 
+const pricingMock = vi.hoisted(() => ({
+  pricingRun: {
+    id: 'run-new', run_number: 2, created_at: '2026-09-18T12:00:00Z', completed_at: '2026-09-18T12:00:00Z',
+    total_ht: 2000000, total_ttc: 2100000, currency: 'XOF', tariff_lines: [] as Record<string, unknown>[],
+    tariff_sources: [] as Record<string, unknown>[], outputs_json: {} as Record<string, unknown>,
+  },
+  versions: [{ version_number: 1, pricing_run_id: 'run-old' }] as Record<string, unknown>[],
+}));
+
 vi.mock('@/hooks/usePricingResultData', () => ({
   usePricingResultData: () => ({
-    pricingRun: { id: 'run-new', run_number: 2, created_at: '2026-09-18T12:00:00Z',
-      total_ht: 2000000, currency: 'XOF', tariff_lines: [], tariff_sources: [], outputs_json: {} },
-    versions: [{ version_number: 1 }], isLoading: false, refetchVersions: async () => {},
+    pricingRun: pricingMock.pricingRun,
+    versions: pricingMock.versions, isLoading: false, refetchVersions: async () => {},
   }),
 }));
 
@@ -26,12 +34,6 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-
-let pricingFixture = {
-  id: 'run-new', run_number: 2, created_at: '2026-09-18T12:00:00Z', completed_at: '2026-09-18T12:00:00Z',
-  total_ht: 2000000, total_ttc: 2100000, currency: 'XOF', tariff_lines: [] as Row[], tariff_sources: [] as Row[], outputs_json: {},
-};
-let pricingVersions: Row[] = [{ version_number: 1, pricing_run_id: 'run-old' }];
 
 class ResizeObserverStub {
   observe() {}
@@ -172,6 +174,11 @@ function amountPattern(n: number) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  Object.assign(pricingMock.pricingRun, {
+    id: 'run-new', run_number: 2, total_ht: 2000000, total_ttc: 2100000,
+    tariff_lines: [], tariff_sources: [], outputs_json: {},
+  });
+  pricingMock.versions = [{ version_number: 1, pricing_run_id: 'run-old' }];
   db = {
     quotation_versions: [], quote_cases: [], email_drafts: [], quotation_documents: [],
     external_quote_requests: [], external_quote_response_facts: [], client_gap_requests: [],
@@ -201,6 +208,51 @@ beforeEach(() => {
     if (throwAfterCommit) throw new Error('Response lost after commit');
     return { data: null, error: null };
   }) as unknown as typeof supabase.rpc);
+});
+
+describe('lot 3 operator presentation', () => {
+  it('shows four pricing tiles and counts unique OFFICIAL references', () => {
+    pricingMock.pricingRun.tariff_lines = [
+      { amount: 100, source: { type: 'OFFICIAL' } },
+      { amount: null, category: 'Surestaries', source: { type: 'TO_CONFIRM' } },
+      { amount: 0, source: { type: 'business_rule' } },
+    ];
+    pricingMock.pricingRun.tariff_sources = [
+      { type: 'OFFICIAL', reference: 'Barème PAD' },
+      { type: 'OFFICIAL', reference: 'Barème PAD' },
+      { type: 'OFFICIAL', reference: 'Barème DPW' },
+      { type: 'VALIDATED_INTERNAL', reference: 'Interne' },
+    ];
+    render(<QueryClientProvider client={new QueryClient()}><PricingResultPanel caseId="case-a" /></QueryClientProvider>);
+    const summary = screen.getByLabelText('Synthèse du pricing confirmé');
+    expect(within(summary).getByText('Total à payer')).toBeVisible();
+    expect(within(summary).getByText('Total des lignes')).toBeVisible();
+    expect(within(summary).getByText('Lignes')).toBeVisible();
+    expect(within(summary).getByText('À confirmer')).toBeVisible();
+    expect(screen.getByText('2 barèmes officiels cités')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Détail des lignes ▸' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('disables version creation when the current pricing run is already versioned', () => {
+    pricingMock.versions = [{ version_number: 2, pricing_run_id: 'run-new' }];
+    render(<QueryClientProvider client={new QueryClient()}><PricingResultPanel caseId="case-a" /></QueryClientProvider>);
+    const button = screen.getByRole('button', { name: 'Créer la version v3' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'Le Pricing Run #2 est déjà versionné');
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('marks a missing recipient as an error and keeps manual sending disabled', async () => {
+    seedTwoVersions('case-a');
+    seedDraft('case-a-v1', { to_addresses: [] });
+    const pair = renderPair('case-a');
+    const recipient = await pair.panel().findByPlaceholderText('email@client.com');
+    expect(recipient).toHaveAttribute('aria-invalid', 'true');
+    expect(pair.panel().getByText('Destinataire requis avant le marquage comme envoyé.')).toHaveAttribute('role', 'alert');
+    expect(pair.panel().getByRole('button', { name: 'Marquer comme envoyé' })).toBeDisabled();
+    expect(pair.panel().getByText('Envoi manuel hors application. Débloqué dès que le destinataire est renseigné.')).toBeVisible();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
 });
 
 afterEach(() => {
