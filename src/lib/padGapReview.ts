@@ -11,6 +11,6 @@ export function needsPadReview(gaps: Array<{ gap_key: string; status?: string }>
 
 // Refresh every independent reader of the gap state after a dossier mutation.
 export function refreshGapActionQueries(client: QueryClient, caseId: string): Promise<unknown[]> {
-  return Promise.all(["ready-actions-panel", "cockpit-state"].map(key =>
+  return Promise.all(["ready-actions-panel", "next-action-banner", "cockpit-state"].map(key =>
     client.invalidateQueries({ queryKey: [key, caseId] })));
 }

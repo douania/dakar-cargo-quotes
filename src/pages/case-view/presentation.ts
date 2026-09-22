@@ -4,6 +4,7 @@ import {
   statusAtLeast,
   statusBelow,
 } from "@/lib/cockpitStatusConstants";
+import { PAD_REVIEW_TITLE, PAD_WEIGHT_REVIEW_TITLE } from "@/lib/padGapReview";
 import {
   type SeaFreightPartnerActionKind,
   type SeaFreightPartnerActionSpec,
@@ -104,7 +105,7 @@ export function selectPilotageAction(
   if (state.padReviewCount > 0 && state.padReviewCount === state.blockingGapsCount) {
     return {
       kind: "pad_review",
-      label: state.hasPadWeightReview ? "Réviser le poids retenu pour la cotation" : "Vérifier les choix PAD par groupe",
+      label: state.hasPadWeightReview ? PAD_WEIGHT_REVIEW_TITLE : PAD_REVIEW_TITLE,
       blocker: state.hasPadWeightReview
         ? "Écart entre le poids extrait et la base de cotation ; les catégories déjà validées restent enregistrées."
         : "Validation PAD du devis confirmé, pas une attente automatique de réponse client.",
