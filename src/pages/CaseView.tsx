@@ -1150,7 +1150,9 @@ export default function CaseView() {
   const openCoordinationBlock = (id: string) => {
     const target = document.getElementById(id);
     if (!target) return;
-    if (target instanceof HTMLDetailsElement) target.open = true;
+    for (let current: HTMLElement | null = target; current; current = current.parentElement) {
+      if (current instanceof HTMLDetailsElement) current.open = true;
+    }
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const confirmedQuoteSummary = cockpitState ? [

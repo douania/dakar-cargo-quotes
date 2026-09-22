@@ -34,7 +34,7 @@ interface CaseActionPlanProps {
 }
 
 export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const { data, isLoading } = useCockpitState(caseId);
 
   if (isLoading || !data) return null;
@@ -262,7 +262,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
             </div>
           )}
 
-          <CollapsibleContent forceMount className="data-[state=closed]:block">
+          <CollapsibleContent>
             {(["communication", "consolidation"] as const).map((group) => {
               const groupSteps = steps.filter((s) => s.group === group);
               if (groupSteps.length === 0) return null;
