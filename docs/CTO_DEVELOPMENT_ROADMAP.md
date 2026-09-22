@@ -2456,6 +2456,25 @@ STOP et demander arbitrage CTO si :
 - Aucun commit/push/déploiement, SQL/migration/DB/Auth/RLS/fait/catalogue/envoi ; runtime inchangé. Retour local : retirer uniquement ces quatre changements et cette clôture, conserver les notes antérieures.
 - Suite : GO publication distinct pour commit/push work, preview privée et bundles consommateurs séjour, puis recette sans envoi. La qualification/adoption des catégories réelles et franchises n’est pas prétendue accomplie par ce correctif.
 
+#### Livraison rattachement magasinage — 22 septembre 2026 — PASS privé / PARTIAL recette
+
+- GO utilisateur commit/push, livraison privée et recette sans envoi. Fast-forward70d1539→ec7dc079 (plan Lovable seul), puis799ee83afe1907d0033809a4423ad30639946caa poussé :5fichiers,+117/-4, notes antérieures incluses ; arbre supabase9b406f1b867cac3812bde3d0efe1d444f4054e12.
+- Tests frais sur livraison :78Deno avec typage,27UI et typecheck PASS ; contre-revue et build/bundles/config du lot conservés. CI complète NOT_RUN ce tour ; dettes historiques non corrigées.
+- Lovable umsg_01m349n3sketdrz1vvpdnp7tpc : préflight799ee83/arbre conforme/propre ; build20,03s,index-q8T4D4_J.js,HTTP200 ; accusés exacts Successfully deployed edge functions: quotation-engine, puis run-scenario-pricing, puis manage-quote-scenario. Sondes OPTIONS200/POSTsansauth401 chacune.
+- Post-contrôle Lovable HEAD/arbre inchangés, propre,HTTP200 ; connecteur confirme799ee83,visibilityworkspace_edit,is_published=false. Ne pas assimiler le réglage publish_visibility public à une publication ou à la visibilité projet. Empreinte bundle exécuté NOT_VERIFIED.
+- Recette navigateur authentifié via skill computer-use : fixture TEST450cb321, révision en brouillon de l’hypothèse existante414 ; deux durées vidées, trois taux394/599/775 et périodes relatives/conditionnelles visibles, sources/réserves présentes, bouton enregistrer disponible. Capture visuelle contrôlée.
+- Brouillon annulé sans sauvegarde ; UI restitue hypothèse12j initiale. Aucun scénario créé/sélectionné, aucune adoption GoTrans, aucun calcul/édition fait/barème/SQL/migration/Auth/RLS/envoi/publication publique.
+- Limite : persistance sans durée/liaison/nouveau calcul authentifiés NOT_RUN ; tests locaux prouvent le chemin sans montant, mais ne remplacent pas cette recette complète. Aucun claim de confirmation métier.
+- Retour arrière : revert ciblé799ee83 et reconstruction/redéploiement coordonné sous GO, pas de rollback DB ; conserver historique et notes. Présente clôture locale non commitée.
+
+#### Lot 1 UI vue dossier (cockpit opérateur) — 22 septembre 2026 — PASS_WITH_BASELINE livré
+
+- Origine : revue UI opérateur du dossier de test 450cb321 (PDF 18 pages + page en direct) ; maquette cible 7 écrans (canevas Design privé, lien dans `docs/CTO_GO_QUEUE.md`). Plan Lovable en mode plan (7 lots), contre-revue Claude, GO utilisateur « lot 1 avec découpage 1a 1b 1c et cinq réponses » (conflits explicites seulement ; outils avancés option A ; barèmes officiels = références OFFICIAL ; bouton primaire = navigation ; anciennes commandes déplacées, jamais supprimées).
+- Exécutant unique Lovable, contre-revue Claude par étape sur worktree détaché. `origin/work` 799ee83 → 258b8d8 (commits code 1497b38, 8b272b8, b2403e9, 487a6a1), 25 fichiers `src`, présentation seule : aucun FROZEN, migration, DB/RLS/Auth, calcul, montant, fait, hypothèse, statut ni flux d'écriture modifié.
+- 1a : `case-view/presentation.ts` (sélecteur pur PilotageViewModel, priorité d'action extraite de NextActionBanner, écart estimation/devis à devise identique) + test ; bandeau de pilotage dans `CaseView.tsx` ; `useCockpitState` lit version_number/snapshot en lecture. 1b : `estimatePresentation.ts` (tableau Prestation/Montant/Base/Statut/Détail, réserves « à traiter » vs « mentions standard »), `assumptionPresentation.ts` (hypothèses transport local / séjour en clair, JSON sous « Détail technique »), un bouton « Réviser » + menu par carte. 1c : MainLayout défilant (bandeau collant effectif), débordement horizontal supprimé (941/375 px), ancres `section-data` / `section-sources`, résumés dans les `<summary>`, « Outils avancés » replié (boutons Adopter/Synchroniser déportés par portal), tokens de thème sur les cartes scénario ; correctif print (attributs `data-print-layout`) : 1 page tronquée → 18 pages A4 prouvées par Playwright.
+- Preuves locales à chaque étape : typecheck PASS ; Vitest 509/510 (échec `LocalTransportEstimateFields` identique à 799ee83) ; eslint 0 sur les fichiers touchés hors dette CaseView 76 = 76 ; `lint:baseline` 740/737 FAIL identique à la base (seuil du script obsolète) ; build PASS. CI GitHub NOT_RUN ce tour. Coût Lovable relevé : ≈ 21,6 crédits pour 1c et son correctif.
+- Reste hors lot 1, GO distinct : lots 2 à 6 du plan Lovable (sections dépliées, tableau des révisions de `QuoteScenariosPanel`), intitulé de la zone d'actions cargo canonique, alignement du seuil lint. Retour arrière : revert ciblé des quatre commits code, aucun rollback DB. Clôture locale non commitée.
+
 ## 11. Procédure de reprise dans une nouvelle session
 
 La nouvelle session doit commencer par :
