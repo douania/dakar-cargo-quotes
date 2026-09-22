@@ -54,8 +54,9 @@ function firstSentence(value: unknown): string | null {
 }
 
 export function estimateLineBase(line: EstimateLine): string {
-  return firstSentence(line.notes) ??
-    firstSentence(estimateLineSource(line).reference) ??
+  const note = firstSentence(line.notes);
+  const reference = firstSentence(estimateLineSource(line).reference);
+  return (isPricedEstimateLine(line) ? reference ?? note : note ?? reference) ??
     "Base non renseignée";
 }
 
@@ -90,11 +91,11 @@ export function classifyEstimateReservations(input: {
   const standard: EstimateReservation[] = [];
 
   input.lines.forEach((line, index) => {
-    if (isExcludedEstimateLine(line)) return;
+    if (isExcludedEstimateLine(line) || isPricedEstimateLine(line)) return;
     const note = typeof line.notes === "string" ? line.notes.trim() : "";
     if (!note) return;
     const item = { id: `line-${index}`, message: note, technicalCode: null };
-    (isPricedEstimateLine(line) ? standard : actionable).push(item);
+    actionable.push(item);
   });
 
   reservationsFrom(input.blockers).forEach((item) => actionable.push({

@@ -69,6 +69,18 @@ it("distinguishes an ownership exclusion from a free service and shows the price
   expect(screen.queryByText("TECHNICAL_CODE")).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Postes à compléter" })).not.toBeInTheDocument();
 });
+it("prefers the official reference for priced lines and notes for lines awaiting confirmation", () => {
+  const e = estimate(); e.run!.tariff_lines = [
+    { id: "priced", description: "THC", amount: 1000, notes: "Description du scénario. Suite.", source: { type: "CALCULATED", reference: "Grille officielle THC. Annexe." } },
+    { id: "pending", description: "Transport", amount: null, notes: "Destination à préciser. Suite.", source: { type: "TO_CONFIRM", reference: "Grille transport." } },
+    { id: "empty", description: "Poste sans base", amount: null, source: { type: "TO_CONFIRM" } },
+  ];
+  render(<ScenarioEstimateResult estimate={e} />);
+  const table = screen.getByRole("table", { name: "Prestations de cette estimation" });
+  expect(within(within(table).getByText("THC").closest("tr")!).getByText("Grille officielle THC.")).toBeInTheDocument();
+  expect(within(within(table).getByText("Transport").closest("tr")!).getByText("Destination à préciser.")).toBeInTheDocument();
+  expect(within(within(table).getByText("Poste sans base").closest("tr")!).getByText("Base non renseignée")).toBeInTheDocument();
+});
 const estimate = (): SelectedScenarioEstimate => ({ caseId:"test", title:"Scenario courant", pending:false, error:null,
   run:{ id:"run", scenario_id:"scenario", run_seq:4,status:"success",qualification:"partial",completed_at:"2026-09-15T14:03:00Z",
     blockers:[],reservations:[],assumptions_snapshot:[],firm_total_ht:0,firm_total_ttc:0,indicative_total_ht:1000,indicative_total_ttc:1000,currency:"XOF",
@@ -149,10 +161,9 @@ it("classifies blockers and uncertain reservations as actionable while keeping s
     expect.stringContaining("tarifs restent à confirmer"),
     "Point de contrôle à examiner dans les détails techniques.",
   ]));
-  expect(groups.standard.map(item => item.message)).toEqual(expect.arrayContaining([
-    "Mention liée au poste chiffré.",
+  expect(groups.standard.map(item => item.message)).toEqual([
     expect.stringContaining("prestations DAP"),
-  ]));
+  ]);
   expect(JSON.stringify(lines)).toBe(before);
 });
 

@@ -58,6 +58,10 @@ it('puts the current estimate first despite a PAD gap, with diagnostics and sour
   expect(screen.getByText(/Estimation disponible/)).toBeVisible();
   expect(screen.getByText('1 point à résoudre avant devis confirmé')).not.toBeVisible();
   expect(screen.getByText('Sources, faits et historique').closest('details')).not.toHaveAttribute('open');
+  expect(container.querySelector('#section-data')).toHaveTextContent('Données du dossier et contrôles avant devis confirmé');
+  expect(container.querySelector('#section-sources')).toHaveTextContent('Sources, faits et historique');
+  expect(screen.getByText('Marchandises et catégories portuaires').closest('summary')).toHaveTextContent('catégorie PAD à confirmer');
+  expect(screen.getByText('Sources, faits et historique').closest('summary')).toHaveTextContent('1 fait · 0 événement');
   expect(container.querySelector('#section-pricing')!.compareDocumentPosition(container.querySelector('#section-scenarios')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(invoke).not.toHaveBeenCalled();
 });

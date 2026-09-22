@@ -193,16 +193,16 @@ const scenarioPricingReader = supabase as unknown as {
 };
 
 const STATUS_CLASSES: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-800 border-slate-200",
-  blocked: "bg-red-100 text-red-800 border-red-200",
-  superseded: "bg-amber-100 text-amber-800 border-amber-200",
+  draft: "bg-muted text-foreground border-border",
+  blocked: "bg-destructive/10 text-destructive border-destructive/30",
+  superseded: "bg-muted text-muted-foreground border-border",
 };
 
 const PRICING_STATUS_CLASSES: Record<string, string> = {
-  success: "bg-emerald-50 text-emerald-800 border-emerald-200",
-  blocked: "bg-amber-50 text-amber-900 border-amber-200",
-  failed: "bg-red-50 text-red-800 border-red-200",
-  superseded: "bg-slate-50 text-slate-700 border-slate-200",
+  success: "bg-primary/10 text-primary border-primary/30",
+  blocked: "bg-muted text-foreground border-border",
+  failed: "bg-destructive/10 text-destructive border-destructive/30",
+  superseded: "bg-muted text-muted-foreground border-border",
 };
 
 function errorMessage(err: unknown): string | null {
@@ -1609,7 +1609,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
   }
 
   return (
-    <Card className="mb-6 border-sky-200 bg-sky-50/30">
+    <Card className="mb-6 border-border bg-card">
       <CardHeader className="py-3 px-4">
         <div className="flex items-start justify-between gap-2">
           <div>
