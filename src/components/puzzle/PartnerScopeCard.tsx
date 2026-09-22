@@ -15,17 +15,12 @@ import { Badge } from "@/components/ui/badge";
 import { Layers, CheckCircle2 } from "lucide-react";
 import { useServiceScope } from "@/hooks/useServiceScope";
 import { qualifyScope } from "@/lib/scopeQualification";
+import { getPartnerScopeExplanation } from "@/lib/partnerScopePresentation";
 import { useMemo } from "react";
 
 interface Props {
   caseId: string;
   threadId?: string | null;
-}
-
-export function getPartnerScopeExplanation(qualification: string, isDapDdp: boolean, explanation: string) {
-  return qualification === "out_of_scope" && isDapDdp
-    ? "Hors périmètre DAP de ce devis. À solliciter seulement si le client demande le fret."
-    : explanation;
 }
 
 const CONFIDENCE_STYLE: Record<string, { label: string; className: string }> = {

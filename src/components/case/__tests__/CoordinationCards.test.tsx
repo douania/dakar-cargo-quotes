@@ -25,7 +25,7 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { CaseActionPlan } from "../CaseActionPlan";
 import { CommunicationSummaryCard } from "../CommunicationSummaryCard";
 import { PartnerCollectionReadinessCard } from "@/components/puzzle/PartnerCollectionReadinessCard";
-import { getPartnerScopeExplanation } from "@/components/puzzle/PartnerScopeCard";
+import { getPartnerScopeExplanation } from "@/lib/partnerScopePresentation";
 
 afterEach(cleanup);
 

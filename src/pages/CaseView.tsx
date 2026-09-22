@@ -1139,7 +1139,7 @@ export default function CaseView() {
   ].filter(Boolean).join(" · ");
   const coordinationSummary = cockpitState ? [
     cockpitState.totalPartnerRequests > 0 ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}` : null,
-    pilotage?.action.label ? `étape restante : ${pilotage.action.label}` : null,
+    pilotage?.action?.label ? `étape restante : ${pilotage.action.label}` : null,
   ].filter(Boolean).join(" · ") : "";
   const latestReplyAnalysisEvent = events.find((event: any) => event.event_type === "output_generated" && event.event_data?.kind === "reply_analysis_v1") ?? null;
   const latestReplyAnalysis = latestReplyAnalysisEvent?.created_at
