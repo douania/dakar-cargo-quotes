@@ -393,7 +393,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                         <span>{linesCount} lignes</span>
                         {snapshot?.meta?.pricing_run_number !== undefined && snapshot?.meta?.pricing_run_number !== null && (
                           <Badge variant="outline" className="text-xs font-normal">
-                            Source : Pricing Run #{snapshot.meta.pricing_run_number}
+                             Source : Pricing Run #{String(snapshot.meta.pricing_run_number)}
                           </Badge>
                         )}
                       </div>
