@@ -83,7 +83,8 @@ it("displays current detailed partial result without pricing unknown posts as ze
   expect(within(table).getAllByRole("columnheader").map(cell => cell.textContent)).toEqual([
     "Prestation", "Montant", "Base", "Statut", "Détail",
   ]);
-  expect(within(table).getByText("Destination à préciser").closest("tr")).toHaveTextContent("À confirmer");
+  expect(within(table).getByText("Transport groupe b").closest("tr")).toHaveTextContent("Destination à préciser");
+  expect(within(table).getByText("Transport groupe b").closest("tr")).toHaveTextContent("À confirmer");
 });
 it("shows each stay franchise, tier calculation and source without changing totals",()=>{
   const e=estimate();
