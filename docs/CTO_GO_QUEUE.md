@@ -24,6 +24,31 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-23 12:50 UTC] PENDING — Recette sandbox du lot IMO alertes 1/2 : création du dossier synthétique impossible sans envoi ni insertion directe
+**Origine** : session interactive (Claude Code), GO de publication et recette privée du 23/09.
+**Type** : blocage (STOP ciblé prévu par le GO).
+**Objectif** : prouver en runtime, sur un dossier sandbox dédié, 4 cas : e-mail ordinaire long, « un 20HQ », mention ONU ambiguë conservée bloquante, HTML au plafond d'ingestion bloquant.
+**Constat vérifié dans le code** : `emails` n'est écrit que par sync-emails, import-thread et hydrate-email-body, tous alimentés par IMAP ; `ensure-quote-case` exige un fil existant ; email-admin/data-admin n'ont aucune action d'import de texte brut. Le preflight IMO lit les e-mails du fil : un dossier sans fil ne teste rien.
+**Pourquoi une décision CTO est nécessaire** : option A = l'utilisateur envoie lui-même, depuis une adresse de test identifiable, 4 e-mails synthétiques à la boîte d'ingestion (dont un HTML > 100 000 caractères), puis sync-emails / ensure-quote-case / run-pricing sur ce seul fil ; option B = insertion SQL directe de fil et e-mails synthétiques étiquetés sandbox (contournement de l'ingestion, à autoriser explicitement, et nettoyage à décider).
+**Risques** : A crée de vrais messages dans la boîte et des écritures d'ingestion ; B ne prouve pas la chaîne d'ingestion et écrit hors mécanisme applicatif.
+**Recommandation de Claude Code** : A (chaîne réelle de bout en bout), B seulement si l'envoi est exclu.
+**Référence** : work 6aefc4ce, roadmap §3.25.
+
+---
+
+## [2026-09-23 12:40 UTC] TRAITÉ — Faux blocages IMO : troncature HTML à l'ingestion (STOP hors périmètre)
+**Décision** : GO CTO ciblé de l'utilisateur (23/09) : exception FROZEN `run-pricing/index.ts` limitée à la lecture de `body_html`. Réalisé localement (+2/−1), plafonds vérifiés dans le code (100 000 / 1 000 000 unités UTF-16), contre-revue : A et B levés, aucun bloquant restant. Détail : roadmap §3.25. Non commité (GO de publication distinct).
+**Origine** : session interactive (Claude Code, exécutant unique du GO « faux blocages IMO, alertes Lovable 1 et 2 », base work 00e15251).
+**Type** : demande de GO avant travail (fichier hors périmètre).
+**Objectif** : fermer le dernier bloquant de contre-revue. `sync-emails` tronque `body_html` à 100 000 (hydrate : 1 000 000) avant d'en dériver `body_text` ; le texte obtenu, de longueur quelconque, ne porte aucune trace de la coupe. Une mention ONU coupée en fin de HTML passe désormais « sans IMO » (l'ancien code bloquait tout corps > 4 000 caractères).
+**Fichiers concernés** : `supabase/functions/run-pricing/index.ts` (lecture de `body_html` dans la requête e-mails du preflight) + `imo-goods-preflight.ts` (incomplet si `body_html` = 100 000 ou ≥ 1 000 000).
+**Pourquoi une décision CTO est nécessaire** : `run-pricing/index.ts` (FROZEN) est hors des fichiers autorisés.
+**Risques** : option GO = lecture de `body_html` (jusqu'à 1 Mo par e-mail), sans écriture ni changement d'empreinte ; option résiduel = faux négatif possible sur HTML tronqué. Cloud (lecture seule) : 9 e-mails entrants à HTML plafonné, 0 rattaché à un dossier.
+**Recommandation de Claude Code** : GO ciblé de l'option lecture `body_html` (≤ 2 lignes dans index.ts + tests).
+**Référence** : diff local non commité, 4 fichiers +297/−20.
+
+---
+
 ## [2026-09-22 18:35 UTC] TRAITÉ — Lot 7 : reliquats UI vue dossier livrés et clos (conflits PAD → tableau des faits, raisons de qualification lisibles, zone d'actions cargo canonique, seuil lint 732/16)
 **Origine** : session interactive (Claude Code, canal direct Lovable MCP).
 **Type** : GO utilisateur de réalisation « go » sur la liste des quatre reliquats consignés à la clôture des lots 1 à 6. Base origin/work 1ea91e3 (docs publiées).
