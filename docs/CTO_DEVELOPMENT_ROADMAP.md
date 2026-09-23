@@ -2483,6 +2483,13 @@ STOP et demander arbitrage CTO si :
 - Preuves locales par lot : typecheck PASS ; Vitest 512/513 → 526/527 (seul échec `LocalTransportEstimateFields` identique à la base) ; eslint stable ou en baisse (CaseView 76 → 73) ; `lint:baseline` 740 → 732 erreurs, gate OK depuis le lot 3 ; build PASS ; rendus vérifiés sur 450cb321 dans le navigateur intégré. CI GitHub NOT_RUN ce tour.
 - Reste sous GO distinct : câblage des conflits explicites (état PAD) vers `conflictFactKeys` du tableau des faits, humanisation des raisons brutes de qualification partenaire, intitulé de la zone d'actions cargo canonique, abaissement du seuil lint du script à 732/16. Retour arrière : revert ciblé des commits code du lot concerné, aucun rollback DB. Clôture locale non commitée.
 
+#### Lot 7 UI vue dossier (reliquats) — 22 septembre 2026 — PASS_WITH_BASELINE livré
+
+- GO utilisateur « go » (18:35 UTC) sur les quatre reliquats des lots 1 à 6, exécutant unique Lovable, contre-revue Claude sur worktree détaché. `origin/work` 1ea91e3 → 628f6cd, 9 fichiers (+83/−9), `case-view/factConflicts.ts` et son test créés.
+- Livré : conflit explicite `PAD_GROUP_WEIGHT_CONFLICT` remonté du panneau PAD vers `conflictFactKeys` du tableau des faits (fonction pure, aucune déduction par confiance) ; raisons de `qualifyScope` traduites en présentation dans `partnerScopePresentation.ts` sans toucher `scopeQualification.ts` ; zone « Actions cargo canonique » visible seulement avec un bouton déporté (`has-[button]:flex`, règle vérifiée dans le CSS construit) ; `scripts/check-lint-baseline.mjs` à 732/16.
+- Preuves locales : typecheck PASS ; Vitest 534/535 (seul échec `LocalTransportEstimateFields` identique à la base) ; eslint 0 sur les ajouts, CaseView 73 inchangé ; `lint:baseline` 732/732 OK ; build PASS. Aperçu non revérifié en direct ce tour. CI GitHub NOT_RUN. Aucun FROZEN, migration, DB/RLS/Auth ni flux d'écriture modifié.
+- Aucun reliquat UI ouvert après ce lot. Retour arrière : revert ciblé des cinq commits, aucun rollback DB. Clôture locale non commitée.
+
 ## 11. Procédure de reprise dans une nouvelle session
 
 La nouvelle session doit commencer par :
