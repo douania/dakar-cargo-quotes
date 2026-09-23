@@ -42,8 +42,29 @@ export interface ImoGoodsAssessment {
   sourceFingerprint?: string;
 }
 
-const UN_RE = /\b(?:UN|ONU)\s*[-:]?\s*(\d{4})\b/gi;
-const HAS_UN_MARKER = /\b(?:UN|ONU)\s*[-:]?\s*\d/i;
+// Linear separator (no adjacent \s* pair); a short fraction is a decimal,
+// "3480,3481" remains a list of ONU numbers.
+const UN_CANDIDATE_RE = /(?<![A-Za-z0-9_])(ONU|UN)(\s*(?:[-:]\s*)?)(\d+)(\p{L}*)(?=([.,]\d{1,3}(?!\d))?)/giu;
+interface UnMarker { number: string; valid: boolean }
+
+/** French article "un"/"Un" and quantities ("UN 20HQ", "un 2ème") are not ONU
+ * references. Kept fail-closed: a lowercase article followed by four digits
+ * (even "un 3480kg"), or any uppercase UN/ONU with three digits or more, stays
+ * a marker; only a decimal ("un 1500,5 kg") releases the four-digit article.
+ */
+function unMarkers(text: string): UnMarker[] {
+  const markers: UnMarker[] = [];
+  for (const m of text.matchAll(UN_CANDIDATE_RE)) {
+    const [, token, separator, digits, suffix, decimal] = m;
+    const article = /^u/i.test(token) && token !== "UN" && /\s/.test(separator);
+    if (article ? digits.length !== 4 || !!decimal : digits.length <= 2) continue;
+    markers.push({ number: `UN${digits}${suffix}`, valid: digits.length === 4 && suffix === "" });
+  }
+  return markers;
+}
+function hasUnMarker(text: string): boolean {
+  return unMarkers(text).length > 0;
+}
 const EQUIPMENT_RE = /\b(?:20|40|45)(?:HQ|HC|GP|DV|ST|FL|FR|OT|RF|RE)\b/i;
 // Signatures delimit active content too. This also handles forwarded messages
 // whose Chinese headers were mojibake-decoded by the legacy mail ingestion.
@@ -51,21 +72,20 @@ const HISTORY_RE = /^\s*(?:>|(?:From|De|Sent|Envoy[ée]|Subject|Sujet|Objet)\s*:
 const REVISION_RE = /\b(?:cancel(?:led)?|revised|instead|replace[ds]?|correction|annul[ée]|remplac[ée]|corrig[ée])\b/i;
 
 function unNumbers(text: string): string[] {
-  return [...new Set([...text.matchAll(UN_RE)].map(m => `UN${m[1]}`))];
+  return [...new Set(unMarkers(text).filter(m => m.valid).map(m => m.number))];
 }
 
 /** No inference from the product name, weight, proximity or an AI confidence. */
 export function recognizeImoGoods(sources: readonly ImoGoodsSource[]): ImoGoodsAssessment | null {
-  if (!sources.some(s => HAS_UN_MARKER.test(s.body))) return null;
+  if (!sources.some(s => hasUnMarker(s.body))) return null;
   const groups: ImoGoodsGroup[] = [];
   const reasons = new Set<string>();
   const activeCargoSources = new Set<string>();
   for (const source of sources) {
-    const rawNumbers = [...source.body.matchAll(/\b(?:UN|ONU)\s*[-:]?\s*(\d+[A-Za-z]*)/gi)];
-    if (rawNumbers.some(m => !/^\d{4}$/.test(m[1]))) reasons.add("INVALID_OR_UNSUPPORTED_UN");
+    if (unMarkers(source.body).some(m => !m.valid)) reasons.add("INVALID_OR_UNSUPPORTED_UN");
     const cut = source.body.search(HISTORY_RE);
     const active = cut < 0 ? source.body : source.body.slice(0, cut);
-    if (source.complete === false && HAS_UN_MARKER.test(source.body)) reasons.add("TRUNCATED_SOURCE");
+    if (source.complete === false && hasUnMarker(source.body)) reasons.add("TRUNCATED_SOURCE");
     if (REVISION_RE.test(active)) reasons.add("POSSIBLE_CARGO_REVISION");
     let offset = 0;
     const boundNumbers: string[] = [];

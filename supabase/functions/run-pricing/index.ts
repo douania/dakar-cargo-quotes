@@ -1499,7 +1499,8 @@ Deno.serve(async (req) => {
     // event exists. Read the complete source snapshot; derive evidence in memory.
     const goodsSourceResults = caseData.thread_id ? await Promise.all([
       serviceClient.from("email_threads").select("client_email").eq("id", caseData.thread_id).maybeSingle(),
-      serviceClient.from("emails").select("id, from_address, subject, body_text, sent_at", { count: "exact" })
+      // body_html only signals ingestion truncation to the IMO preflight (GO CTO 2026-09-23).
+      serviceClient.from("emails").select("id, from_address, subject, body_text, body_html, sent_at", { count: "exact" })
         .eq("thread_ref", caseData.thread_id).order("sent_at", { ascending: true }),
     ]) : undefined;
     if ((goodsEvent && !goodsSourceResults) || (goodsSourceResults && (

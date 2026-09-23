@@ -28,7 +28,44 @@ Deno.test("IMO goods: goods units do not become container quantities or separate
   assert(!("quote_request_lines" in recognize(cargo)));
 });
 
-for (const un of ["UN3536", "UN 3536", "ONU: 3536", "un-3536"]) {
+// GO CTO 2026-09-23: the French article "un" is not an ONU reference.
+for (const text of [
+  "Merci de coter un 20HQ pour Dakar.", "Nous ajoutons un 2ème conteneur.", "Un 40HC SOC, un 20 pieds.",
+  "MERCI DE COTER UN 20HQ ET UN 2EME 40HC", "UN 2 X 40HQ", "un 40' HC", "chacun 2000 kg, aucun 3536",
+  "un 12000 kg", "un 1500,5 kg", "Onu est cité, un 20GP",
+]) {
+  Deno.test(`IMO goods: ordinary French wording is not an ONU marker (${text})`, () => {
+    assertEquals(recognizeImoGoods([src(text)]), null);
+  });
+}
+Deno.test("IMO goods: article wording beside a genuine ONU row does not degrade the binding", () => {
+  const result = recognize(`Merci de coter un 20HQ et un 2ème conteneur.\n${cargo.split("\n").slice(1).join("\n")}`);
+  assertEquals(result.status, "BOUND");
+  assertEquals(result.reasons, []);
+});
+for (const [text, reason] of [
+  ["Merci, Un 3536 pour info.", "UN_WITHOUT_PROVEN_GROUP"],
+  ["un 3480 à confirmer", "UN_WITHOUT_PROVEN_GROUP"],
+  ["un 3480,3481 à confirmer", "UN_WITHOUT_PROVEN_GROUP"],
+  ["un 3480.3481", "UN_WITHOUT_PROVEN_GROUP"],
+  ["un 3480kg", "INVALID_OR_UNSUPPORTED_UN"],
+  ["éUN3536", "UN_WITHOUT_PROVEN_GROUP"],
+  ["UN 123 à vérifier", "INVALID_OR_UNSUPPORTED_UN"],
+  ["UN3536A", "INVALID_OR_UNSUPPORTED_UN"],
+  ["ONU 35368", "INVALID_OR_UNSUPPORTED_UN"],
+]) {
+  Deno.test(`IMO goods: ambiguous or malformed ONU-like wording stays fail-closed (${text})`, () => {
+    const result = recognize(text);
+    assertEquals(result.status, "REVIEW");
+    assert(result.reasons.includes(reason));
+  });
+}
+Deno.test("IMO goods: ONU scan stays linear on long whitespace runs", () => {
+  const started = performance.now();
+  assertEquals(recognizeImoGoods([src("UN" + " ".repeat(200_000) + "x")]), null);
+  assert(performance.now() - started < 1000);
+});
+for (const un of ["UN3536", "UN 3536", "ONU: 3536", "un-3536", "UN-3536", "UN:3536", "UN - 3536", "onu 3536", "un3536"]) {
   Deno.test(`IMO goods: normalizes explicit ${un}`, () => {
     assertEquals(recognize(cargo.replace("UN3536", un)).groups[0].classification?.imdgClass, "9");
   });
