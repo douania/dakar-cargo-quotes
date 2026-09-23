@@ -369,6 +369,23 @@ Lovable (message umsg_01m2fqbqcrevqb254db4zbq09e) : HEAD 0e2768ad et worktree pr
 IMAP : INBOX, Archive, quatre dossiers indésirables et deux dossiers envoyés interrogés ; seuls les trois échanges déjà relus ont été retrouvés. Aucune confirmation supplémentaire, aucun envoi ni changement de lecture. Données nécessaires à la recette positive toujours absentes des messages consultés.
 État final : PASS livraison et correction TS2339, PARTIAL qualité multi-environnement ; recette positive GoTrans NOT_RUN. Aucun fait/gap/timeline/prix/brouillon/envoi/DB/Auth/RLS modifié. Rollback : revert du seul commit test/docs, sans redéploiement moteur. Clôture locale non commitée (pas de commit docs-only).
 
+### 3.25 IMO-FALSE-POSITIVES — alertes Lovable 1 et 2 (23 septembre 2026)
+
+GO CTO de réalisation locale puis GO ciblé « HTML tronqué » ; base work/origin/work 00e15251. Claude Code exécutant unique ; contre-revue indépendante (sous-agent, lecture seule) en trois passes limitées aux bloquants.
+Reproduit sur HEAD : e-mail ordinaire de 5 180 caractères, corps vide et phrase initiale de 40 lettres sans ponctuation → INCOMPLETE_EMAIL_SOURCE ; « un 20HQ », « un 2ème conteneur » → marqueur ONU invalide.
+Reconnaissance (`_shared/imo-goods-recognition.ts`, partagée avec build-case-puzzle) : « un »/« Un » + espace = article sauf quatre chiffres hors décimale ; UN/ONU majuscule ≤ 2 chiffres = quantité ; formats UN3536, UN 3536, UN-3536, ONU: 3536, un-3536 conservés ; séparateur linéaire.
+Preflight run-pricing : décodeur gelé inchangé (parité) ; hors fenêtre 4 000, relecture du corps entier (MIME imbriqué ou sans en-tête, base64 strict toute largeur, QP, charset, HTML). Corps vide = aucune mention. Restent incomplets : indécodable/binaire, sans partie texte, délimiteur MIME fermant absent, texte ou HTML au plafond d'ingestion.
+Plafonds vérifiés dans le code (unités UTF-16, substring) : sync-emails texte 50 000 / HTML 100 000 ; hydrate-email-body 500 000 / 1 000 000 ; body_text dérivé du HTML tronqué ; import-thread sans plafond. Exception FROZEN run-pricing/index.ts : lecture de body_html (+2/−1), signal seul, empreinte et relecture de fraîcheur inchangées.
+Preuve enregistrée conservée ; HTML au plafond ne peut que la rendre plus stricte (REVIEW + INCOMPLETE_EMAIL_SOURCE), objet stocké non muté.
+Diff : 5 fichiers de code/test (+404/−34). Tests : 193 IMO ciblés PASS dont handler réel (select body_html, 100 000 → 400 SOURCE_REVIEW_REQUIRED, 99 999 → pas de blocage IMO) ; 25 nouveaux tests en échec sur origin/work.
+Suite Deno 1674 PASS / 1 FAIL Intake :191 identique à origin/work ; typecheck:deno 49/5 et lint:baseline 732/16 inchangés ; ESLint fichiers et diff-check PASS. Vitest/build NOT_RUN (aucun frontend).
+Cloud lecture seule : 0 preuve IMO, 0 gap IMO ; 19 dossiers estimés (SQL, sans contenu) touchés par l'ancien blocage en mémoire, dont 2 avec mention ONU réelle à conserver ; 9 e-mails entrants à HTML plafonné, aucun rattaché à un dossier. Aucune réparation.
+Résiduels : base64 brut coupé hors plafond sur multiple de 4 ; lecture body_html jusqu'à 1 Mo par e-mail hydraté ; build-case-puzzle lit toujours 4 000 caractères (pricing rattrape sans preuve) ; décodeur gelé quadratique sur HTML pathologique.
+Publication (GO distinct du 23/09) : work 00e15251 → 6aefc4ce, 5 fichiers +404/−34, push fast-forward sans force ; Lovable synchronisé, privé/non publié. CI 35861289169 FAIL au seul Vitest LocalTransportEstimateFields, identique à 00e15251 (run 35846061829) ; étapes suivantes non exécutées en CI, exécutées localement (config 97, bundles, typecheck, Deno, lint, build PASS/baseline).
+Déploiement privé run-pricing puis build-case-puzzle (message Lovable umsg_01m374fgfbf1s8pw03xvps2tpb) : OPTIONS 200, POST sans auth 401 ; sondes techniques, pas une recette métier.
+Recette sandbox BLOCKED : les e-mails n'entrent que par ingestion IMAP (sync-emails, import-thread, hydrate-email-body) ; aucun mécanisme applicatif ne crée un fil/e-mail synthétique sans envoi réel ni insertion directe. Aucune écriture sandbox, aucun dossier client recalculé. Arbitrage consigné dans la file CTO.
+Rollback : revert de 6aefc4ce puis redéploiement de run-pricing et build-case-puzzle, sans restauration de données. Alertes 3 à 8 non commencées.
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
