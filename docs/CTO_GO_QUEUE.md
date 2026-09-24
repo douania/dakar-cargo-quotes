@@ -24,7 +24,35 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
-## [2026-09-23 12:50 UTC] PENDING — Recette sandbox du lot IMO alertes 1/2 : création du dossier synthétique impossible sans envoi ni insertion directe
+## [2026-09-24 10:10 UTC] PENDING — Recette IMO : reprise du cas 3 impossible par l'UI, cas 1/2/4 bloqués par l'extension navigateur
+**Origine** : GO de publication IMO-EVENT-TYPE-1 et recettes sandbox (24/09).
+**Constat** : cas 3 (8a06251d…, 0 fait, RFQ_DETECTED) : bouton d'analyse désactivé sans document ni fait, bloc absent en RFQ_DETECTED, demande plus listée au tableau de bord → aucune relance par mécanisme existant ; défaut général pour tout dossier interrompu par l'ancienne contrainte. Cas 1/2/4 : extension Claude in Chrome instable (déconnexions, injections expirées) ; exclusion PAD_DROIT_PASSAGE non écrite.
+**Décision nécessaire** : (a) voie de relance autorisée pour le cas 3 (ex. appel build-case-puzzle authentifié hors UI, ou correctif UI sous GO) ; (b) poursuite des cas 1/2/4 quand le navigateur est stable, ou exécution des clics par l'utilisateur sous contrôle en base.
+**Référence** : work 56d1975 (migration), ledger 207.
+
+---
+
+## [2026-09-23 17:10 UTC] TRAITÉ — Défaut préexistant : la preuve IMO n'est jamais persistée (contrainte event_type) et l'analyse du dossier s'interrompt
+**Résolution (24/09)** : GO de publication ; commit 56d1975 (migration, rollback, test) ; appliquée via Lovable query_database avec enregistrement ledger 206→207 dans la même transaction ; catalogue exact 41 valeurs, validée, 9 contraintes et RLS/4 politiques inchangées, MD5 ledger = fichier (7e4b09f0…). 0 événement IMO à ce stade.
+**Origine** : recette sandbox du lot IMO alertes 1/2 (Claude Code, session interactive).
+**Type** : blocage / défaut runtime découvert, hors périmètre (DB/migration).
+**Constat vérifié** : `case_timeline_events_event_type_check` n'autorise pas `imo_goods_recognition`. Sur le dossier sandbox 8a06251d-7027-4d3a-b336-d6f2ae3530cf (mention UN3480), build-case-puzzle a écrit le gap bloquant `cargo.imo_goods_scope_confirmation` (NO_DIRECT_BINDING, UN_WITHOUT_PROVEN_GROUP) puis l'écriture de la preuve a échoué : 0 événement IMO, 0 fait, statut RFQ_DETECTED. Cohérent avec « 0 preuve IMO » en Cloud depuis IMO-GOODS-SOURCE (12/09).
+**Risques** : toute demande avec mention ONU perd l'extraction des faits (fail-closed par le gap, mais analyse interrompue) ; run-pricing n'a jamais de preuve stockée et repasse toujours par le preflight en mémoire.
+**Recommandation de Claude Code** : GO migration ciblée ajoutant `imo_goods_recognition` à la contrainte, avec contre-revue DB, puis recette du cas sandbox existant.
+**Référence** : work 873c993, roadmap §3.22/§3.25.
+**Suite (24/09, GO local)** : migration `20260923180000_case_timeline_imo_goods_event_type.sql` + rollback + test SQL préparés, non commités. Contre-revue DB indépendante PASS (0 bloquant), renforcements post-revue revérifiés PASS. Tests sur schéma Cloud restauré localement (schéma seul, conteneur sans réseau, transaction annulée) : forme réelle conforme, 40→41, validée, réapplication refusée ALREADY_APPLIED, test synthétique PASS, rollback refusé tant qu'un événement IMO existe (événement conservé), rollback restaure M19b sinon, dérive refusée sans modification, lock_timeout effectif (~5 s). Journaux Cloud de l'appel non accessibles : valeur absente du catalogue Cloud (vérifié), échec de l'écriture Cloud inféré (gap écrit, aucun événement ni fait) ; insertion refusée non rejouée isolément avant migration. En attente du GO de publication.
+
+---
+
+## [2026-09-23 17:10 UTC] PENDING — Recette pricing du lot IMO alertes 1/2 : préflight run-pricing non atteignable sans écritures de préparation
+**Origine** : GO CTO de recette par fixtures synthétiques (23/09).
+**Constat** : les 4 dossiers sandbox sont en NEED_INFO (cas 1, 2, 4 : gaps pricing.pad_category et routing.terminal_operation_mode) ou RFQ_DETECTED (cas 3). run-pricing refuse ces statuts avant le preflight IMO ; l'UI n'affiche pas le lancement (sauf seul manque cargo.value). Atteindre le preflight exige de renseigner ces faits et d'acquitter (ack-pricing-ready) : écritures non couvertes.
+**Recommandation de Claude Code** : GO limité aux 4 sandbox pour renseigner pad_category et terminal_operation_mode via l'UI existante (valeurs synthétiques explicites), ACK, puis « Lancer le pricing » ; aucun tarif inventé.
+
+---
+
+## [2026-09-23 12:50 UTC] TRAITÉ (PARTIAL) — Recette sandbox du lot IMO alertes 1/2 : création du dossier synthétique impossible sans envoi ni insertion directe
+**Suite** : GO CTO option B (fixtures SQL) exécuté le 23/09. Fixtures IMO-RECETTE-20260923 : fils 6c431345…/11f0c30f…/47b6a56f…/ff041af2…, e-mails e7f7b071…/5e915707…/efc441fe…/e2071e0f…, dossiers (bouton « Traiter ») 0d2b54c6…/9b606375…/8a06251d…/709e06ce…. Analyse : cas 1, 2, 4 sans gap ni événement IMO ; cas 3 gap IMO bloquant conservé. Pricing non atteint (entrée PENDING ci-dessus). Écritures limitées aux sandbox, 0 run. Ingestion IMAP non testée.
 **Origine** : session interactive (Claude Code), GO de publication et recette privée du 23/09.
 **Type** : blocage (STOP ciblé prévu par le GO).
 **Objectif** : prouver en runtime, sur un dossier sandbox dédié, 4 cas : e-mail ordinaire long, « un 20HQ », mention ONU ambiguë conservée bloquante, HTML au plafond d'ingestion bloquant.
