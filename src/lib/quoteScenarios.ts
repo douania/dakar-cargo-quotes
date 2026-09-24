@@ -480,6 +480,77 @@ export function upgradeScenarioDraft(draft: ScenarioDraft): ScenarioDraft {
   })) };
 }
 
+/** Effective scope read by run-scenario-pricing: a live linked assumption overrides the case fact. */
+export interface ScenarioPadV3Scope {
+  incoterm: string | null;
+  servicePackage: string | null;
+}
+
+interface ScopeAssumption {
+  id: string;
+  status: string;
+  assumed_fact_key?: string | null;
+  assumed_value?: unknown;
+}
+
+export function resolveScenarioPadV3Scope(
+  facts: readonly { fact_key: string; value_text?: string | null; value_json?: unknown }[],
+  linkedAssumptionIds: readonly string[],
+  assumptions: readonly ScopeAssumption[],
+): ScenarioPadV3Scope {
+  const read = (key: string): string | null => {
+    const linked = assumptions.filter(a => linkedAssumptionIds.includes(a.id) &&
+      ["active", "client_confirmed"].includes(a.status) && a.assumed_fact_key?.trim() === key);
+    // Two live overrides of one key are refused by the server: unknown here.
+    if (linked.length > 1) return null;
+    const current = facts.filter(f => f.fact_key === key);
+    // Same priority as the server (readFactBusinessValue): a scalar value_json first.
+    const factValue = current.length === 1
+      ? (typeof current[0].value_json === "string" ? current[0].value_json : current[0].value_text) : null;
+    const raw = linked.length === 1 ? linked[0].assumed_value : factValue;
+    return typeof raw === "string" && raw.trim() ? raw.trim().toUpperCase() : null;
+  };
+  return { incoterm: read("routing.incoterm"), servicePackage: read("service.package") };
+}
+
+/** Movement directions the server prices (SCENARIO_MOVEMENT_UNSUPPORTED otherwise);
+ * the v3 services-only path does not restrict the direction further.
+ */
+export const PAD_V3_MOVEMENTS: readonly string[] = ["IMPORT", "TRANSIT"];
+
+/** Mirrors run-scenario-pricing: group PAD (v3) is only priced for a maritime
+ * import or transit DAP estimate outside any DDP package. The server restriction
+ * is not relaxed here; the UI only stops offering an action it would refuse.
+ */
+export function scenarioPadV3Eligibility(draft: ScenarioDraft, scope: ScenarioPadV3Scope): { eligible: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (draft.transportMode !== "MARITIME" || !PAD_V3_MOVEMENTS.includes(draft.movementDirection)) {
+    reasons.push("réservé à l’import ou au transit maritime");
+  }
+  if (!draft.cargoUnits.length || draft.cargoUnits.some(u => u.unitKind !== "CONTAINER")) {
+    reasons.push("tous les lots doivent être des conteneurs");
+  }
+  if (!scope.incoterm) reasons.push("incoterm inconnu : le calcul PAD par groupe exige DAP");
+  else if (scope.incoterm !== "DAP") reasons.push(`incoterm ${scope.incoterm} : calcul PAD par groupe limité à DAP`);
+  if (scope.servicePackage?.split("_").includes("DDP")) reasons.push(`package ${scope.servicePackage} : périmètre DDP non pris en charge`);
+  return { eligible: reasons.length === 0, reasons };
+}
+
+/** Explicit operator exit from an incompatible v3 draft: the PAD choices are
+ * dropped from this new revision only; saved revisions and runs are untouched.
+ */
+export function downgradeScenarioDraftToV2(draft: ScenarioDraft): ScenarioDraft {
+  if (draft.schemaVersion !== 3) return draft;
+  const next: ScenarioDraft = { ...draft, schemaVersion: 2 };
+  delete next.padChoices;
+  return next;
+}
+
+/** The v2/v3 per-lot contract only prices containers of a recognised type. */
+export function scenarioDraftIsContainerized(draft: ScenarioDraft): boolean {
+  return draft.cargoUnits.length > 0 && draft.cargoUnits.every(u => u.unitKind === "CONTAINER");
+}
+
 export function emptyScenarioDraftV2(): ScenarioDraft {
   return upgradeScenarioDraft(emptyScenarioDraft());
 }

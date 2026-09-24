@@ -146,3 +146,23 @@ describe("scenarioPricing P1-A4", () => {
     })).toBeNull();
   });
 });
+
+// GO CTO 2026-09-24 — alertes 4 et 5 : limites exactes, sans remède impossible.
+describe("scenario limits without impossible remedies", () => {
+  it("names the non-containerized danger limit and never promises a v2 revision or a calculation", () => {
+    const message = scenarioPricingCodeMessage("SCENARIO_DG_NON_CONTAINER_UNSUPPORTED");
+    expect(message).toContain("non conteneurisés");
+    expect(message).toContain("Aucun calcul n’est disponible ici");
+    expect(message).not.toContain("créer une révision");
+  });
+  it("explains the per-lot container contract for a non-container lot, keeping the lot reference", () => {
+    const message = scenarioPricingCodeMessage("SCENARIO_CONTAINER_TYPE_REQUIRED:lot-colis");
+    expect(message).toContain("Lot lot-colis");
+    expect(message).toContain("ne couvre que les conteneurs");
+  });
+  it("tells the operator how to leave an incompatible PAD v3 scope without dropping choices silently", () => {
+    const message = scenarioPricingCodeMessage("SCENARIO_PAD_PRICING_SCOPE_UNSUPPORTED");
+    expect(message).toContain("pas CIF/CFR/FOB ni package DDP");
+    expect(message).toContain("revenir explicitement en v2");
+  });
+});

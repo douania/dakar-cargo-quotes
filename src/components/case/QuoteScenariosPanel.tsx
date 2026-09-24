@@ -80,6 +80,11 @@ import {
   emptyScenarioDraft,
   emptyScenarioDraftV2,
   upgradeScenarioDraft,
+  downgradeScenarioDraftToV2,
+  PAD_V3_MOVEMENTS,
+  resolveScenarioPadV3Scope,
+  scenarioDraftIsContainerized,
+  scenarioPadV3Eligibility,
   formatOpenPoint,
   LINKABLE_ASSUMPTION_STATUSES,
   LOCATION_KIND_LABELS,
@@ -510,6 +515,14 @@ interface LinkableAssumption {
   id: string;
   statement: string;
   status: string;
+  assumed_fact_key?: string | null;
+  assumed_value?: unknown;
+}
+
+interface ScopeFact {
+  fact_key: string;
+  value_text: string | null;
+  value_json?: unknown;
 }
 
 interface LinkFieldsProps {
@@ -616,6 +629,11 @@ interface ScenarioFormProps {
   openPoints: ScenarioOpenPoint[];
   snapshotError: string | null;
   assumptions: LinkableAssumption[];
+  /** Case facts and every assumption, to mirror the server PAD v3 scope. */
+  scopeFacts: ScopeFact[];
+  scopeAssumptions: LinkableAssumption[];
+  /** False while the case facts are loading or unreadable: eligibility is unknown. */
+  scopeReady: boolean;
   onChange: (draft: ScenarioDraft) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -628,11 +646,19 @@ function ScenarioForm({
   openPoints,
   snapshotError,
   assumptions,
+  scopeFacts,
+  scopeAssumptions,
+  scopeReady,
   onChange,
   onSubmit,
   onCancel,
   submitting,
 }: ScenarioFormProps) {
+  // Unknown scope (facts or assumptions loading or unreadable) is never presented as an incompatibility.
+  const padV3 = !scopeReady ? { eligible: false, reasons: ["périmètre non vérifiable tant que les faits et hypothèses du dossier ne sont pas lus"] }
+    : scenarioPadV3Eligibility(draft, resolveScenarioPadV3Scope(scopeFacts,
+    draft.links.filter(l => l.target === "assumption").map(l => l.assumptionId), scopeAssumptions));
+  const containerized = scenarioDraftIsContainerized(draft);
   const set = <K extends keyof ScenarioDraft>(key: K, value: ScenarioDraft[K]) =>
     onChange({ ...draft, [key]: value });
 
@@ -752,15 +778,18 @@ function ScenarioForm({
       </div>
 
       <div className="space-y-2">
-        {(draft.schemaVersion ?? 1) < 2 && draft.transportMode === "MARITIME" ? (
+        {(draft.schemaVersion ?? 1) < 2 && draft.transportMode === "MARITIME" && containerized ? (
           <p className="text-xs text-muted-foreground">Pour recalculer un scénario à conteneurs, passer explicitement ce brouillon en v2 et vérifier les hypothèses par lot. Les résultats historiques restent conservés. Les anciennes références d'équipement non reconnues doivent être remplacées par un code de conteneur explicite (ex. 40hc), sans conversion automatique.</p>
+        ) : null}
+        {draft.transportMode === "MARITIME" && !containerized ? (
+          <p className="text-xs text-muted-foreground">Lots non conteneurisés (colis, vrac, conventionnel, roulant) : le calcul par lot (v2/v3) ne couvre que les conteneurs ; il n’est pas une solution pour ce périmètre. Si le danger est déclaré, inconnu ou contradictoire, le calcul reste bloqué : clarifier le statut de danger du dossier ou traiter ce périmètre par revue métier.</p>
         ) : null}
         {(draft.schemaVersion ?? 1) >= 2 ? (
           <p className="text-xs text-muted-foreground">Propriété SOC/COC conservée comme hypothèse ; surestaries armateur et retour vide examinés séparément par lot, sans modifier les barèmes.</p>
         ) : null}
         <div className="flex items-center justify-between gap-2">
           <SectionTitle>Lots ({draft.cargoUnits.length}/{MAX_CARGO_UNITS})</SectionTitle>
-          {(draft.schemaVersion ?? 1) < 2 && draft.transportMode === "MARITIME" ? <Button type="button" variant="outline" size="sm"
+          {(draft.schemaVersion ?? 1) < 2 && draft.transportMode === "MARITIME" && containerized ? <Button type="button" variant="outline" size="sm"
             onClick={() => onChange(upgradeScenarioDraft(draft))}>Passer ce brouillon en v2 maritime (danger non renseigné à revoir)</Button> : null}
           <Button
             variant="outline"
@@ -797,8 +826,25 @@ function ScenarioForm({
 
       <div className="space-y-2">
         <SectionTitle>Douane, booking, documents</SectionTitle>
-        {draft.schemaVersion === 2 && draft.transportMode === "MARITIME" && draft.movementDirection === "IMPORT" && <Button type="button" variant="outline" onClick={() => onChange({ ...draft, schemaVersion: 3,
-          padChoices: draft.cargoUnits.map(u => ({ unit_ref: u.unitRef, category: null, basis: "" })) })}>Ajouter les choix PAD par groupe (v3)</Button>}
+        {/* The v3 action stays offered for IMPORT only (unchanged since before this lot): the
+            server also prices TRANSIT (PAD_V3_MOVEMENTS) but that path has no PAD v3 test nor
+            runtime recette, so the UI does not open it here; the eligibility mirror below still
+            never claims a server refusal for a transit draft. */}
+        {draft.schemaVersion === 2 && draft.transportMode === "MARITIME" && draft.movementDirection === "IMPORT" && <div className="space-y-1">
+          <Button type="button" variant="outline" disabled={!padV3.eligible} onClick={() => onChange({ ...draft, schemaVersion: 3,
+            padChoices: draft.cargoUnits.map(u => ({ unit_ref: u.unitRef, category: null, basis: "" })) })}>Ajouter les choix PAD par groupe (v3)</Button>
+          {!padV3.eligible && <p className="text-xs text-muted-foreground">Choix PAD par groupe indisponible : {padV3.reasons.join(" ; ")}. Le calcul PAD par groupe n’est proposé ici que pour l’estimation maritime import DAP ; le scénario reste en v2.</p>}
+        </div>}
+        {draft.schemaVersion === 3 && scopeReady && !padV3.eligible && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <p>Ces choix PAD par groupe ne pourront pas être calculés : {padV3.reasons.join(" ; ")}. Le serveur refusera ce scénario plutôt que d’ignorer les choix.</p>
+          <p>Sortie possible : revenir en v2 pour cette nouvelle révision. Les révisions déjà enregistrées, leurs résultats et leur historique restent inchangés.{containerized ? "" : " Le retour en v2 retire les choix PAD mais ne rend pas calculables les lots non conteneurisés."}</p>
+          <Button type="button" variant="outline" size="sm" className="mt-1" onClick={() => {
+            const count = draft.padChoices?.length ?? 0;
+            if (window.confirm(`Retirer les ${count} choix PAD de ce brouillon et revenir en v2 ? Les révisions enregistrées ne sont pas modifiées.`)) {
+              onChange(downgradeScenarioDraftToV2(draft));
+            }
+          }}>Revenir en v2 (retire les choix PAD de ce brouillon)</Button>
+        </div>}
         {draft.schemaVersion === 3 && <div className="space-y-2"><p>Choix PAD de scénario — hypothèses opérateur, pas des faits client. Le tarif applicable sera relu au calcul.</p>
           {draft.padChoices?.map((choice, index) => <div key={choice.unit_ref} className="rounded border p-2">
             <label>Catégorie PAD — {choice.unit_ref}<select aria-label={`Catégorie PAD — ${choice.unit_ref}`} className="block border bg-background" value={choice.category ?? ""}
@@ -1134,11 +1180,28 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("quote_scenario_assumptions")
-        .select("id, statement, status")
+        .select("id, statement, status, assumed_fact_key, assumed_value")
         .eq("case_id", caseId)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as LinkableAssumption[];
+    },
+  });
+
+  // Read-only: the PAD v3 action is offered only in the scope the server prices.
+  const scopeFactsQuery = useQuery({
+    queryKey: ["quote-scenario-pad-scope-facts", caseId],
+    staleTime: 60_000,
+    enabled: !!caseId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("quote_facts")
+        .select("fact_key, value_text, value_json")
+        .eq("case_id", caseId)
+        .eq("is_current", true)
+        .in("fact_key", ["routing.incoterm", "service.package"]);
+      if (error) throw error;
+      return (data ?? []) as ScopeFact[];
     },
   });
 
@@ -1718,6 +1781,9 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
             openPoints={previewOpenPoints}
             snapshotError={snapshotPreview.ok ? null : snapshotPreview.message}
             assumptions={linkableAssumptions}
+            scopeFacts={scopeFactsQuery.data ?? []}
+            scopeAssumptions={assumptions}
+            scopeReady={!scopeFactsQuery.isLoading && !scopeFactsQuery.isError && !assumptionsQuery.isLoading && !assumptionsQuery.isError}
             onChange={setDraft}
             onSubmit={submitForm}
             onCancel={cancelForm}

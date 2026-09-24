@@ -1,5 +1,7 @@
 import { resolveScenarioCargo, type ScenarioCargoContext } from "../_shared/scenario-cargo.ts";
 import { validateScopeSnapshot } from "../_shared/quote-scenario-domain.ts";
+import { normalizeDangerousGoodsFactValue } from "../_shared/dangerous-goods.ts";
+import { normalizeDpwDthcFamily } from "../_shared/dpw-dthc-tariff.ts";
 import { readTerminalOperationMode, resolveTerminalOperationBlockers } from "../_shared/terminal-operation-mode.ts";
 import { LOCAL_TRANSPORT_ESTIMATE_KEY } from "../_shared/local-transport-estimate.ts";
 import { CONTAINER_STAY_KEY } from "../_shared/container-stay-estimate.ts";
@@ -340,6 +342,30 @@ export function buildPricingInputs(facts: PricingFactRow[]): PricingInputs {
   return inputs;
 }
 
+export type ScenarioDangerState = "NONE" | "NOT_DANGEROUS" | "DANGEROUS" | "UNKNOWN" | "CONTRADICTORY";
+
+/** Danger information visible to a legacy (v1) scenario. "NONE" means no
+ * information at all, never "not dangerous"; an ONU number or IMO class, or a
+ * scenario lot declared dangerous, is positive danger.
+ */
+export function classifyScenarioDanger(facts: PricingFactRow[], units: unknown[]): ScenarioDangerState {
+  const textOf = (f: PricingFactRow) => typeof f.value_text === "string" ? f.value_text
+    : typeof f.value_json === "boolean" ? String(f.value_json) : null;
+  const dg = facts.filter(f => f.fact_key === "cargo.dangerous_goods").map(f => normalizeDangerousGoodsFactValue(textOf(f)));
+  const ids = facts.filter(f => f.fact_key === "cargo.un_number" || f.fact_key === "cargo.imo_class")
+    .map(f => String(textOf(f) ?? f.value_json ?? "").trim());
+  const unitDangerous = units.some(u => isPlainObject(u) && u.dangerous_goods === true);
+  // Same fallback as the canonical resolver: a DANGEROUS DTHC family is danger.
+  const dangerousFamily = facts.some(f => f.fact_key === "pricing.dthc_family" &&
+    normalizeDpwDthcFamily(textOf(f)) === "DANGEROUS");
+  if (!dg.length && !ids.length && !unitDangerous && !dangerousFamily) return "NONE";
+  const identified = ids.some(Boolean) || unitDangerous || dangerousFamily;
+  if ((dg.includes("YES") && dg.includes("NO")) || (dg.includes("NO") && identified)) return "CONTRADICTORY";
+  if (dg.includes("YES") || identified) return "DANGEROUS";
+  if (dg.includes(null) || ids.some(v => !v)) return "UNKNOWN";
+  return dg.includes("NO") ? "NOT_DANGEROUS" : "UNKNOWN";
+}
+
 /** Versioned cargo overlay is isolated from the canonical facts and legacy snapshots. */
 export function buildScenarioCargoPricing(inputs: PricingInputs, snapshot: Record<string, unknown>, facts: PricingFactRow[]) {
   const context: ScenarioCargoContext | null = snapshot.schema_version === 2 || snapshot.schema_version === 3
@@ -357,9 +383,17 @@ export function buildScenarioCargoPricing(inputs: PricingInputs, snapshot: Recor
   } else {
     // Keep historical snapshots intact: recalculation requires an explicit revision.
     if (inputs.containers?.length) blockers.push(snapshot.transport_mode === "AIR" ? "SCENARIO_CONTAINERS_UNSCOPED_AIR" : "SCENARIO_CARGO_V2_REQUIRED");
-    if (facts.some(f => ["cargo.dangerous_goods", "cargo.un_number", "cargo.imo_class"].includes(f.fact_key))) {
-      // AIR cannot migrate to the maritime v2 contract: do not suggest an impossible remedy.
-      blockers.push(snapshot.transport_mode === "AIR" ? "SCENARIO_DG_FACTS_UNSCOPED_AIR" : "SCENARIO_DG_FACTS_UNSCOPED");
+    // This path never transmits danger to the engine. Only an explicit,
+    // uncontradicted "not dangerous" is consistent with that; dangerous,
+    // unknown or contradictory information stays blocking (GO CTO 2026-09-24).
+    const units = Array.isArray(snapshot.cargo_units) ? snapshot.cargo_units : [];
+    const danger = classifyScenarioDanger(facts, units);
+    if (danger !== "NONE" && danger !== "NOT_DANGEROUS") {
+      const containerized = units.length > 0 && units.every(u => isPlainObject(u) && u.unit_kind === "CONTAINER");
+      // Neither AIR nor non-containerized cargo can move to the v2 container contract:
+      // do not suggest an impossible remedy.
+      blockers.push(snapshot.transport_mode === "AIR" ? "SCENARIO_DG_FACTS_UNSCOPED_AIR"
+        : containerized ? "SCENARIO_DG_FACTS_UNSCOPED" : "SCENARIO_DG_NON_CONTAINER_UNSUPPORTED");
     }
   }
   return { context, plan, blockers, inputs: plan ? { ...inputs, containers: plan.containers,

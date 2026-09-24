@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import * as padScope from "./quoteScenarios";
 import {
   buildScenarioRequestBody,
   buildScopeSnapshot,
@@ -1187,5 +1188,44 @@ describe("actions proposables", () => {
     expect(
       canSelectScenario({ status: "superseded", superseded_by_scenario_id: SCENARIO_ID }),
     ).toBe(false);
+  });
+});
+
+// GO CTO 2026-09-24 — alerte 4 : miroir du périmètre PAD v3 serveur, sans l'assouplir.
+describe("PAD v3 scope mirror", () => {
+  const v2 = padScope.emptyScenarioDraftV2();
+  const fact = (fact_key: string, value_text: string) => ({ fact_key, value_text });
+  it("uses the case facts, overridden only by one live linked assumption", () => {
+    const facts = [fact("routing.incoterm", "cif"), fact("service.package", "DAP_PROJECT_IMPORT")];
+    expect(padScope.resolveScenarioPadV3Scope(facts, [], [])).toEqual({ incoterm: "CIF", servicePackage: "DAP_PROJECT_IMPORT" });
+    const live = { id: "a1", status: "active", assumed_fact_key: "routing.incoterm", assumed_value: "DAP" };
+    expect(padScope.resolveScenarioPadV3Scope(facts, ["a1"], [live]).incoterm).toBe("DAP");
+    expect(padScope.resolveScenarioPadV3Scope(facts, [], [live]).incoterm).toBe("CIF"); // not linked
+    expect(padScope.resolveScenarioPadV3Scope(facts, ["a1"], [{ ...live, status: "rejected" }]).incoterm).toBe("CIF");
+    expect(padScope.resolveScenarioPadV3Scope(facts, ["a1", "a2"], [live, { ...live, id: "a2" }]).incoterm).toBeNull();
+    expect(padScope.resolveScenarioPadV3Scope([...facts, fact("routing.incoterm", "DAP")], [], []).incoterm).toBeNull();
+    // Server priority: a scalar value_json wins over value_text.
+    expect(padScope.resolveScenarioPadV3Scope([{ fact_key: "routing.incoterm", value_text: "CIF", value_json: "DAP" }], [], []).incoterm).toBe("DAP");
+  });
+  it("accepts DAP only, never CIF/CFR/FOB, a DDP package, AIR, export or non-containerized lots", () => {
+    const dap = { incoterm: "DAP", servicePackage: "DAP_PROJECT_IMPORT" };
+    expect(padScope.scenarioPadV3Eligibility(v2, dap)).toEqual({ eligible: true, reasons: [] });
+    for (const incoterm of ["CIF", "CFR", "FOB"]) expect(padScope.scenarioPadV3Eligibility(v2, { ...dap, incoterm }).eligible).toBe(false);
+    expect(padScope.scenarioPadV3Eligibility(v2, { ...dap, servicePackage: "DDP_PROJECT_IMPORT" }).eligible).toBe(false);
+    expect(padScope.scenarioPadV3Eligibility(v2, { ...dap, incoterm: null }).eligible).toBe(false);
+    expect(padScope.scenarioPadV3Eligibility({ ...v2, movementDirection: "EXPORT" }, dap).eligible).toBe(false);
+    // The server prices IMPORT and TRANSIT alike (SCENARIO_MOVEMENT_UNSUPPORTED otherwise):
+    // the mirror must never claim a server refusal for a DAP transit draft.
+    expect(padScope.scenarioPadV3Eligibility({ ...v2, movementDirection: "TRANSIT" }, dap)).toEqual({ eligible: true, reasons: [] });
+    expect(padScope.scenarioPadV3Eligibility({ ...v2, transportMode: "AIR" }, dap).eligible).toBe(false);
+    expect(padScope.scenarioPadV3Eligibility({ ...v2, cargoUnits: v2.cargoUnits.map(u => ({ ...u, unitKind: "PACKAGE" as const })) }, dap).eligible).toBe(false);
+  });
+  it("the v2 exit drops PAD choices of the draft only and leaves v2/v1 drafts unchanged", () => {
+    const v3 = { ...v2, schemaVersion: 3 as const, padChoices: [{ unit_ref: "lot-1", category: "T02", basis: "Synthetic" }] };
+    const down = padScope.downgradeScenarioDraftToV2(v3);
+    expect(down.schemaVersion).toBe(2);
+    expect("padChoices" in down).toBe(false);
+    expect(v3.padChoices).toHaveLength(1); // input not mutated
+    expect(padScope.downgradeScenarioDraftToV2(v2)).toBe(v2);
   });
 });

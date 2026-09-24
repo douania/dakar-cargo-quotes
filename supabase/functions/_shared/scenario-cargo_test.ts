@@ -71,9 +71,14 @@ Deno.test("scenario legacy: distinguish unscoped DG from the container revision 
   const s = { schema_version: 1, transport_mode: "MARITIME", movement_direction: "IMPORT", terminal_operation_mode: "LOLO",
     cargo_units: [Object.fromEntries(Object.entries(unit("legacy")).filter(([key]) => !["ownership", "un_number", "imo_class", "weight_basis", "scenario_basis"].includes(key)))] };
   s.cargo_units[0].dangerous_goods = false;
+  // GO CTO 2026-09-24: an explicit, uncontradicted NO is consistent with this
+  // path (danger never reaches the engine); dangerous information still blocks.
   const result = buildScenarioCargoPricing({ containers: [{ type: "20HQ", quantity: 1 }] }, s,
     [{ id: "synthetic-dg", fact_key: "cargo.dangerous_goods", value_text: "NO" }]);
-  assertEquals(result.blockers, ["SCENARIO_CARGO_V2_REQUIRED", "SCENARIO_DG_FACTS_UNSCOPED"]);
+  assertEquals(result.blockers, ["SCENARIO_CARGO_V2_REQUIRED"]);
+  const dangerous = buildScenarioCargoPricing({ containers: [{ type: "20HQ", quantity: 1 }] }, s,
+    [{ id: "synthetic-dg", fact_key: "cargo.dangerous_goods", value_text: "YES" }]);
+  assertEquals(dangerous.blockers, ["SCENARIO_CARGO_V2_REQUIRED", "SCENARIO_DG_FACTS_UNSCOPED"]);
 });
 Deno.test("scenario v2: SOC/COC is traceable but never claims an ownership tariff adjustment", () => {
   const result = resolveScenarioCargo(context());

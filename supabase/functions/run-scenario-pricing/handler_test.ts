@@ -649,3 +649,25 @@ Deno.test("scenario DAP services: transit retains the validated grouped path wit
     assert(!("cargoValue" in params));
   });
 });
+
+// GO CTO 2026-09-24 (alerte 5): legacy non-containerized scenarios, wired through the real handler.
+for (const [dg, blocked] of [["NO", false], ["YES", true]] as const) {
+  Deno.test(`scenario actual handler: legacy maritime PACKAGE with dangerous_goods=${dg}`, async () => {
+    await withTransport({ mutate: s => {
+      s.snapshot = { schema_version: 1, transport_mode: "MARITIME", movement_direction: "IMPORT", terminal_operation_mode: null,
+        cargo_units: [Object.fromEntries(Object.entries(group("pkg", { unit_kind: "PACKAGE", equipment_code: null, dangerous_goods: false }))
+          .filter(([key]) => !["un_number", "imo_class", "ownership", "weight_basis", "scenario_basis"].includes(key)))] };
+      assert(validateScopeSnapshot(s.snapshot).ok);
+      s.facts = s.facts.filter(f => !["cargo.containers", "cargo.imo_class"].includes(f.fact_key));
+      s.facts.push({ id: "synthetic-dg", fact_key: "cargo.dangerous_goods", value_text: dg });
+    } }, async h => {
+      const { response, body } = await h.invoke();
+      assertEquals(response.status, 200);
+      const blockers = ((body.data as Json).blockers ?? []) as string[];
+      assertEquals(blockers.includes("SCENARIO_DG_NON_CONTAINER_UNSUPPORTED"), blocked);
+      // Never the impossible v2 container remedy for this cargo.
+      assert(!blockers.includes("SCENARIO_DG_FACTS_UNSCOPED"));
+      if (blocked) assertEquals(h.engineBodies, []);
+    });
+  });
+}

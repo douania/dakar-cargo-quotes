@@ -8,12 +8,13 @@ import { proposeGroups } from "../../../../supabase/functions/recommend-pad-cate
 
 const mocks = vi.hoisted(() => ({ mutate: vi.fn(), rows: [], invoke: vi.fn(),
   queryRows: {} as Record<string, unknown[]>,
+  queryState: {} as Record<string, { isLoading?: boolean; isError?: boolean }>,
   mutations: [] as { mutationFn: (input: unknown) => Promise<unknown> }[],
 }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invoke: mocks.invoke } } }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({}),
-  useQuery: ({ queryKey }: { queryKey: string[] }) => ({ data: mocks.queryRows[queryKey[0]] ?? mocks.rows, isLoading: false }),
+  useQuery: ({ queryKey }: { queryKey: string[] }) => ({ data: mocks.queryRows[queryKey[0]] ?? mocks.rows, isLoading: false, ...mocks.queryState[queryKey[0]] }),
   useMutation: (options: { mutationFn: (input: unknown) => Promise<unknown> }) => {
     mocks.mutations.push(options);
     return { mutate: mocks.mutate, isPending: false };
@@ -29,7 +30,7 @@ vi.mock("@/components/ui/select", () => ({
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => <option value={value}>{children}</option>,
 }));
 
-afterEach(() => { cleanup(); mocks.mutate.mockClear(); mocks.invoke.mockReset(); mocks.queryRows = {}; mocks.mutations = []; });
+afterEach(() => { cleanup(); mocks.mutate.mockClear(); mocks.invoke.mockReset(); mocks.queryRows = {}; mocks.queryState = {}; mocks.mutations = []; });
 function choose(label: string, value: string) {
   const select = screen.getByText(label, { selector: "label" }).parentElement!.querySelector("select")!;
   fireEvent.change(select, { target: { value } });
@@ -213,5 +214,115 @@ describe("scenario creation contract routing", () => {
     expect(snapshot.schema_version).toBe(2);
     expect(snapshot.transport_mode).toBe("AIR");
     expect((snapshot.cargo_units as Record<string, unknown>[])[0].scenario_basis).toBe("Keep this synthetic assumption");
+  });
+});
+
+// GO CTO 2026-09-24 — alertes 4 et 5 : actions offertes seulement dans le périmètre réellement calculé.
+describe("PAD v3 eligibility and non-containerized remedies", () => {
+  const scope = (incoterm: string | null, pkg = "DAP_PROJECT_IMPORT") => {
+    mocks.queryRows["quote-scenario-pad-scope-facts"] = [
+      ...(incoterm ? [{ fact_key: "routing.incoterm", value_text: incoterm }] : []),
+      { fact_key: "service.package", value_text: pkg },
+    ];
+  };
+  const v3Button = () => screen.getByRole("button", { name: "Ajouter les choix PAD par groupe (v3)" });
+
+  it("offers the v3 action for a maritime import DAP estimate and it really switches the draft to v3", () => {
+    scope("DAP");
+    render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    fireEvent.click(screen.getByRole("button", { name: "Nouveau maritime par groupes" }));
+    expect(v3Button()).toBeEnabled();
+    fireEvent.click(v3Button());
+    const snapshot = buildScopeSnapshot(submit()).snapshot;
+    expect(snapshot.schema_version).toBe(3);
+    expect(Array.isArray(snapshot.pad_choices)).toBe(true);
+  });
+
+  for (const [label, incoterm, pkg, reason] of [
+    ["CIF", "CIF", "DAP_PROJECT_IMPORT", /incoterm CIF/],
+    ["CFR", "CFR", "DAP_PROJECT_IMPORT", /incoterm CFR/],
+    ["FOB", "FOB", "DAP_PROJECT_IMPORT", /incoterm FOB/],
+    ["DDP package", "DAP", "DDP_PROJECT_IMPORT", /package DDP_PROJECT_IMPORT/],
+    ["unknown incoterm", null, "DAP_PROJECT_IMPORT", /incoterm inconnu/],
+  ] as const) {
+    it(`does not offer an unusable v3 action (${label}) and explains why`, () => {
+      scope(incoterm, pkg);
+      render(<QuoteScenariosPanel caseId="synthetic-case" />);
+      fireEvent.click(screen.getByRole("button", { name: "Nouveau maritime par groupes" }));
+      expect(v3Button()).toBeDisabled();
+      expect(screen.getByText(reason)).toBeInTheDocument();
+      expect(buildScopeSnapshot(submit()).snapshot.schema_version).toBe(2);
+    });
+  }
+
+  it("a live linked scenario assumption overrides the case incoterm, as the server does", () => {
+    scope("CIF");
+    mocks.queryRows["quote-scenario-linkable-assumptions"] = [
+      { id: "assumption-dap", statement: "Synthetic DAP hypothesis", status: "active", assumed_fact_key: "routing.incoterm", assumed_value: "DAP" }];
+    render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    fireEvent.click(screen.getByRole("button", { name: "Nouveau maritime par groupes" }));
+    expect(v3Button()).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Ajouter un lien/ }));
+    choose("Cible", "assumption");
+    choose("Hypothèse liée", "assumption-dap");
+    expect(v3Button()).toBeEnabled();
+  });
+
+  it("an incompatible saved v3 scenario gets an explicit, confirmed exit to v2; saved rows stay intact", () => {
+    scope("CIF");
+    const v3Draft: ScenarioDraft = { ...emptyScenarioDraftV2(), schemaVersion: 3,
+      padChoices: [{ unit_ref: "lot-1", category: "T02", basis: "Synthetic basis" }] };
+    const rows = [{ id: "scenario-v3", root_scenario_id: "root-v3", case_id: "synthetic-case", title: "Synthetic v3", status: "draft",
+      scope_hash: "c".repeat(64), scope_snapshot: buildScopeSnapshot(v3Draft).snapshot, open_points: [], revision_no: 1,
+      created_at: "2026-09-24T10:00:00Z", superseded_by_scenario_id: null }];
+    const before = JSON.stringify(rows);
+    mocks.queryRows["quote-scenarios"] = rows;
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-v3", selected_at: "2026-09-24T11:00:00Z", released_at: null }];
+    render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    fireEvent.click(screen.getByRole("button", { name: "Réviser le périmètre" }));
+    expect(screen.getAllByRole("alert").some(a => /ne pourront pas être calculés/.test(a.textContent ?? ""))).toBe(true);
+    const exit = screen.getByRole("button", { name: /Revenir en v2/ });
+    const confirm = vi.spyOn(window, "confirm");
+    confirm.mockReturnValueOnce(false);
+    fireEvent.click(exit);
+    expect(screen.getByRole("button", { name: /Revenir en v2/ })).toBeInTheDocument(); // declined: nothing removed
+    confirm.mockReturnValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: /Revenir en v2/ }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    fireEvent.change(screen.getByText("Motif de révision (obligatoire)", { selector: "label" }).parentElement!.querySelector("textarea")!,
+      { target: { value: "Périmètre CIF : retour explicite en v2" } });
+    fireEvent.click(screen.getByRole("button", { name: /Enregistrer la révision/ }));
+    const snapshot = buildScopeSnapshot(mocks.mutate.mock.lastCall![0].draft as ScenarioDraft).snapshot;
+    expect(snapshot.schema_version).toBe(2);
+    expect("pad_choices" in snapshot).toBe(false);
+    expect(JSON.stringify(rows)).toBe(before);
+    confirm.mockRestore();
+  });
+
+  it("an unreadable case scope is shown as unverifiable, never as an incompatibility with an exit", () => {
+    mocks.queryState["quote-scenario-pad-scope-facts"] = { isError: true };
+    const v3Draft: ScenarioDraft = { ...emptyScenarioDraftV2(), schemaVersion: 3,
+      padChoices: [{ unit_ref: "lot-1", category: "T02", basis: "Synthetic basis" }] };
+    mocks.queryRows["quote-scenarios"] = [{ id: "scenario-v3", root_scenario_id: "root-v3", case_id: "synthetic-case", title: "Synthetic v3",
+      status: "draft", scope_hash: "d".repeat(64), scope_snapshot: buildScopeSnapshot(v3Draft).snapshot, open_points: [], revision_no: 1,
+      created_at: "2026-09-24T10:00:00Z", superseded_by_scenario_id: null }];
+    mocks.queryRows["quote-scenario-selections"] = [{ scenario_id: "scenario-v3", selected_at: "2026-09-24T11:00:00Z", released_at: null }];
+    render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    fireEvent.click(screen.getByRole("button", { name: "Réviser le périmètre" }));
+    expect(screen.queryByRole("button", { name: /Revenir en v2/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Annuler" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nouveau maritime par groupes" }));
+    expect(v3Button()).toBeDisabled();
+    expect(screen.getByText(/périmètre non vérifiable/)).toBeInTheDocument();
+  });
+
+  it("non-containerized legacy lots never get the v2 container upgrade as a universal remedy", () => {
+    render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    fireEvent.click(screen.getByRole("button", { name: "Nouveau scénario" }));
+    choose("Mode de transport", "MARITIME");
+    expect(screen.getByRole("button", { name: /Passer ce brouillon en v2 maritime/ })).toBeInTheDocument();
+    choose("Type de lot", "PACKAGE");
+    expect(screen.queryByRole("button", { name: /Passer ce brouillon en v2 maritime/ })).toBeNull();
+    expect(screen.getByText(/ne couvre que les conteneurs ; il n’est pas une solution pour ce périmètre/)).toBeInTheDocument();
   });
 });

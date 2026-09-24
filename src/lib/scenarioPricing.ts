@@ -109,6 +109,10 @@ export function readScenarioPricingCodes(value: unknown): string[] {
 
 /** Keep persisted codes stable while making the required operator action explicit. */
 export function scenarioPricingCodeMessage(code: string): string {
+  const containerType = /^SCENARIO_CONTAINER_TYPE_REQUIRED:(.+)$/.exec(code);
+  if (containerType) {
+    return `Lot ${containerType[1]} : le calcul par lot (v2/v3) ne couvre que les conteneurs d’un type reconnu (ex. 20dv, 40hc). Colis, vrac ou conventionnel ne sont pas chiffrés par ce parcours ; aucune conversion automatique en conteneur.`;
+  }
   switch (code) {
     case "SCENARIO_CONTAINER_STAY_ESTIMATE":
       return "Séjour estimé par lot : magasinage et surestaries ont des durées distinctes. Les conditions de franchise, montants calculés et frais encore non chiffrés sont précisés dans le détail ; aucun montant n’est ferme.";
@@ -139,13 +143,15 @@ export function scenarioPricingCodeMessage(code: string): string {
     case "SCENARIO_FEE_CATALOG_UNAVAILABLE":
       return "Lecture complète du catalogue d’honoraires impossible : honoraires non chiffrés, réessayer avant de conclure à une règle manquante.";
     case "SCENARIO_PAD_PRICING_SCOPE_UNSUPPORTED":
-      return "Le calcul PAD par groupe est disponible pour l’estimation maritime import DAP. Les choix PAD ne peuvent pas être ignorés dans un autre périmètre.";
+      return "Le calcul PAD par groupe est disponible pour l’estimation maritime (import ou transit) DAP uniquement (pas CIF/CFR/FOB ni package DDP). Les choix PAD ne peuvent pas être ignorés : réviser le scénario pour revenir explicitement en v2, ou le rattacher à un périmètre DAP. Les révisions enregistrées restent inchangées.";
     case "QUOTATION_ENGINE_MODE_NOT_ACKNOWLEDGED":
       return "Le moteur ne confirme pas le mode estimation DAP. Aucun montant retenu ; vérifier la concordance des versions déployées.";
     case "SCENARIO_CARGO_V2_REQUIRED":
       return "Recalcul à conteneurs : créer une révision maritime v2 et vérifier les hypothèses par lot. Les résultats historiques restent conservés.";
     case "SCENARIO_DG_FACTS_UNSCOPED":
-      return "Données de danger non rattachées aux lots : renseigner une révision maritime v2, sans modifier les faits client.";
+      return "Données de danger (dangereux, inconnu ou contradictoire) non rattachées aux lots conteneurisés : créer une révision maritime v2 et renseigner le danger par lot, sans modifier les faits client.";
+    case "SCENARIO_DG_NON_CONTAINER_UNSUPPORTED":
+      return "Marchandise dangereuse, danger inconnu ou contradictoire sur des lots non conteneurisés (colis, vrac, conventionnel) : ce parcours d’estimation ne la chiffre pas et la révision v2 ne couvre que les conteneurs. Clarifier le statut de danger du dossier sans le présumer, ou traiter ce périmètre par revue métier. Aucun calcul n’est disponible ici.";
     case "SCENARIO_DG_FACTS_UNSCOPED_AIR":
       return "Calcul aérien avec données de danger non pris en charge par ce parcours. Revue métier nécessaire ; le contrat v2 est réservé au maritime.";
     case "SCENARIO_CONTAINERS_UNSCOPED_AIR":
