@@ -386,15 +386,28 @@ Déploiement privé run-pricing puis build-case-puzzle (message Lovable umsg_01m
 Recette sandbox BLOCKED : les e-mails n'entrent que par ingestion IMAP (sync-emails, import-thread, hydrate-email-body) ; aucun mécanisme applicatif ne crée un fil/e-mail synthétique sans envoi réel ni insertion directe. Aucune écriture sandbox, aucun dossier client recalculé. Arbitrage consigné dans la file CTO.
 Rollback : revert de 6aefc4ce puis redéploiement de run-pricing et build-case-puzzle, sans restauration de données. Alertes 3 à 8 non commencées.
 
-### 3.26 IMO-EVENT-TYPE-1 — la preuve IMO peut être persistée (24 septembre 2026)
+### 3.26 IMO-EVENT-TYPE-1 et recette IMO sandbox — clôture technique (24 septembre 2026)
 
-Constat de recette (23/09) : `case_timeline_events_event_type_check` (M19b, 40 valeurs, validée) refusait `imo_goods_recognition` ; sandbox 8a06251d… : gap IMO écrit, aucun événement ni fait, analyse interrompue. 0 événement IMO et 0 gap IMO hors sandbox en Cloud. Journaux de l'appel non accessibles : cause Cloud inférée, non rejouée.
-Recette sandbox par fixtures SQL (GO option B, marqueur IMO-RECETTE-20260923, 4 fils/e-mails, dossiers créés par « Traiter ») : cas 2 (« un 20HQ ») sans gap IMO, analyse complète (alerte 2 prouvée à l'analyse) ; cas 3 gap IMO bloquant conservé ; cas 1 et 4 sans gap IMO à l'analyse. Préflight run-pricing non atteint (statuts NEED_INFO/RFQ_DETECTED). Ingestion IMAP non testée.
-Migration 20260923180000 : verrou exclusif (lock_timeout 5 s), gardes forme/ensemble exact M19b, refus ALREADY_APPLIED/DRIFT, ajout de la seule valeur ; rollback refusé tant qu'un événement IMO existe, sans suppression ; test SQL synthétique. Contre-revue DB indépendante PASS, renforcements revérifiés PASS.
-Tests sur schéma Cloud restauré localement (schéma seul, conteneur sans réseau, transaction annulée) : application 40→41, réapplication refusée, test PASS, rollback refusé avec preuve IMO puis restauration exacte sans preuve, dérive refusée, lock_timeout effectif ~5 s.
-Publication : work 873c993 → 56d1975 (3 fichiers SQL), Lovable synchronisé privé ; CI 35983621811 FAIL au seul Vitest LocalTransportEstimateFields (baseline), étapes suivantes non exécutées en CI. Appliquée via Lovable query_database avec ledger 206→207 dans la même transaction ; catalogue exact 41, validée, 9 contraintes et RLS/4 politiques inchangées, MD5 ledger = fichier.
-Recette après migration BLOCKED : cas 3 non relançable par l'UI (0 fait/0 document, RFQ_DETECTED) ; cas 1/2/4 : extension navigateur instable, exclusion PAD_DROIT_PASSAGE non écrite. Écritures sandbox : fixtures, dossiers issus de « Traiter », routing.terminal_operation_mode=LOLO sur le cas 1 ; 0 run, 0 version, aucun dossier client modifié. Arbitrage consigné dans la file CTO.
-Rollback : supabase/rollbacks/20260923180000… avec build-case-puzzle n'écrivant plus l'événement ; refus s'il existe des preuves IMO (arbitrage requis).
+Statut : clôture technique acceptée par l'utilisateur pour les alertes 1 et 2 (§3.25) et IMO-EVENT-TYPE-1, dans le périmètre de recette prouvé ci-dessous.
+Défaut découvert en recette (23/09) : `case_timeline_events_event_type_check` (M19b, 40 valeurs) refusait `imo_goods_recognition` ; gap IMO écrit puis preuve non persistée et analyse interrompue. Journaux Cloud non accessibles : cause inférée (valeur absente du catalogue), insertion refusée non rejouée isolément.
+Migration 20260923180000 (commit 56d1975) : lock_timeout 5 s, verrou exclusif, gardes forme/ensemble exact M19b (refus ALREADY_APPLIED/DRIFT), ajout de la seule valeur ; rollback refusé tant qu'un événement IMO existe, sans suppression ; test SQL synthétique. Contre-revue DB indépendante PASS ; tests sur schéma Cloud restauré localement (schéma seul, sans réseau, transaction annulée) PASS.
+Application via Lovable query_database avec ledger 206→207 dans la même transaction : 41 valeurs exactes, validée, 9 contraintes et RLS/4 politiques inchangées, MD5 ledger = fichier. CI 35983621811 : seul échec baseline Vitest LocalTransportEstimateFields, étapes suivantes NOT_RUN en CI.
+Recette sur fonctions déployées, fixtures SQL marquées IMO-RECETTE-20260923 (4 fils/e-mails, dossiers créés par « Traiter ») :
+- cas 1 (texte long, 0d2b54c6…) et cas 2 (« un 20HQ », 9b606375…) : run-pricing allow_provisional → 400 « Blocking gaps still open », préflight IMO franchi sans faux blocage ; cas 2 déjà sans gap IMO à l'analyse ;
+- cas 4 (HTML au plafond 100 000, 709e06ce…) : 400 IMO avec SOURCE_REVIEW_REQUIRED conservé ;
+- cas 3 (UN3480, 8a06251d…) : build-case-puzzle start/poll (job 6ed3af7b…) completed ; premier événement imo_goods_recognition persisté (REVIEW), analyse poursuivie (NEED_INFO), gap IMO bloquant conservé.
+Appels run-pricing sans écriture ; aucune écriture hors sandbox, 0 run, 0 version, aucun dossier client touché. Sandbox et preuve IMO conservés.
+Limites de validation : ingestion IMAP non testée (fixtures SQL) ; voie provisoire seulement, pas de chiffrage ferme ni de parcours UI de lancement ; appels authentifiés hors UI (session utilisateur, relance du cas 3 sur autorisation explicite).
+Ouvert : défaut UI de relance d'un dossier sans fait ni document (RFQ_DETECTED), consigné séparément dans la file CTO ; alertes Lovable 3 à 8 non commencées.
+Rollback : désormais refusé par construction (preuve IMO existante) ; tout retour arrière exige un arbitrage et un build-case-puzzle n'écrivant plus l'événement.
+
+### 3.27 SCENARIO-ALERTS-4-5 — périmètre PAD v3 et danger sur scénarios anciens (24 septembre 2026, local, non publié)
+
+GO utilisateur de réalisation locale ; exécutant unique Claude Code (reprise), contre-revue indépendante lecture seule en deux passes limitées aux bloquants ; base work/origin/work fb4cdb0. Trace détaillée dans `docs/CTO_GO_QUEUE.md` (entrée du 24/09 17:20 UTC).
+Alerte 4 : l'UI n'offre les choix PAD par groupe (v3) que dans le périmètre que run-scenario-pricing calcule (maritime, lots conteneurs, incoterm DAP lu depuis les faits ou une hypothèse liée active, aucun package DDP) ; motifs affichés, sortie explicite « Revenir en v2 » sur le brouillon seul ; périmètre inconnu jamais présenté comme incompatibilité. Le serveur n'est pas assoupli ; le bouton reste réservé à IMPORT comme avant (TRANSIT accepté par le serveur mais sans test ni recette PAD v3).
+Alerte 5 : `run-scenario-pricing/domain.ts` classe le danger (NONE, NOT_DANGEROUS, DANGEROUS, UNKNOWN, CONTRADICTORY) ; un « non » explicite non contredit ne bloque plus un scénario v1 ; dangereux, inconnu ou contradictoire reste bloquant avec un remède adapté (v2 conteneurs, nouveau code non conteneurisé, aérien). Aucun FROZEN, migration ni contrat d'écriture touché.
+Preuves locales : typecheck, build, eslint fichiers, `lint:baseline` 732/16, `typecheck:deno` 49/5 PASS ; Vitest 550/551 (échec baseline) ; Deno 2.9.5 canonique avec sanitiseurs : 92/92 sur les fichiers du lot, suite 1686/1 contre 1674/1 sur fb4cdb0 (même unique échec). RLS des deux lectures ajoutées vérifiées en migrations et catalogue Cloud (lecture seule). CI NOT_RUN.
+Reste : publication sous GO distinct ; alerte 3 (mode terminal par lot en multi-lot) diagnostiquée séparément, sans implémentation. Rollback : abandon des modifications locales du lot, aucune donnée touchée.
 
 ## 4. Preuves de l'audit du 22 août 2026
 
