@@ -386,6 +386,16 @@ Déploiement privé run-pricing puis build-case-puzzle (message Lovable umsg_01m
 Recette sandbox BLOCKED : les e-mails n'entrent que par ingestion IMAP (sync-emails, import-thread, hydrate-email-body) ; aucun mécanisme applicatif ne crée un fil/e-mail synthétique sans envoi réel ni insertion directe. Aucune écriture sandbox, aucun dossier client recalculé. Arbitrage consigné dans la file CTO.
 Rollback : revert de 6aefc4ce puis redéploiement de run-pricing et build-case-puzzle, sans restauration de données. Alertes 3 à 8 non commencées.
 
+### 3.26 IMO-EVENT-TYPE-1 — la preuve IMO peut être persistée (24 septembre 2026)
+
+Constat de recette (23/09) : `case_timeline_events_event_type_check` (M19b, 40 valeurs, validée) refusait `imo_goods_recognition` ; sandbox 8a06251d… : gap IMO écrit, aucun événement ni fait, analyse interrompue. 0 événement IMO et 0 gap IMO hors sandbox en Cloud. Journaux de l'appel non accessibles : cause Cloud inférée, non rejouée.
+Recette sandbox par fixtures SQL (GO option B, marqueur IMO-RECETTE-20260923, 4 fils/e-mails, dossiers créés par « Traiter ») : cas 2 (« un 20HQ ») sans gap IMO, analyse complète (alerte 2 prouvée à l'analyse) ; cas 3 gap IMO bloquant conservé ; cas 1 et 4 sans gap IMO à l'analyse. Préflight run-pricing non atteint (statuts NEED_INFO/RFQ_DETECTED). Ingestion IMAP non testée.
+Migration 20260923180000 : verrou exclusif (lock_timeout 5 s), gardes forme/ensemble exact M19b, refus ALREADY_APPLIED/DRIFT, ajout de la seule valeur ; rollback refusé tant qu'un événement IMO existe, sans suppression ; test SQL synthétique. Contre-revue DB indépendante PASS, renforcements revérifiés PASS.
+Tests sur schéma Cloud restauré localement (schéma seul, conteneur sans réseau, transaction annulée) : application 40→41, réapplication refusée, test PASS, rollback refusé avec preuve IMO puis restauration exacte sans preuve, dérive refusée, lock_timeout effectif ~5 s.
+Publication : work 873c993 → 56d1975 (3 fichiers SQL), Lovable synchronisé privé ; CI 35983621811 FAIL au seul Vitest LocalTransportEstimateFields (baseline), étapes suivantes non exécutées en CI. Appliquée via Lovable query_database avec ledger 206→207 dans la même transaction ; catalogue exact 41, validée, 9 contraintes et RLS/4 politiques inchangées, MD5 ledger = fichier.
+Recette après migration BLOCKED : cas 3 non relançable par l'UI (0 fait/0 document, RFQ_DETECTED) ; cas 1/2/4 : extension navigateur instable, exclusion PAD_DROIT_PASSAGE non écrite. Écritures sandbox : fixtures, dossiers issus de « Traiter », routing.terminal_operation_mode=LOLO sur le cas 1 ; 0 run, 0 version, aucun dossier client modifié. Arbitrage consigné dans la file CTO.
+Rollback : supabase/rollbacks/20260923180000… avec build-case-puzzle n'écrivant plus l'événement ; refus s'il existe des preuves IMO (arbitrage requis).
+
 ## 4. Preuves de l'audit du 22 août 2026
 
 ### 4.1 Dépôt et qualité locale
