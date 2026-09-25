@@ -475,3 +475,47 @@ Deno.test("P0-E: the mono-lot guard keeps its own verdict — no cross-contamina
     [PAD_MULTI_LOT_UNSUPPORTED],
   );
 });
+
+// ── MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25) ────────────────────────────────
+const { confirmedPadLineInput, canonicalizeLine } = await import("./index.ts") as unknown as {
+  confirmedPadLineInput: (line: Record<string, unknown>, retained: unknown) => Record<string, unknown>;
+  canonicalizeLine: (line: unknown, ctx: { origin_layer: string }) => Record<string, unknown> & { canonical?: { origin_layer?: string } };
+};
+const { lotPadEmissionValid } = await import("../_shared/lot-confirmation.ts");
+const { computeCommercialTotals } = await import("./commercial-totals.ts");
+
+const confirmed = { unit_ref: "a", category: "T02", quantity: 36, unit_price: 100, amount: 3600, tariff_id: "tariff-t02",
+  tariff_source: "Synthetic tariff", decision_id: "pad-a", context_hash: "a".repeat(64) };
+
+Deno.test("MULTI-LOT PAD: the factorised line is the exact mono-lot line (no tariff or formula change)", () => {
+  assertEquals(confirmedPadLineInput(confirmed, null), {
+    category: "PAD_DROIT_PASSAGE", label: "Droit de passage PAD T02 — a",
+    description: "Catégorie et poids confirmés pour le groupe a",
+    amount: 3600, currency: "FCFA", unit: "tonne", quantity: 36, unitPrice: 100,
+    source: { type: "OFFICIAL", reference: "Synthetic tariff", table: "port_tariffs", tariff_id: "tariff-t02",
+      decision_id: "pad-a", unit_ref: "a", context_hash: "a".repeat(64), confidence: 1,
+      weight_basis: "confirmed", weight_reservation: "", weight_reconciliation: null,
+      weight_container_count: undefined, weight_per_container_kg: undefined },
+    isEditable: false,
+  });
+});
+
+Deno.test("MULTI-LOT PAD: one confirmed line per lot is counted once in the lot and in the aggregate", () => {
+  const lotA = { ...canonicalizeLine(confirmedPadLineInput(confirmed, null), { origin_layer: "enrichment_pad" }), lot_index: 1 };
+  const lotB = { ...canonicalizeLine(confirmedPadLineInput({ ...confirmed, unit_ref: "b", amount: 1200, quantity: 12, decision_id: "pad-b", tariff_id: "tariff-t03" }, null),
+    { origin_layer: "enrichment_pad" }), lot_index: 2 };
+  assertEquals(lotA.canonical?.origin_layer, "enrichment_pad");
+  const totalsA = computeCommercialTotals({ engineTotals: { dap: 0, ddp: 0 }, lines: [lotA] });
+  const totalsB = computeCommercialTotals({ engineTotals: { dap: 0, ddp: 0 }, lines: [lotB] });
+  assertEquals([totalsA.deboursEnrichment, totalsB.deboursEnrichment], [3600, 1200]);
+  assertEquals(totalsA.totalHt + totalsB.totalHt, 4800);
+  const expected = [confirmed, { ...confirmed, unit_ref: "b", amount: 1200, quantity: 12, decision_id: "pad-b", tariff_id: "tariff-t03" }];
+  assertEquals(lotPadEmissionValid(expected, [lotA, lotB], new Map([[1, "a"], [2, "b"]])), true);
+  // A global/engine PAD line beside the confirmed ones is a double count and is refused.
+  assertEquals(lotPadEmissionValid(expected, [lotA, lotB, { category: "PAD_DROIT_PASSAGE", amount: 3600, lot_index: 1 }], new Map([[1, "a"], [2, "b"]])), false);
+});
+
+Deno.test("MULTI-LOT PAD: the global-facts path stays refused per lot", () => {
+  assertEquals(resolvePadBlockersForLot({ facts: PAD_FACTS, servicePackage: "DAP_PROJECT_IMPORT",
+    effectiveServiceKeys: resolveEffectiveServiceKeys("DAP_PROJECT_IMPORT", NO_OVERRIDES), incoterm: "DAP" }), [PAD_MULTI_LOT_UNSUPPORTED]);
+});

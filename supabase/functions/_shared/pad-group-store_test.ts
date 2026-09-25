@@ -32,7 +32,8 @@ Deno.test("group state: stale/source change, ambiguous allocation and separate r
   const stale = raw(); stale.context_hash = "b".repeat(64);
   assertEquals((await loadPadGroupState(db(stale), "case")).ready, false);
   const multi = raw(); multi.request_count = 2;
-  assertEquals((await loadPadGroupState(db(multi), "case")).issues.map(i => i.code), ["PAD_REQUEST_MULTI_LOT_UNSUPPORTED"]);
+  // MULTI-LOT-TERMINAL-1: no blanket refusal any more; an unbound group stays blocked.
+  assertEquals((await loadPadGroupState(dbLots(multi, lotContext([])), "case")).issues.map(i => i.code), ["LOT_BINDING_REQUIRED"]);
   const wrong = raw(); wrong.facts = [wrong.facts[0]];
   assertEquals((await loadPadGroupState(db(wrong), "case")).issues.map(i => i.code), ["PAD_GROUP_ALLOCATION_REQUIRED"]);
 });
@@ -82,4 +83,64 @@ Deno.test("reconciliation: explicit decision preserves PAD heads and replaces on
   assertEquals((await loadPadGroupState(db({ ...data, weight_reconciliation: null }), "case")).ready, false);
   assertEquals((await loadPadGroupState(db({ ...data, facts: [{ key: "service.package", text: "DAP_PROJECT_IMPORT" }] }), "case")).ready, false);
   assertEquals((await loadPadGroupState(db({ ...data, heads: [{ ...base.heads[0], action: "revoke" }] }), "case")).ready, false);
+});
+
+// ── MULTI-LOT-TERMINAL-1: PAD readiness in a multi-lot dossier ─────────────────
+const lineA = { id: "line-a", line_index: 1, line_label: "Lot A", request_type_hint: "SEA_FCL_IMPORT", fingerprint: "c".repeat(64),
+  extracted_facts: [{ key: "cargo.containers", value: [{ type: "20HQ", quantity: 2 }] }, { key: "cargo.weight_kg", value: 36000 }] };
+const lineB = { ...lineA, id: "line-b", line_index: 2, line_label: "Lot B", fingerprint: "d".repeat(64) };
+const binding = (created_at = "2026-09-16T10:00:00Z", patch: Record<string, unknown> = {}) => ({ id: "binding-a", case_id: "case", scenario_id: "scenario",
+  scope_hash: hash, context_hash: hash, unit_ref: "a", decision_kind: "line_binding", action: "confirm", line_fingerprint: lineA.fingerprint,
+  terminal_mode: null, source_reference: "Synthetic operator check", decided_by: "actor", created_at, decision_version: 1, ...patch });
+const lotContext = (heads: unknown[], patch: Record<string, unknown> = {}) => ({ case_id: "case", case_status: "FACTS_PARTIAL", context_hash: hash,
+  request_count: 2, scenario: raw().scenario, lines: [lineA, lineB], heads, pad_heads: [], weight_head_id: null, ...patch });
+function dbLots(data: unknown, lots: unknown) {
+  const base = db(data);
+  return { ...base, rpc: (name: string) => Promise.resolve({ data: name === "read_lot_confirmation_context" ? lots : data, error: null }) };
+}
+Deno.test("multi-lot PAD: a group bound before its decision is priced from its line, not from global facts", async () => {
+  const multi = { ...raw(), request_count: 2, facts: [{ key: "service.package", text: "DAP_PROJECT_IMPORT" }] }; // global containers describe no lot
+  const state = await loadPadGroupState(dbLots(multi, lotContext([binding()])), "case");
+  assertEquals(state.issues, []); assertEquals(state.ready, true); assertEquals(state.total, 3600);
+});
+Deno.test("multi-lot PAD: rebinding, line mismatch, changed context and unavailable registry stay blocked", async () => {
+  const multi = { ...raw(), request_count: 2 };
+  const codes = async (lots: unknown) => (await loadPadGroupState(dbLots(multi, lots), "case")).issues.map(i => i.code);
+  assertEquals(await codes(lotContext([binding("2026-09-18T10:00:00Z")])), ["LOT_BINDING_CHANGED"]);
+  const other = { ...lineA, extracted_facts: [{ key: "cargo.containers", value: [{ type: "40HC", quantity: 2 }] }] };
+  assertEquals(await codes(lotContext([binding()], { lines: [other, lineB] })), ["LOT_PAD_ALLOCATION_MISMATCH"]);
+  const heavier = { ...lineA, extracted_facts: [lineA.extracted_facts[0], { key: "cargo.weight_kg", value: 30000 }] };
+  assertEquals(await codes(lotContext([binding()], { lines: [heavier, lineB] })), ["LOT_PAD_WEIGHT_MISMATCH"]);
+  assertEquals(await codes(lotContext([binding()], { context_hash: "b".repeat(64) })), ["LOT_CONTEXT_CHANGED"]);
+  assertEquals(await codes(lotContext([binding("2026-09-16T10:00:00Z", { action: "revoke", line_fingerprint: null })])), ["LOT_CONFIRMATION_REVOKED"]);
+  const twins = { ...lineB, fingerprint: lineA.fingerprint };
+  assertEquals(await codes(lotContext([binding()], { lines: [lineA, twins] })), ["LOT_LINE_AMBIGUOUS"]);
+  await assertRejects(() => loadPadGroupState(dbLots(multi, null), "case"));
+});
+Deno.test("multi-lot PAD (B1): readiness is judged on the caller's lot snapshot, never on a second reading", async () => {
+  const { loadLotConfirmationState } = await import("./lot-confirmation-store.ts");
+  const multi = { ...raw(), request_count: 2 };
+  // Pinned snapshot: the binding was replaced after the PAD decision.
+  const pinned = await loadLotConfirmationState({ rpc: () => Promise.resolve({ data: lotContext([binding("2026-09-18T10:00:00Z")]), error: null }) }, "case");
+  const calls: string[] = [];
+  const base = dbLots(multi, lotContext([binding()])); // a fresh reading would look ready
+  const spy = { ...base, rpc: (name: string) => { calls.push(name); return base.rpc(name); } };
+  const state = await loadPadGroupState(spy, "case", pinned);
+  assertEquals(state.issues.map(i => i.code), ["LOT_BINDING_CHANGED"]);
+  assertEquals(state.multi_lot, true);
+  assertEquals(calls.includes("read_lot_confirmation_context"), false);
+  assertEquals((await loadPadGroupState(db(raw()), "case")).multi_lot, false);
+});
+Deno.test("multi-lot PAD gap: a decision may resolve the dossier gap when ready, never (re)open it", async () => {
+  const { syncPadGroupGapAfterDecision } = await import("./pad-group-store.ts");
+  const calls: string[] = [];
+  const client = { rpc: (name: string) => { calls.push(name); return Promise.resolve({ data: null, error: null }); } };
+  const base = await loadPadGroupState(db(raw()), "case");
+  // Multi-lot, not ready: no gap write at all.
+  assertEquals(await syncPadGroupGapAfterDecision(client, "case", { ...base, multi_lot: true, ready: false }), false);
+  assertEquals(calls, []);
+  // Multi-lot ready, or mono-lot in any state: the existing sync runs unchanged.
+  assertEquals(await syncPadGroupGapAfterDecision(client, "case", { ...base, multi_lot: true, ready: true }), true);
+  assertEquals(await syncPadGroupGapAfterDecision(client, "case", { ...base, multi_lot: false, ready: false }), true);
+  assertEquals(calls, ["sync_pad_weight_gap", "sync_pad_weight_gap"]);
 });

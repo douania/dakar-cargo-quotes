@@ -509,6 +509,25 @@ export { resolvePadScopeGapState, PAD_SCOPE_GAP_KEY, PAD_SCOPE_FACT_KEYS };
 // barème Dakar Terminal qui manque — un autre sujet, bloqué côté chiffrage.
 const TERMINAL_MODE_GAP_KEY = TERMINAL_OPERATION_MODE_FACT_KEY;
 
+/**
+ * MULTI-LOT-TERMINAL-1 (exception FROZEN bornée, GO CTO 2026-09-25) : en multi-lot, le mode
+ * terminal et le PAD sont exigés LOT PAR LOT par run-pricing (décisions explicites dans
+ * quote_lot_confirmations). Les gaps dossier routing.terminal_operation_mode et
+ * pricing.pad_category rendraient le statut circulaire : chaque build réécrit les lignes,
+ * périme toutes les décisions et rouvrirait ces gaps. Ils ne sont donc levés QUE si ce build
+ * a effectivement persisté au moins deux lignes et qu'un recomptage en base le confirme.
+ * Échec d'écriture, de relecture ou écart de comptage → comportement mono-lot inchangé.
+ * Le mode terminal global n'est jamais propagé aux lots. Fonction PURE, testée.
+ */
+export function perLotGapScopeEligible(
+  result: { detected: boolean; stored: number; mode: string | null } | null,
+  persistedCount: number | null,
+): boolean {
+  return result?.mode === "ai_extraction" && Number.isSafeInteger(result.stored) && result.stored >= 2 &&
+    persistedCount === result.stored;
+}
+const PER_LOT_GAP_REASON = "multi_lot_per_lot_confirmation";
+
 /** Les seules clés nécessaires au périmètre + au mode. */
 const TERMINAL_SCOPE_FACT_KEYS = [
   "service.package",
@@ -7748,6 +7767,18 @@ Deno.serve(async (req) => {
       }
     }
 
+    // MULTI-LOT-TERMINAL-1 : éligibilité aux exigences par lot, établie sur les lignes
+    // réellement persistées par CE build (recomptage), jamais sur la seule détection.
+    let perLotGapScope = false;
+    if (perLotGapScopeEligible(multiQuoteResult, multiQuoteResult?.stored ?? null)) {
+      const { count: persistedLines, error: persistedLinesError } = await serviceClient
+        .from("quote_request_lines")
+        .select("id", { count: "exact", head: true })
+        .eq("case_id", case_id);
+      perLotGapScope = !persistedLinesError && perLotGapScopeEligible(multiQuoteResult, persistedLines ?? null);
+      if (!perLotGapScope) console.warn(`[MULTI-LOT-TERMINAL-1] lignes non confirmées en base pour ${case_id} : gaps dossier conservés`);
+    }
+
     // PAD-SCOPE-GAP: matérialise le blocage PAD_CATEGORY_REQUIRED de run-pricing.
     // Placé APRÈS le final sync (10b) — qui résoudrait le gap sur la seule présence
     // d'un fait pricing.pad_category, sans exiger le tarif officiel — et AVANT le
@@ -7771,7 +7802,10 @@ Deno.serve(async (req) => {
       } else {
         const padScopeState = resolvePadScopeGapState((padScopeFacts || []) as PadScopeFact[]);
         let padGroupHandled = false;
-        if (padGroupScopeRequired((padScopeFacts || []) as PadScopeFact[], padScopeState.effectiveServiceKeys)) {
+        // MULTI-LOT-TERMINAL-1 : exigence PAD portée par lot (run-pricing) ; ni synchronisation de
+        // groupes (toujours périmés après ce build) ni gap dossier bloquant pour ce motif.
+        if (perLotGapScope) padScopeState.blocker = null;
+        if (!perLotGapScope && padGroupScopeRequired((padScopeFacts || []) as PadScopeFact[], padScopeState.effectiveServiceKeys)) {
           try {
             const groups = await loadPadGroupState(serviceClient, case_id);
             if (groups.mode === "groups" && groups.context) {
@@ -7889,7 +7923,7 @@ Deno.serve(async (req) => {
             event_type: "gap_resolved",
             event_data: {
               gap_key: PAD_SCOPE_GAP_KEY,
-              reason: "pad_scope_satisfied",
+              reason: perLotGapScope ? PER_LOT_GAP_REASON : "pad_scope_satisfied",
               service_package: padScopeState.servicePackage,
               effective_service_keys: padScopeState.effectiveServiceKeys,
             },
@@ -7925,6 +7959,9 @@ Deno.serve(async (req) => {
         const terminalState = resolveTerminalModeGapState(
           (terminalScopeFacts || []) as TerminalScopeFact[]
         );
+        // MULTI-LOT-TERMINAL-1 : le mode est exigé lot par lot par run-pricing ; le fait dossier
+        // n'ouvre ni ne ferme cette exigence et n'est jamais prêté aux lots.
+        if (perLotGapScope) terminalState.gapRequired = false;
 
         const { data: existingTerminalGap, error: existingTerminalGapError } = await serviceClient
           .from("quote_gaps")
@@ -8017,7 +8054,7 @@ Deno.serve(async (req) => {
             event_type: "gap_resolved",
             event_data: {
               gap_key: TERMINAL_MODE_GAP_KEY,
-              reason: "terminal_operation_mode_satisfied",
+              reason: perLotGapScope ? PER_LOT_GAP_REASON : "terminal_operation_mode_satisfied",
               service_package: terminalState.servicePackage,
               effective_service_keys: terminalState.effectiveServiceKeys,
             },

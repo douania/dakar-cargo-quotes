@@ -46,10 +46,21 @@ import {
 // Garde terminal (doctrine 2026-08-25) : décision PURE et partagée, cf. le module.
 import {
   resolveTerminalOperationBlockers,
+  scopeRequiresTerminalOperator,
   TERMINAL_OPERATION_MODE_FACT_KEY,
   terminalOperationBlockerMessage,
   type TerminalScopeFact,
 } from "../_shared/terminal-operation-mode.ts";
+// MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25): explicit per-lot decisions (binding, terminal mode).
+import { loadLotConfirmationState, type LotConfirmationState } from "../_shared/lot-confirmation-store.ts";
+import {
+  evaluateLotRequirements,
+  lotBindingForLine,
+  lotPadEmissionValid,
+  lotPadScopeIssues,
+  withConfirmedLotTerminalMode,
+} from "../_shared/lot-confirmation.ts";
+import type { ConfirmedPadLine } from "../_shared/pad-group-confirmation.ts";
 // P5 helpers moved verbatim to _shared so build-case-puzzle computes the SAME
 // effectiveServiceKeys before calling resolvePadScopeBlocker (no doctrine change).
 import {
@@ -792,8 +803,10 @@ export const PAD_MULTI_LOT_UNSUPPORTED = 'PAD_MULTI_LOT_UNSUPPORTED';
  *
  *   - scope out of PAD range              → `[]`, nothing changes for that lot;
  *   - scope in PAD range, facts missing   → `['PAD_CATEGORY_REQUIRED']` (unchanged behaviour);
- *   - scope in PAD range, facts complete  → `['PAD_MULTI_LOT_UNSUPPORTED']`, the new fail-closed
- *     branch, to be REPLACED (not merely deleted) the day a per-lot PAD computation lands.
+ *   - scope in PAD range, facts complete  → `['PAD_MULTI_LOT_UNSUPPORTED']`, the fail-closed
+ *     branch for the GLOBAL-facts path. MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25) does not relax
+ *     it: a lot is priced for PAD only through confirmed scenario groups explicitly bound to
+ *     its line (see the multi-lot orchestration), never from the global cargo.pad_* facts.
  *
  * Pure: no I/O, no ordering dependency, safe to call per lot.
  */
@@ -923,6 +936,23 @@ function normalizeCarrierCode(value: unknown): string {
     .replace(/^_+|_+$/g, '');
 
   return normalized === 'CMACGM' ? 'CMA_CGM' : normalized;
+}
+
+/** The official PAD line of one confirmed group decision. Shared verbatim by the mono-lot
+ * path and, per lot, by the multi-lot path (MULTI-LOT-TERMINAL-1): same label, amount,
+ * source and weight notices; no tariff or formula of its own. */
+export function confirmedPadLineInput(line: ConfirmedPadLine, retainedWeight: unknown): Record<string, unknown> {
+  return {
+    category: 'PAD_DROIT_PASSAGE', label: `Droit de passage PAD ${line.category} — ${line.unit_ref}`,
+    description: weightBasisNotice(line.unit_ref, line.quantity * 1000, line) ?? `Catégorie et poids confirmés pour le groupe ${line.unit_ref}`,
+    amount: line.amount, currency: 'FCFA', unit: 'tonne', quantity: line.quantity, unitPrice: line.unit_price,
+    source: { type: 'OFFICIAL', reference: line.tariff_source, table: 'port_tariffs', tariff_id: line.tariff_id,
+      decision_id: line.decision_id, unit_ref: line.unit_ref, context_hash: line.context_hash, confidence: 1,
+      weight_basis: line.weight_basis ?? "confirmed", weight_reservation: line.weight_reservation ?? "",
+      weight_reconciliation: retainedWeight ?? null,
+      weight_container_count: line.weight_container_count, weight_per_container_kg: line.weight_per_container_kg },
+    isEditable: false,
+  };
 }
 
 function isTransitLikeFlow(caseData: any, inputs: PricingInputs, packageKey: string): boolean {
@@ -1733,7 +1763,14 @@ Deno.serve(async (req) => {
         lot_index: number; lot_label: string; request_type_hint: string;
         mergedFacts: any[]; inputs: PricingInputs; servicePackage: string | undefined;
         transportMode: string; scopeWantsDuties: boolean; blockers: string[];
+        line_id: string; lotUnitRef: string | null; padGroupsRequired: boolean; padLine: ConfirmedPadLine | null;
       }> = [];
+
+      // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25): per-lot decisions and PAD group state are read
+      // only when a lot needs them, then pinned: the completion rechecks exactly this snapshot.
+      let lotRegistry: LotConfirmationState | null = null;
+      const readLotRegistry = async () => lotRegistry ??= await loadLotConfirmationState(serviceClient, case_id);
+      let mlPadGroupState: Awaited<ReturnType<typeof loadPadGroupState>> | null = null;
 
       for (const rl of requestLines) {
         const lotIndex = rl.line_index;
@@ -1763,15 +1800,37 @@ Deno.serve(async (req) => {
         const lotBlockers: string[] = [];
         lotBlockers.push(...imoLotScope.blockers, ...(lotInputs.imoResolution?.blockers ?? []));
         const lotEffectiveServiceKeys = resolveEffectiveServiceKeys(lotPkg, readOverridesFromFacts(mergedFacts));
-        // P0-E: fail-closed. PAD_CATEGORY_REQUIRED when the PAD facts are missing (unchanged),
-        // PAD_MULTI_LOT_UNSUPPORTED when they are present — the cargo.pad_* facts are GLOBAL and
-        // the enrichment_pad block is mono-lot, so no PAD line would ever be produced per lot.
-        const lotPadBlockers = resolvePadBlockersForLot({
-          facts: mergedFacts,
-          servicePackage: lotPkg,
-          effectiveServiceKeys: lotEffectiveServiceKeys,
-          incoterm: lotIncoterm,
-        });
+        // MULTI-LOT-TERMINAL-1: a lot in the PAD scope of a dossier priced by confirmed groups is
+        // priced only from the PAD decision of the scenario lot explicitly bound to this line.
+        // Otherwise the P0-E fail-closed legacy path applies unchanged: PAD_CATEGORY_REQUIRED
+        // when the PAD facts are missing, PAD_MULTI_LOT_UNSUPPORTED when they are present — the
+        // cargo.pad_* facts are GLOBAL, so no PAD line is ever produced per lot from them.
+        const lotPadInScope = padGroupScopeRequired(mergedFacts, lotEffectiveServiceKeys);
+        // One reading of the lot registry for PAD readiness AND lot assignment (pinned at completion).
+        if (lotPadInScope && !mlPadGroupState) mlPadGroupState = await loadPadGroupState(serviceClient, case_id, await readLotRegistry());
+        const lotPadGroupsRequired = lotPadInScope && mlPadGroupState?.mode === "groups";
+        const lotTerminalRequired = scopeRequiresTerminalOperator(lotEffectiveServiceKeys);
+        const lotRequirement = lotTerminalRequired || lotPadGroupsRequired
+          ? evaluateLotRequirements({
+            resolution: (await readLotRegistry()).resolution, lineId: rl.id,
+            terminalRequired: lotTerminalRequired, padGroupsRequired: lotPadGroupsRequired,
+            padReady: mlPadGroupState?.ready === true, padLines: mlPadGroupState?.lines ?? [],
+          })
+          : null;
+        const lotPadBlockers: string[] = lotPadGroupsRequired
+          ? (lotRequirement?.padLine ? [] : ["PAD_GROUP_CONFIRMATION_REQUIRED"])
+          : resolvePadBlockersForLot({
+            facts: mergedFacts,
+            servicePackage: lotPkg,
+            effectiveServiceKeys: lotEffectiveServiceKeys,
+            incoterm: lotIncoterm,
+          });
+        // The mono-lot path adds a CMA CGM commission on the PAD amount; no per-lot equivalent
+        // exists, so such a lot is blocked rather than priced without it (no new formula).
+        if (lotRequirement?.padLine && normalizeCarrierCode(lotInputs.carrier) === 'CMA_CGM' &&
+          !lotPkg.startsWith('EXPORT_') && !isTransitLikeFlow(caseData, lotInputs, lotPkg)) {
+          lotPadBlockers.push("LOT_PAD_CARRIER_COMMISSION_UNSUPPORTED");
+        }
         if (lotPadBlockers.includes(PAD_MULTI_LOT_UNSUPPORTED)) {
           console.warn(
             `[P0-E][multi-lot ${lotIndex}] ${PAD_MULTI_LOT_UNSUPPORTED}: scope ${lotPkg} in PAD range (${lotEffectiveServiceKeys.join(', ')}) but no per-lot PAD computation exists — blocking instead of under-charging.`,
@@ -1780,11 +1839,16 @@ Deno.serve(async (req) => {
         lotBlockers.push(...lotPadBlockers);
 
         // TERMINAL-GUARD multi-lot : mêmes codes qu'en mono-lot, sur les faits
-        // DÉCLARÉS PAR LE LOT uniquement — le mode global n'est pas propagé.
+        // DÉCLARÉS PAR LE LOT uniquement — le mode global n'est pas propagé. Un mode
+        // confirmé explicitement pour le lot lié à cette ligne (MULTI-LOT-TERMINAL-1)
+        // tient lieu de fait déclaré par le lot ; jamais le fait global.
         const lotTerminalBlockers = resolveTerminalBlockersForLot({
-          lotExtractedFacts: extractedFacts,
+          lotExtractedFacts: withConfirmedLotTerminalMode(extractedFacts, lotRequirement?.terminalMode ?? null),
           effectiveServiceKeys: lotEffectiveServiceKeys,
         });
+        if (lotRequirement?.diagnostics.length && (lotTerminalBlockers.length > 0 || lotPadBlockers.length > 0)) {
+          lotBlockers.push(...lotRequirement.diagnostics);
+        }
         if (lotTerminalBlockers.length > 0) {
           console.warn(
             `[TERMINAL-GUARD][multi-lot ${lotIndex}] ${lotTerminalBlockers.join(', ')}: scope ${lotPkg} (${lotEffectiveServiceKeys.join(', ')}) — opérateur terminal ou barème Dakar Terminal indéterminé pour ce lot.`,
@@ -1854,7 +1918,26 @@ Deno.serve(async (req) => {
           transportMode: lotTransportMode,
           scopeWantsDuties: lotScopeWantsDuties,
           blockers: lotBlockers,
+          line_id: rl.id,
+          lotUnitRef: lotRequirement?.unit_ref ?? null,
+          padGroupsRequired: lotPadGroupsRequired,
+          padLine: lotRequirement?.padLine ?? null,
         });
+      }
+
+      // MULTI-LOT-TERMINAL-1 — D5 before pricing: each confirmed PAD line belongs to exactly
+      // one lot of this run, and that lot is in the PAD scope; otherwise the lot is blocked.
+      const mlPadLines: readonly ConfirmedPadLine[] =
+        mlPadGroupState?.mode === "groups" && mlPadGroupState.ready ? mlPadGroupState.lines : [];
+      if (mlPadLines.length > 0) {
+        const registryForPad = await readLotRegistry();
+        const padOwners = lotChecks.map(lc => ({
+          lot_index: lc.lot_index,
+          unit_ref: lotBindingForLine(registryForPad.resolution, lc.line_id)?.unit_ref ?? null,
+          padInScope: lc.padGroupsRequired,
+        }));
+        const padScopeBlockers = lotPadScopeIssues(mlPadLines, padOwners);
+        for (const lc of lotChecks) lc.blockers.push(...(padScopeBlockers.get(lc.lot_index) ?? []));
       }
 
       // If ANY lot has blockers → block entire run
@@ -2117,10 +2200,10 @@ Deno.serve(async (req) => {
               // P0-E: the PAD markers never go to price-service-lines (see
               // excludePadScopeKeysForEnrichment). lotEffectiveKeys stays unfiltered above,
               // where the per-lot PAD guard reads it.
-              // Reaching this point with a PAD-scoped lot is impossible: resolvePadBlockersForLot
-              // has already blocked the whole run (PAD_CATEGORY_REQUIRED or
-              // PAD_MULTI_LOT_UNSUPPORTED). The filter therefore removes a line that was worth
-              // 0 XOF, never a charge the run still owed.
+              // A PAD-scoped lot reaches this point only with its confirmed group decision
+              // (MULTI-LOT-TERMINAL-1); its PAD line is added right after enrichment from that
+              // decision. Otherwise resolvePadBlockersForLot has blocked the run. The filter
+              // therefore never removes a charge the run still owed.
               const lotMissingKeys = excludePadScopeKeysForEnrichment(
                 lotEffectiveKeys.filter(k => !lotCoveredKeys.has(k)),
               );
@@ -2217,6 +2300,28 @@ Deno.serve(async (req) => {
             } catch (p5LotError) {
               console.warn(`[P5] Lot ${lc.lot_index}: package enrichment failed, continuing:`, p5LotError);
             }
+          }
+
+          // ═══ MULTI-LOT-TERMINAL-1 — PAD confirmé du lot (D5) ═══
+          // Même règle que le mono-lot par groupes : aucune autre ligne PAD (moteur ou faits
+          // globaux) ne subsiste à côté de la ligne issue de la décision du lot. Une ligne PAD
+          // déjà chiffrée ailleurs serait un cumul : le lot échoue plutôt que de la garder.
+          if (lc.padLine) {
+            for (let i = taggedLines.length - 1; i >= 0; i--) {
+              const existing = taggedLines[i];
+              if (existing?.category !== 'PAD_DROIT_PASSAGE') continue;
+              if (Number(existing.amount) > 0 && String(existing.source?.type ?? '').toUpperCase() !== 'TO_CONFIRM') {
+                throw new Error(`Lot ${lc.lot_index}: priced PAD line outside the confirmed decision`);
+              }
+              taggedLines.splice(i, 1);
+            }
+            const confirmedPad = canonicalizeLine(
+              confirmedPadLineInput(lc.padLine, mlPadGroupState?.retained_weight ?? null), { origin_layer: 'enrichment_pad' });
+            taggedLines.push({ ...confirmedPad, lot_index: lc.lot_index, lot_label: lc.lot_label });
+            lotSourceMap.set(`OFFICIAL_${lc.padLine.tariff_source}`, {
+              type: 'OFFICIAL', reference: lc.padLine.tariff_source, table: 'port_tariffs', confidence: 1,
+            });
+            console.log(`[MULTI-LOT-PAD] Lot ${lc.lot_index}: PAD ${lc.padLine.category} ${lc.padLine.amount} FCFA (groupe ${lc.padLine.unit_ref})`);
           }
 
           // ═══ HONORAIRES-1 : honoraires internes servis par la couche package ═══
@@ -2394,7 +2499,7 @@ Deno.serve(async (req) => {
         },
       };
 
-      await serviceClient.from("pricing_runs").update({
+      const mlRunResult = {
         status: "success",
         engine_request: {
           mode: "multi_lot",
@@ -2414,7 +2519,48 @@ Deno.serve(async (req) => {
         tariff_sources: allSources,
         completed_at: new Date().toISOString(),
         duration_ms: mlDurationMs,
-      }).eq("id", mlRunData.id);
+      };
+
+      // MULTI-LOT-TERMINAL-1: a run that read per-lot decisions is recorded only if, under the
+      // dossier lock, the context and every decision it read are unchanged (complete_lot_pricing,
+      // which then runs the existing PAD finalizer). One PAD line per valid decision, no other.
+      const usedLotRegistry = lotRegistry as LotConfirmationState | null;
+      if (usedLotRegistry) {
+        try {
+          const expectedPad = lotChecks.flatMap(lc => lc.padLine ? [lc.padLine] : []);
+          const lotUnits = new Map(lotChecks.filter(lc => lc.lotUnitRef).map(lc => [lc.lot_index, lc.lotUnitRef!] as [number, string]));
+          if (expectedPad.length !== mlPadLines.length || !lotPadEmissionValid(expectedPad, allTaggedLines, lotUnits)) {
+            throw new Error("LOT_PAD_LINES_MISMATCH");
+          }
+          if (mlPadGroupState?.mode === "groups" && (
+            mlPadGroupState.context?.context_hash !== usedLotRegistry.context.context_hash ||
+            JSON.stringify(mlPadGroupState.all_heads.map(h => h.id).sort()) !==
+              JSON.stringify((usedLotRegistry.context.pad_heads as Array<{ id?: unknown }>).map(h => String(h?.id)).sort()) ||
+            (mlPadGroupState.weight_reconciliation?.id ?? null) !== usedLotRegistry.context.weight_head_id)) {
+            throw new Error("LOT_CONTEXT_CHANGED");
+          }
+          const saved = await serviceClient.rpc("complete_lot_pricing", {
+            p_case_id: case_id, p_run_id: mlRunData.id, p_context_hash: usedLotRegistry.context.context_hash,
+            p_pad_heads: usedLotRegistry.context.pad_heads, p_lot_heads: usedLotRegistry.context.heads,
+            p_weight_head_id: usedLotRegistry.context.weight_head_id, p_result: mlRunResult,
+          });
+          if (saved.error) throw new Error("LOT_CONTEXT_CHANGED");
+        } catch (lotCompletionError) {
+          const code = lotCompletionError instanceof Error && lotCompletionError.message === "LOT_PAD_LINES_MISMATCH"
+            ? "LOT_PAD_LINES_MISMATCH" : "LOT_CONTEXT_CHANGED";
+          await serviceClient.from("pricing_runs").update({ status: "blocked", error_message: code,
+            outputs_json: { pricing_blockers: [code], multi_lot: true,
+              message: "Les liaisons, modes terminal ou confirmations PAD des lots ont changé. Actualisez les lots avant de recalculer." },
+            completed_at: new Date().toISOString(), duration_ms: Date.now() - startTime,
+          }).eq("id", mlRunData.id).eq("status", "running");
+          if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, "lot_confirmations_changed");
+          return new Response(JSON.stringify({ pricing_blockers: [code], pricing_run_id: mlRunData.id,
+            message: "Confirmez l’état actuel des lots avant de relancer le devis." }),
+            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      } else {
+        await serviceClient.from("pricing_runs").update(mlRunResult).eq("id", mlRunData.id);
+      }
 
       // Status transition
       if (!isFinalized) {
@@ -2474,7 +2620,8 @@ Deno.serve(async (req) => {
     const padGroupState = padRequired
       ? await loadPadGroupState(serviceClient, case_id) : null;
     const padScopeBlocker = !padRequired ? null : padGroupState?.mode === "groups"
-      ? padGroupState.ready ? null : {
+      // MULTI-LOT-TERMINAL-1: a dossier that became multi-lot is never priced by the mono-lot path.
+      ? padGroupState.ready && !padGroupState.multi_lot ? null : {
         pricing_blockers: ["PAD_GROUP_CONFIRMATION_REQUIRED"],
         message: padGroupState.issues.some(i => i.code === "PAD_GROUP_WEIGHT_CONFLICT") ? PAD_WEIGHT_REVIEW_FR : "Confirmez la catégorie, les sources et le poids de chaque groupe pour le devis. L’estimation reste distincte.",
         scope_debug: { servicePackage: pkg, incoterm: incotermEarly, effectiveServiceKeys, issues: padGroupState.issues },
@@ -3686,11 +3833,10 @@ Deno.serve(async (req) => {
       }
 
       // ═══ Phase 3: PAD Droit de Passage enrichment (mono-lot only) ═══
-      // Multi-lot: skipped — cargo.pad_* are global facts, not per-lot. Extension future requise.
-      // P0-E: ce bloc est l'UNIQUE producteur de la ligne PAD officielle. Le multi-lot retourne
-      // bien avant, donc un lot en périmètre PAD y est bloqué en amont par
-      // resolvePadBlockersForLot (PAD_MULTI_LOT_UNSUPPORTED). Implémenter le PAD par lot = lever
-      // ce blocker ET ajouter ici l'équivalent multi-lot, jamais l'un sans l'autre.
+      // Multi-lot: never reached — the multi-lot branch returns before. Since MULTI-LOT-TERMINAL-1
+      // the multi-lot PAD line comes only from a confirmed group bound to its lot, emitted per lot
+      // with confirmedPadLineInput (same line as here), checked once per decision at completion.
+      // P0-E: in mono-lot this block remains the UNIQUE producer of the official PAD line.
       if (padGroupState?.mode === "groups" || (inputs.padCategory && inputs.padRateFcfaPerTon != null && inputs.padRateFcfaPerTon > 0)) {
         const confirmedGroups = padGroupState?.mode === "groups" ? padGroupState.lines : null;
         const weightTonnes = confirmedGroups ? confirmedGroups.reduce((sum, l) => sum + l.quantity, 0) : inputs.cargoWeight || 0;
@@ -3715,17 +3861,8 @@ Deno.serve(async (req) => {
             isEditable: false,
           }, { origin_layer: 'enrichment_pad' });
           if (confirmedGroups) {
-            for (const line of confirmedGroups) engineLines.push(canonicalizeLine({
-              category: 'PAD_DROIT_PASSAGE', label: `Droit de passage PAD ${line.category} — ${line.unit_ref}`,
-              description: weightBasisNotice(line.unit_ref, line.quantity * 1000, line) ?? `Catégorie et poids confirmés pour le groupe ${line.unit_ref}`,
-              amount: line.amount, currency: 'FCFA', unit: 'tonne', quantity: line.quantity, unitPrice: line.unit_price,
-              source: { type: 'OFFICIAL', reference: line.tariff_source, table: 'port_tariffs', tariff_id: line.tariff_id,
-                decision_id: line.decision_id, unit_ref: line.unit_ref, context_hash: line.context_hash, confidence: 1,
-                weight_basis: line.weight_basis ?? "confirmed", weight_reservation: line.weight_reservation ?? "",
-                weight_reconciliation: padGroupState?.retained_weight ?? null,
-                weight_container_count: line.weight_container_count, weight_per_container_kg: line.weight_per_container_kg },
-              isEditable: false,
-            }, { origin_layer: 'enrichment_pad' }));
+            for (const line of confirmedGroups) engineLines.push(canonicalizeLine(
+              confirmedPadLineInput(line, padGroupState?.retained_weight ?? null), { origin_layer: 'enrichment_pad' }));
           } else engineLines.push(officialPadLine);
           engineResponse.lines = engineLines;
           console.log(`[PAD] Droit de passage PAD ${inputs.padCategory}: ${padAmount} FCFA (${inputs.padRateFcfaPerTon} × ${weightTonnes}t)`);
@@ -4644,7 +4781,7 @@ ${JSON.stringify(refPayload)}`;
     if (padGroupState?.mode === "groups") {
       try {
       const freshPad = await loadPadGroupState(serviceClient, case_id);
-      if (!freshPad.ready || freshPad.context?.context_hash !== padGroupState.context?.context_hash ||
+      if (!freshPad.ready || freshPad.multi_lot || freshPad.context?.context_hash !== padGroupState.context?.context_hash ||
         JSON.stringify(freshPad.lines) !== JSON.stringify(padGroupState.lines) ||
         freshPad.weight_reconciliation?.id !== padGroupState.weight_reconciliation?.id) throw new Error("PAD_CONTEXT_CHANGED");
       const emittedPad = tariffLines.filter((l: { category?: string }) => l.category === 'PAD_DROIT_PASSAGE');

@@ -1,7 +1,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
 import { handleCors, errorResponse, jsonResponse } from "../_shared/cors.ts";
-import { loadPadGroupState, syncPadGroupGap } from "../_shared/pad-group-store.ts";
+import { loadPadGroupState, syncPadGroupGap, syncPadGroupGapAfterDecision } from "../_shared/pad-group-store.ts";
 import { groupEvidence } from "./evidence.ts";
 import { proposalFingerprint } from "../_shared/scenario-proposal-domain.ts";
 
@@ -41,7 +41,8 @@ export async function handleRequest(req: Request, dependencies = deps): Promise<
       await syncPadGroupGap(service, body.case_id, fresh);
       return jsonResponse(fresh);
     }
-    if (body.action === "record") await syncPadGroupGap(service, body.case_id, state);
+    // MULTI-LOT-TERMINAL-1: in multi-lot a decision never (re)opens the dossier PAD gap.
+    if (body.action === "record") await syncPadGroupGapAfterDecision(service, body.case_id, state);
     // Optional read-only assistance, scoped to the authenticated caller. Never
     // use an unavailable or changed source as evidence for a confirmation.
     let assistance = {};

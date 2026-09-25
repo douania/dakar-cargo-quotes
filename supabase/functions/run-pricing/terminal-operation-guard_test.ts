@@ -331,3 +331,25 @@ Deno.test("TERMINAL/multi-lot: pur — répétable et non mutant", () => {
   assertEquals(JSON.stringify(lotExtractedFacts), factsBefore, "faits de lot mutés");
   assertEquals(effectiveServiceKeys, keysBefore, "périmètre muté");
 });
+
+// ── MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25) : mode confirmé par lot ─────────
+const { withConfirmedLotTerminalMode } = await import("../_shared/lot-confirmation.ts");
+
+Deno.test("TERMINAL/multi-lot confirmé : le mode décidé pour le lot lié arme le garde comme un fait du lot", () => {
+  const keys = scopeOf("DAP_PROJECT_IMPORT");
+  assertEquals(resolveTerminalBlockersForLot({ lotExtractedFacts: withConfirmedLotTerminalMode([], "LOLO"), effectiveServiceKeys: keys }), []);
+  assertEquals(resolveTerminalBlockersForLot({ lotExtractedFacts: withConfirmedLotTerminalMode([], "RORO"), effectiveServiceKeys: keys }),
+    [DAKAR_TERMINAL_RATE_REQUIRED]);
+  // La décision du lot l'emporte sur une valeur portée par la ligne.
+  assertEquals(resolveTerminalBlockersForLot({ lotExtractedFacts: withConfirmedLotTerminalMode([lotFact("RORO")], "LOLO"), effectiveServiceKeys: keys }), []);
+});
+
+Deno.test("TERMINAL/multi-lot confirmé : sans décision valide, le mode global n'est toujours jamais prêté", async () => {
+  const keys = scopeOf("DAP_PROJECT_IMPORT");
+  assertEquals(resolveTerminalBlockersForLot({ lotExtractedFacts: withConfirmedLotTerminalMode([lotFact("MARITIME", "routing.transport_mode")], null),
+    effectiveServiceKeys: keys }), [TERMINAL_OPERATION_MODE_REQUIRED]);
+  // Câblage : run-pricing ne passe au garde que les faits du lot et la décision du lot.
+  const source = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  assert(source.includes("lotExtractedFacts: withConfirmedLotTerminalMode(extractedFacts, lotRequirement?.terminalMode ?? null)"));
+  assert(!/withConfirmedLotTerminalMode\([^)]*globalFacts/.test(source), "le fait global ne doit jamais alimenter le garde par lot");
+});

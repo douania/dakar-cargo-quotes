@@ -30,6 +30,19 @@ const messages: Record<string, string> = {
   PAD_GROUP_WEIGHT_CONFLICT: "Les poids des groupes ne correspondent pas au poids du dossier.",
   PAD_GROUP_SELECTION_REQUIRED: "Sélectionnez une version actuelle des groupes avant de confirmer.",
   PAD_REQUEST_MULTI_LOT_UNSUPPORTED: "Le devis confirmé de plusieurs demandes distinctes reste hors de ce parcours.",
+  // MULTI-LOT-TERMINAL-1: conditions par lot d'un dossier multi-demande.
+  LOT_BINDING_REQUIRED: "Liez d’abord ce groupe à sa ligne de demande (section des lots ci-dessus).",
+  LOT_BINDING_CHANGED: "La liaison de ce groupe à sa ligne a changé après la confirmation PAD : reconfirmez la catégorie.",
+  LOT_PAD_ALLOCATION_MISMATCH: "Les conteneurs de la ligne liée ne correspondent pas à ce groupe : revoir la liaison ou le scénario.",
+  LOT_PAD_WEIGHT_MISMATCH: "Le poids de la ligne liée diffère du poids de ce groupe : revoir le scénario ; aucun rapprochement de poids multi-lot n’est proposé.",
+  LOT_CONFIRMATION_STALE: "La liaison de ce groupe est périmée : reconfirmez-la dans la section des lots.",
+  LOT_CONFIRMATION_REVOKED: "La liaison de ce groupe a été retirée.",
+  LOT_LINE_CHANGED: "La ligne liée à ce groupe n’existe plus dans la demande actuelle.",
+  LOT_LINE_AMBIGUOUS: "La ligne liée est indiscernable d’une autre : clarification requise avant toute affectation.",
+  LOT_LINE_ALREADY_BOUND: "La même ligne est revendiquée par deux groupes : corrigez les liaisons.",
+  LOT_CONTEXT_CHANGED: "Le dossier a changé pendant la lecture : actualisez.",
+  LOT_SCENARIO_REQUIRED: "Sélectionnez une version active du scénario décrivant les lots.",
+  LOT_SCOPE_UNSUPPORTED: "Le scénario sélectionné ne permet pas de décrire les lots de ce dossier.",
 };
 
 function GroupDecision({ group, context, head, issues, readOnly, evidence, line, dangerousGoodsFalse, onSaved }: { group: PadGroup; context: PadGroupContext;

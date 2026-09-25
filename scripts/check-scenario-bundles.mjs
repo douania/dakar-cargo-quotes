@@ -12,7 +12,9 @@ import { spawnSync } from 'node:child_process';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const functionsRoot = path.join(root, 'supabase', 'functions');
 const deno = process.env.DENO_BIN || 'deno';
-const entries = ['quotation-engine', 'run-scenario-pricing', 'manage-quote-scenario'];
+const entries = ['quotation-engine', 'run-scenario-pricing', 'manage-quote-scenario',
+  // MULTI-LOT-TERMINAL-1: functions whose bundle gains the per-lot registry modules.
+  'manage-lot-confirmation', 'manage-pad-group-confirmation', 'run-pricing', 'build-case-puzzle'];
 const scratch = mkdtempSync(path.join(tmpdir(), 'dcq-scenario-bundles-'));
 let failures = 0;
 

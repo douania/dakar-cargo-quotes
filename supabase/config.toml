@@ -301,3 +301,6 @@ verify_jwt = false
 
 [functions.manage-pad-group-confirmation]
 verify_jwt = false
+
+[functions.manage-lot-confirmation]
+verify_jwt = false

@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
+import { LotConfirmationsPanel } from "@/components/case/LotConfirmationsPanel";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
 import { PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
@@ -2111,6 +2112,8 @@ export default function CaseView() {
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
         {caseId && <details ref={scenarioPanel} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
           <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
+          {/* MULTI-LOT-TERMINAL-1: lots liés explicitement aux lignes, avant leurs confirmations PAD. */}
+          <LotConfirmationsPanel caseId={caseId} onChanged={handleRefresh} />
           <PadGroupConfirmationsPanel caseId={caseId} onChanged={handleRefresh}
             dangerousGoodsFalse={facts.some((fact) => fact.fact_key === "cargo.dangerous_goods" && fact.is_current && (fact.value_text === "false" || fact.value_json === false))}
             extractedWeightConfidence={facts.find((fact) => fact.fact_key === "cargo.weight_kg" && fact.is_current)?.confidence ?? null}

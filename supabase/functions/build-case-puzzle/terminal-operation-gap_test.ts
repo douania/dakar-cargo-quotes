@@ -149,3 +149,36 @@ Deno.test("TERMINAL-GAP: résolution pure — répétable et non mutante", () =>
   assertEquals(first.gapRequired, true);
   assertEquals(JSON.stringify(rows), before, "les faits d'entrée ont été mutés");
 });
+
+// ── MULTI-LOT-TERMINAL-1 (exception FROZEN bornée, GO CTO 2026-09-25) ────────
+const { perLotGapScopeEligible } = await import("./index.ts") as {
+  perLotGapScopeEligible: (r: { detected: boolean; stored: number; mode: string | null } | null, persisted: number | null) => boolean;
+};
+
+Deno.test("MULTI-LOT: gaps dossier levés seulement si CE build a persisté ≥ 2 lignes, confirmées en base", () => {
+  const stored = (n: number, mode = "ai_extraction") => ({ detected: true, stored: n, mode });
+  assertEquals(perLotGapScopeEligible(stored(2), 2), true);
+  assertEquals(perLotGapScopeEligible(stored(3), 3), true);
+  // Mono-lot, détection sans persistance, échec d'écriture, relecture en écart ou impossible.
+  assertEquals(perLotGapScopeEligible(stored(1), 1), false);
+  assertEquals(perLotGapScopeEligible(stored(0, "rpc_error"), 0), false);
+  assertEquals(perLotGapScopeEligible(stored(2, "rpc_error"), 2), false);
+  assertEquals(perLotGapScopeEligible(stored(2, "exception"), 2), false);
+  assertEquals(perLotGapScopeEligible({ detected: false, stored: 2, mode: "no_active_multi_quote" }, 2), false);
+  assertEquals(perLotGapScopeEligible(stored(2), 3), false);
+  assertEquals(perLotGapScopeEligible(stored(2), null), false);
+  assertEquals(perLotGapScopeEligible(null, 2), false);
+});
+
+Deno.test("MULTI-LOT: câblage — seuls les gaps terminal et PAD dossier dépendent de l'éligibilité ; aucun mode global prêté", async () => {
+  const source = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  assert(source.includes("if (perLotGapScope) terminalState.gapRequired = false;"));
+  assert(source.includes("if (perLotGapScope) padScopeState.blocker = null;"));
+  assert(source.includes("if (!perLotGapScope && padGroupScopeRequired("));
+  assert(source.includes("perLotGapScope = !persistedLinesError && perLotGapScopeEligible(multiQuoteResult, persistedLines ?? null);"));
+  // Une seule occurrence de chaque raccordement : aucun autre gap n'est concerné.
+  // 8 usages of the flag + 3 of perLotGapScopeEligible (definition and two calls).
+  assertEquals(source.split("perLotGapScope").length - 1, 11);
+  // La garde multi-lot non résolue (détection sans lignes) reste inchangée.
+  assert(source.includes("const hasUnresolvedMultiLot = multiQuoteResult?.detected === true && (multiQuoteResult?.stored ?? 0) === 0;"));
+});

@@ -4,6 +4,8 @@ import { PAD_REVIEW_FR } from "./pad-gap-review.ts";
 import { usableWeightReconciliation, PAD_WEIGHT_REVIEW_FR, type WeightFact, type WeightReconciliation } from "./pad-weight-reconciliation.ts";
 import { resolveEffectiveServiceKeys, readOverridesFromFacts, resolveExplicitlyRemovedServiceKeys } from "./service-scope.ts";
 import { PAD_SCOPE_SERVICE_KEYS, type PadScopeFact } from "./pad-scope-blocker.ts";
+import { loadLotConfirmationState, type LotConfirmationState } from "./lot-confirmation-store.ts";
+import { padLotIssues } from "./lot-confirmation.ts";
 
 export function padGroupScopeRequired(facts: PadScopeFact[], effectiveServiceKeys: string[]): boolean {
   const removed = resolveExplicitlyRemovedServiceKeys(readOverridesFromFacts(facts));
@@ -34,8 +36,12 @@ export type PadGroupState = {
   weight_reconciliation: WeightReconciliation | null;
   retained_weight: WeightReconciliation | null;
   weight_facts: WeightFact[];
+  /** True when the dossier has several request lines: readiness then also depends on lot bindings. */
+  multi_lot: boolean;
 };
-export async function loadPadGroupState(client: unknown, caseId: string): Promise<PadGroupState> {
+/** `lots` (multi-lot only): the per-lot snapshot the caller will pin at completion. Passing it
+ * guarantees that PAD readiness and lot assignment are judged on ONE reading of the registry. */
+export async function loadPadGroupState(client: unknown, caseId: string, lots?: LotConfirmationState): Promise<PadGroupState> {
   // Isolate the deeply generic Supabase builder at this adapter boundary.
   const db = client as Client;
   const response = await db.rpc("read_pad_weight_context", { p_case_id: caseId });
@@ -52,7 +58,7 @@ export async function loadPadGroupState(client: unknown, caseId: string): Promis
   const weight_reconciliation = raw.weight_reconciliation ?? null;
   const weight_facts = raw.weight_facts ?? [];
   const empty: PadGroupState = { mode: "groups", required, read_only, context: null, heads: [], all_heads: raw.heads, ready: false, issues: [], lines: [], total: null,
-    weight_reconciliation, retained_weight: null, weight_facts };
+    weight_reconciliation, retained_weight: null, weight_facts, multi_lot: raw.request_count > 1 };
   // No old confirmation can disappear silently into the legacy global path.
   if (!groupScope && !raw.heads.length) return { ...empty, mode: "legacy" };
   if (!groupScope || !sc || sc.superseded_by_scenario_id || ["blocked", "superseded", "promoted_to_final"].includes(sc.status)) {
@@ -68,15 +74,32 @@ export async function loadPadGroupState(client: unknown, caseId: string): Promis
     .eq("provider", "PAD").eq("category", "DROIT_PASSAGE").eq("operation_type", "IMPORT").eq("cargo_type", "CONTENEUR").eq("is_active", true).limit(201);
   if (rates.error || rates.count === null || rates.count > 200 || rates.count !== rates.data?.length) throw new Error("PAD_GROUP_CATALOG_UNAVAILABLE");
   const resolved = resolveConfirmedPadGroups(context, heads, rates.data ?? [], new Date().toISOString().slice(0, 10));
-  const allocation = padGroupAllocationIssue(groups, raw.facts);
-  const retained_weight = allocation === "PAD_GROUP_WEIGHT_CONFLICT" && resolved.ready &&
-    usableWeightReconciliation(context, raw.heads, weight_facts, weight_reconciliation) ? weight_reconciliation : null;
   const issues = [...resolved.issues];
-  if (raw.request_count > 1) issues.push({ unit_ref: "", code: "PAD_REQUEST_MULTI_LOT_UNSUPPORTED" });
+  // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25): the blanket multi-lot refusal is replaced by
+  // explicit per-lot conditions. The dossier-level allocation check describes a single lot
+  // there, so each group is checked against the line it is bound to; weight reconciliation
+  // stays mono-lot only (its SQL writer still refuses multi-lot dossiers).
+  const multiLot = raw.request_count > 1;
+  const allocation = multiLot ? null : padGroupAllocationIssue(groups, raw.facts);
+  const retained_weight = !multiLot && allocation === "PAD_GROUP_WEIGHT_CONFLICT" && resolved.ready &&
+    usableWeightReconciliation(context, raw.heads, weight_facts, weight_reconciliation) ? weight_reconciliation : null;
+  if (multiLot) {
+    const lotState = lots ?? await loadLotConfirmationState(client, caseId);
+    issues.push(...padLotIssues({ contextHash: raw.context_hash, groups, heads, lots: lotState.context, resolution: lotState.resolution }));
+  }
   if (allocation && !retained_weight) issues.push({ unit_ref: "", code: allocation });
   return { mode: "groups", required, read_only, context, heads, all_heads: raw.heads, ...resolved, issues, ready: !issues.length,
     weight_reconciliation, retained_weight, weight_facts,
-    lines: issues.length ? [] : resolved.lines, total: issues.length ? null : resolved.total };
+    lines: issues.length ? [] : resolved.lines, total: issues.length ? null : resolved.total, multi_lot: multiLot };
+}
+
+/** Gap sync after an operator decision (Edge writers). MULTI-LOT-TERMINAL-1: in a multi-lot
+ * dossier the PAD requirement is enforced lot by lot by run-pricing, so a decision may resolve
+ * the dossier PAD gap once groups are ready but never (re)open it. Mono-lot: unchanged. */
+export async function syncPadGroupGapAfterDecision(client: unknown, caseId: string, state: PadGroupState): Promise<boolean> {
+  if (state.multi_lot && state.required && !state.ready) return false;
+  await syncPadGroupGap(client, caseId, state);
+  return true;
 }
 
 export async function syncPadGroupGap(client: unknown, caseId: string, state: PadGroupState): Promise<void> {
