@@ -9,9 +9,11 @@
 // of the base commit given by DCQ_FUNCTIONS_ROOT.
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { ai, call, failingRpcs, loadHandlers, q, sql } from "./harness.ts";
-import { operatorFact, seedCase, snapshot, TWO_LINES } from "./fixture.ts";
+import { operatorFact, seedCase, snapshot, TEXT_LINES, TWO_LINES } from "./fixture.ts";
 
 const baseline = Deno.args.includes("--baseline");
+// --text-containers: synthetic AI answers with the real extraction form ("2x40HC" / "1x20DV").
+const LINES = Deno.args.includes("--text-containers") ? TEXT_LINES : TWO_LINES;
 const rootEnv = Deno.env.get("DCQ_FUNCTIONS_ROOT");
 await loadHandlers(rootEnv ? new URL(`file:///${rootEnv.replaceAll("\\", "/").replace(/\/?$/, "/")}`) : undefined);
 const ok = (label: string) => console.log(`PASS ${label}`);
@@ -34,10 +36,47 @@ async function build(id: string, lines: unknown[] | null) {
 }
 const price = (id: string) => call("run-pricing", { case_id: id });
 
+// Priced outputs compared WITHOUT the identifiers and timestamps proper to each dossier/run:
+// services, quantities, amounts, currencies, totals, notes/reserves, sources, tariff and rule
+// references, and the containers sent to the engine are all kept.
+const VOLATILE = /^(id|case_id|pricing_run_id|run_id|decision_id|scenario_id|line_id|thread_id|email_id|.+_at|duration_ms|context_hash|scope_hash|idempotency_key|request_fingerprint)$/;
+function normalize(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(normalize);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v as Record<string, unknown>)
+    .filter(([k]) => !VOLATILE.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, normalize(x)]));
+  return v;
+}
+async function runOutputs(runId: string) {
+  return JSON.parse(await sql(`select jsonb_build_object('status',status,'total_ht',total_ht,'total_ttc',total_ttc,'currency',currency,
+    'outputs',outputs_json,'lines',tariff_lines,'inputs',inputs_json,'engine_request',engine_request)::text from public.pricing_runs where id=${q(runId)};`)) as
+    { status: string; lines: Array<Record<string, unknown>>; [k: string]: unknown };
+}
+
+// ── M. Mono-lot non-regression: the same synthetic dossier priced by the base and the patched
+// handlers must give the same normalized output (compared outside, see MONO_OUTPUT). ──
+async function monoOutput() {
+  const id = await newCase();
+  for (const [k, c, v] of [["routing.terminal_operation_mode", "routing", "LOLO"], ["cargo.containers", "cargo", JSON.stringify([{ type: "40HC", quantity: 2 }])],
+    ["cargo.weight_kg", "cargo", "36000"], ["cargo.pad_category", "cargo", "T02"], ["cargo.pad_rate_fcfa_per_ton", "cargo", "100"]]) await operatorFact(id, k, c, v);
+  const { state } = await build(id, null);
+  assertEquals(state.lines, 0);
+  const r = await price(id);
+  assertEquals(r.status, 200, JSON.stringify(r.json).slice(0, 600));
+  const out = await runOutputs(r.json.pricing_run_id);
+  assertEquals(out.status, "success");
+  console.log(`MONO_OUTPUT ${JSON.stringify(normalize(out))}`);
+  return out;
+}
+if (Deno.args.includes("--mono-only")) {
+  await monoOutput();
+  ok("M mono-lot priced (output printed for the base/patched comparison)");
+  Deno.exit(0);
+}
+
 if (baseline) {
   // Base commit: the circular block the exception removes.
   const id = await newCase();
-  const { result, state } = await build(id, TWO_LINES);
+  const { result, state } = await build(id, LINES);
   assertEquals(result.quote_request_lines_stored, 2);
   assertEquals(state.status, "NEED_INFO");
   assert(state.blocking.includes(TERMINAL) && state.blocking.includes(PAD), JSON.stringify(state));
@@ -49,7 +88,7 @@ if (baseline) {
 
 // ── A. Multi-lot analysis → admissible status without dossier terminal/PAD gaps ──
 const A = await newCase();
-let b = await build(A, TWO_LINES);
+let b = await build(A, LINES);
 assertEquals([b.result.quote_request_lines_stored, b.state.lines, b.state.status], [2, 2, "READY_TO_PRICE"]);
 assert(!b.state.open.includes(TERMINAL) && !b.state.open.includes(PAD), JSON.stringify(b.state));
 ok("A1 build: 2 lines persisted, no dossier terminal/PAD gap, READY_TO_PRICE");
@@ -112,16 +151,25 @@ const runRow = JSON.parse(await sql(`select jsonb_build_object('status',status,'
 assertEquals(runRow.status, "success");
 const padLines = runRow.lines.filter((l: { category: string }) => l.category === "PAD_DROIT_PASSAGE");
 assertEquals(padLines.map((l: { lot_index: number; amount: number; source: { unit_ref: string } }) => `${l.lot_index}:${l.source.unit_ref}:${l.amount}`).sort(), ["1:a:3600", "2:b:1800"]);
+console.log("D tariff lines:", JSON.stringify(runRow.lines.map((l: { lot_index: number; category: string; amount: number; quantity?: number }) => [l.lot_index, l.category, l.quantity, l.amount])));
 assertEquals((await snapshot(A)).status, "PRICED_DRAFT");
 ok("D run-pricing (real handler + quotation-engine + price-service-lines): success, PAD 3600 lot 1 / 1800 lot 2, PRICED_DRAFT");
 
 // ── E. Re-analysis: lines rewritten, every decision stale, nothing re-associated ──
-b = await build(A, TWO_LINES);
+b = await build(A, LINES);
 assertEquals(b.state.lines, 2);
 run = await price(A);
 assertEquals(run.json.pricing_blockers, ["MULTI_LOT_BLOCKED"]);
 assert(run.json.blocked_lots.every((l: { blockers: string[] }) => l.blockers.includes("LOT_CONFIRMATION_STALE") || l.blockers.includes("PAD_GROUP_CONFIRMATION_REQUIRED")), JSON.stringify(run.json));
 ok("E re-analysis: decisions stale, run-pricing blocked per lot, no silent re-association");
+await confirmAll(A);
+run = await price(A);
+assertEquals(run.status, 200, JSON.stringify(run.json).slice(0, 400));
+const rerun = JSON.parse(await sql(`select jsonb_build_object('status',status,'lines',tariff_lines)::text from public.pricing_runs where id=${q(run.json.pricing_run_id)};`));
+assertEquals(rerun.status, "success");
+assertEquals(rerun.lines.filter((l: { category: string }) => l.category === "PAD_DROIT_PASSAGE")
+  .map((l: { lot_index: number; amount: number; source: { unit_ref: string } }) => `${l.lot_index}:${l.source.unit_ref}:${l.amount}`).sort(), ["1:a:3600", "2:b:1800"]);
+ok("E2 reconfirmation after re-analysis: priced again, one PAD line per lot, same amounts");
 
 // ── F. Multi → mono → multi ──
 b = await build(A, null);
@@ -130,7 +178,7 @@ assert(b.state.blocking.includes(TERMINAL), JSON.stringify(b.state));
 run = await price(A);
 assertEquals(run.status, 400);
 ok("F1 multi → mono: lines cleared, dossier terminal gap blocking again, run-pricing refused");
-b = await build(A, TWO_LINES);
+b = await build(A, LINES);
 assertEquals(b.state.lines, 2);
 assert(!b.state.blocking.includes(TERMINAL) && !b.state.blocking.includes(PAD), JSON.stringify(b.state));
 assert(b.state.resolved_reasons.includes(`${TERMINAL}:multi_lot_per_lot_confirmation`), JSON.stringify(b.state.resolved_reasons));
@@ -142,7 +190,7 @@ ok("F2 mono → multi: dossier gaps resolved as per-lot, reconfirmation required
 // ── G. Line persistence failure: not eligible, dossier gaps and multi-lot gap kept ──
 const G = await newCase();
 failingRpcs.add("replace_quote_request_lines");
-b = await build(G, TWO_LINES);
+b = await build(G, LINES);
 failingRpcs.delete("replace_quote_request_lines");
 assertEquals([b.result.quote_request_lines_stored, b.state.lines, b.state.status], [0, 0, "NEED_INFO"]);
 for (const k of [TERMINAL, PAD]) assert(b.state.blocking.includes(k), `${k} ${JSON.stringify(b.state)}`);
@@ -153,7 +201,7 @@ ok("G persistence failure: not eligible, dossier terminal + PAD gaps blocking, N
 
 // ── H. Other blocking gaps preserved in multi-lot ──
 const H = await newCase({ description: false });
-b = await build(H, TWO_LINES);
+b = await build(H, LINES);
 assertEquals(b.state.lines, 2);
 assert(b.state.blocking.includes("cargo.description") && !b.state.blocking.includes(TERMINAL), JSON.stringify(b.state));
 assertEquals(b.state.status, "NEED_INFO");
@@ -167,3 +215,95 @@ assertEquals(b.state.lines, 0);
 assert(b.state.blocking.includes(TERMINAL) && b.state.blocking.includes(PAD), JSON.stringify(b.state));
 assertEquals(b.state.status, "NEED_INFO");
 ok("I mono-lot: dossier terminal/PAD gaps still required (behaviour unchanged)");
+
+// ── Q. Same business data, JSON vs strict text containers: equivalent quotes lot by lot ──
+type Line = { lot_index: number; category: string; amount: number | null; containerType?: string; source?: { unit_ref?: string } };
+function checkLots(out: { lines: Array<Record<string, unknown>> }, label: string) {
+  const lines = out.lines as unknown as Line[];
+  for (const [lot, eq, pad] of [[1, "40HC", 3600], [2, "20DV", 1800]] as const) {
+    const own = lines.filter(l => l.lot_index === lot);
+    for (const cat of ["Terminal (DPW)", "Transport", "Surestaries", "PAD_DROIT_PASSAGE"]) {
+      assert(own.some(l => l.category === cat), `${label}: lot ${lot} misses ${cat}`);
+    }
+    for (const cat of ["Terminal (DPW)", "Transport"]) {
+      assert(own.filter(l => l.category === cat).every(l => l.containerType === eq), `${label}: lot ${lot} ${cat} not on its own ${eq}`);
+    }
+    const pads = own.filter(l => l.category === "PAD_DROIT_PASSAGE");
+    assertEquals(pads.map(l => l.amount), [pad], `${label}: lot ${lot} PAD`);
+  }
+  // Quantity and equipment actually sent to the engine for each lot (its own, never the dossier's).
+  const sent = (out as unknown as { engine_request: { lots: Array<{ lot_index: number; params: { containers: Array<{ type: string; quantity: number }> } }> } })
+    .engine_request.lots.map(l => [l.lot_index, l.params.containers.map(c => `${c.quantity}x${c.type}`).join("+")]);
+  assertEquals(sent, [[1, "2x40HC"], [2, "1x20DV"]], `${label}: containers sent to the engine`);
+  assertEquals(lines.filter(l => l.category === "PAD_DROIT_PASSAGE").length, 2, `${label}: one PAD line per decision, no cumulative line`);
+  assert(lines.every(l => l.lot_index === 1 || l.lot_index === 2), `${label}: line outside the lots`);
+}
+async function pricedCase(lines: unknown[]) {
+  const id = await newCase();
+  const built = await build(id, lines);
+  assertEquals(built.state.status, "READY_TO_PRICE");
+  await selectScenario(id);
+  await confirmAll(id);
+  const r = await price(id);
+  assertEquals(r.status, 200, JSON.stringify(r.json).slice(0, 400));
+  return { id, out: await runOutputs(r.json.pricing_run_id) };
+}
+const QJ = await pricedCase(TWO_LINES), QT = await pricedCase(TEXT_LINES);
+assertEquals([QJ.out.status, QT.out.status], ["success", "success"]);
+checkLots(QJ.out, "json"); checkLots(QT.out, "text");
+assertEquals(normalize(QT.out), normalize(QJ.out));
+ok("Q1 JSON vs text containers: same services, quantities, amounts, currencies, totals and reserves per lot; Terminal, Transport, Surestaries and one PAD per lot");
+for (const c of [QJ, QT]) {
+  await build(c.id, c === QJ ? TWO_LINES : TEXT_LINES);
+  const stale = await price(c.id);
+  assertEquals(stale.json.pricing_blockers, ["MULTI_LOT_BLOCKED"]);
+  await confirmAll(c.id);
+  const again = await price(c.id);
+  assertEquals(again.status, 200, JSON.stringify(again.json).slice(0, 400));
+  c.out = await runOutputs(again.json.pricing_run_id);
+}
+checkLots(QJ.out, "json re-analysed"); checkLots(QT.out, "text re-analysed");
+assertEquals(normalize(QT.out), normalize(QJ.out));
+ok("Q2 re-analysis: both blocked while stale, then reconfirmed and priced again with equivalent quotes");
+
+// ── V. Present but unreadable lot containers: the lot is blocked before the engine ──
+const withContainers = (value: unknown, valueType = "text") => TWO_LINES.map((l, i) => i === 0 ? { ...l, extracted_facts: l.extracted_facts
+  .map(f => f.key === "cargo.containers" ? { ...f, value, valueType } : f) } : l);
+const runsOf = async (id: string) => JSON.parse(await sql(`select coalesce(jsonb_agg(status order by created_at),'[]')::text from public.pricing_runs where case_id=${q(id)};`));
+for (const [value, valueType] of [["deux conteneurs 40HC", "text"], ["2x40HC + 1x20DV", "text"], [JSON.stringify({ type: "40HC", quantity: 2 }), "json"],
+  [JSON.stringify([{ type: "40HC", quantity: 0 }]), "json"], [JSON.stringify([{ quantity: 2 }]), "json"], ["2x40HC SOC", "text"], ["[]", "json"]] as const) {
+  const id = await newCase();
+  await build(id, withContainers(value, valueType));
+  await selectScenario(id);
+  const r = await price(id);
+  assertEquals(r.status, 200, JSON.stringify(r.json).slice(0, 300));
+  const lot1 = r.json.blocked_lots.find((l: { lot_index: number }) => l.lot_index === 1);
+  assert(lot1?.blockers.includes("LOT_CONTAINERS_UNREADABLE"), `${value}: ${JSON.stringify(r.json.blocked_lots)}`);
+  const lot2 = r.json.blocked_lots.find((l: { lot_index: number }) => l.lot_index === 2);
+  assert(!lot2?.blockers.includes("LOT_CONTAINERS_UNREADABLE"), `${value}: lot 2 wrongly flagged`);
+  assertEquals(await runsOf(id), ["blocked"]);
+}
+// Two container facts on one line are ambiguous as well.
+{
+  const id = await newCase();
+  const dup = TWO_LINES.map((l, i) => i === 0 ? { ...l, extracted_facts: [...l.extracted_facts, { key: "cargo.containers", value: "2x40HC", valueType: "text", confidence: 0.9 }] } : l);
+  await build(id, dup);
+  const r = await price(id);
+  assert(r.json.blocked_lots.find((l: { lot_index: number }) => l.lot_index === 1)?.blockers.includes("LOT_CONTAINERS_UNREADABLE"), JSON.stringify(r.json));
+}
+ok("V unreadable containers (free text, several groups, JSON object, zero quantity, no type, extra word, empty list, duplicate fact): lot blocked LOT_CONTAINERS_UNREADABLE, no priced run");
+
+// ── N. Lot without container fact: absent, unchanged path (no unreadable blocker) ──
+{
+  const id = await newCase();
+  const noContainers = TWO_LINES.map((l, i) => i === 0 ? { ...l, extracted_facts: l.extracted_facts.filter(f => f.key !== "cargo.containers") } : l);
+  await build(id, noContainers);
+  const r = await price(id);
+  assertEquals(r.status, 200, JSON.stringify(r.json).slice(0, 300));
+  for (const l of r.json.blocked_lots ?? []) assert(!l.blockers.includes("LOT_CONTAINERS_UNREADABLE"), JSON.stringify(l));
+}
+ok("N lot without cargo.containers: no LOT_CONTAINERS_UNREADABLE (absent path unchanged)");
+
+// ── M (patched run). Mono-lot still priced; base comparison done on MONO_OUTPUT. ──
+await monoOutput();
+ok("M mono-lot priced with the patched handlers");

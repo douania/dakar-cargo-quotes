@@ -6,12 +6,17 @@ export const BODY_A = "Lot 1 : 2 conteneurs 40HC de mobilier de bureau, 36000 kg
 export const BODY_B = "Lot 2 : 1 conteneur 20DV de pieces detachees, 12000 kg, de Ningbo a Dakar, livraison DAP Dakar.";
 export const TWO_LINES = [
   { line_index: 1, line_label: "Lot A - mobilier Shanghai", segment_text: BODY_A, source_excerpt: BODY_A, request_type_hint: "SEA_FCL_IMPORT", confidence: 0.9,
-    extracted_facts: [{ key: "cargo.containers", value: JSON.stringify([{ type: "40HC", quantity: 2 }]), valueType: "json", confidence: 0.9 },
+    extracted_facts: [{ key: "cargo.containers", value: JSON.stringify([{ type: "40HC", quantity: 2, coc_soc: null }]), valueType: "json", confidence: 0.9 },
       { key: "cargo.weight_kg", value: "36000", valueType: "number", confidence: 0.9 }, { key: "routing.origin_port", value: "Shanghai", valueType: "text", confidence: 0.9 }] },
   { line_index: 2, line_label: "Lot B - pieces Ningbo", segment_text: BODY_B, source_excerpt: BODY_B, request_type_hint: "SEA_FCL_IMPORT", confidence: 0.9,
-    extracted_facts: [{ key: "cargo.containers", value: JSON.stringify([{ type: "20DV", quantity: 1 }]), valueType: "json", confidence: 0.9 },
+    extracted_facts: [{ key: "cargo.containers", value: JSON.stringify([{ type: "20DV", quantity: 1, coc_soc: null }]), valueType: "json", confidence: 0.9 },
       { key: "cargo.weight_kg", value: "12000", valueType: "number", confidence: 0.9 }, { key: "routing.origin_port", value: "Ningbo", valueType: "text", confidence: 0.9 }] },
 ];
+
+/** Same lines with the container fact in the text form written by the real extraction
+ * (observed on the deployed sandbox: "2x40HC" / "1x20DV", valueType text). */
+export const TEXT_LINES = TWO_LINES.map((l, i) => ({ ...l, extracted_facts: l.extracted_facts.map(f => f.key === "cargo.containers"
+  ? { key: f.key, value: i === 0 ? "2x40HC" : "1x20DV", valueType: "text", confidence: f.confidence } : f) }));
 
 export async function seedCase(caseId: string, threadId: string, emailId: string, status = "NEED_INFO") {
   await sql(`insert into auth.users(id,email) values(${q(ACTOR)},'operator@example.invalid') on conflict do nothing;

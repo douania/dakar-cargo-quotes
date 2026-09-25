@@ -57,7 +57,9 @@ import {
   evaluateLotRequirements,
   lotBindingForLine,
   lotPadEmissionValid,
+  LOT_CONTAINERS_UNREADABLE,
   lotPadScopeIssues,
+  readLotContainers,
   withConfirmedLotTerminalMode,
 } from "../_shared/lot-confirmation.ts";
 import type { ConfirmedPadLine } from "../_shared/pad-group-confirmation.ts";
@@ -1782,6 +1784,11 @@ Deno.serve(async (req) => {
         const imoLotScope = scopeImoFactsForLot(mergeFactsForLot(globalFacts || [], extractedFacts), extractedFacts);
         const mergedFacts = imoLotScope.facts;
         const lotInputs = buildPricingInputs(mergedFacts);
+        // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25, option B): the lot's own containers are read
+        // with the same reader as the PAD allocation check. Unreadable → the lot is blocked below,
+        // never priced with an empty list nor with the dossier's containers. Absent → unchanged.
+        const lotContainers = readLotContainers(extractedFacts);
+        if (lotContainers.status === "valid") lotInputs.containers = lotContainers.containers as PricingInputs["containers"];
 
         // Resolve per-lot service package and transport mode
         const lotIncoterm = String(lotInputs.incoterm ?? "").trim().toUpperCase();
@@ -1798,6 +1805,7 @@ Deno.serve(async (req) => {
         const lotScopeWantsDuties = lotPkg.endsWith("_DDP") || lotPkg === "DDP" || lotIncoterm === "DDP";
 
         const lotBlockers: string[] = [];
+        if (lotContainers.status === "invalid") lotBlockers.push(LOT_CONTAINERS_UNREADABLE);
         lotBlockers.push(...imoLotScope.blockers, ...(lotInputs.imoResolution?.blockers ?? []));
         const lotEffectiveServiceKeys = resolveEffectiveServiceKeys(lotPkg, readOverridesFromFacts(mergedFacts));
         // MULTI-LOT-TERMINAL-1: a lot in the PAD scope of a dossier priced by confirmed groups is

@@ -233,6 +233,44 @@ function lineFacts(line: LotLine): Array<{ key: string; value: unknown }> {
     : [];
 }
 const equipment = (v: unknown) => normalizeDthcContainerType(v).replace(/^(20|40)HQ$/, "$1HC");
+/** Strict single-group text written by the real extraction ("2x40HC", "1x20DV"): a positive
+ * integer, one "x", one known size and type code. Several groups, extra words or any other
+ * form are refused; the equipment then goes through the same normalization as the JSON form. */
+const SINGLE_GROUP_TEXT = /^([1-9]\d{0,2})[ \t]*[x×][ \t]*((?:20|40|45)[ \t]*'?[ \t]*(?:DV|GP|HC|HQ|RF|OT|FR))$/i;
+function singleGroupFromText(value: string): Record<string, unknown> | null {
+  const m = SINGLE_GROUP_TEXT.exec(value.trim());
+  // Same shape as the extraction's JSON entry; the text states no ownership.
+  return m ? { type: equipment(m[2]), quantity: Number(m[1]), coc_soc: null } : null;
+}
+
+/** Blocker raised by run-pricing when a lot's own `cargo.containers` is present but unreadable. */
+export const LOT_CONTAINERS_UNREADABLE = "LOT_CONTAINERS_UNREADABLE";
+export type LotContainersReading =
+  | { status: "absent" }
+  | { status: "invalid" }
+  | { status: "valid"; containers: Record<string, unknown>[] };
+
+/** Single reader of a lot's own `cargo.containers` (GO CTO 2026-09-25, option B), shared by the
+ * PAD allocation check and the per-lot pricing inputs. Accepted: a non-empty JSON list (value or
+ * JSON string) whose entries each carry an equipment type and a positive integer quantity, kept as
+ * is; or the strict single-group text. Anything else is "invalid": never an empty list, never
+ * the dossier's or another lot's containers. The persisted facts are not rewritten. */
+export function readLotContainers(facts: readonly unknown[]): LotContainersReading {
+  const found = facts.filter(isObject).filter(f => f.key === "cargo.containers");
+  if (found.length === 0) return { status: "absent" };
+  if (found.length > 1) return { status: "invalid" };
+  let raw = found[0].value;
+  if (typeof raw === "string") {
+    const single = singleGroupFromText(raw);
+    if (single) return { status: "valid", containers: [single] };
+    try { raw = JSON.parse(raw); } catch { return { status: "invalid" }; }
+  }
+  // An empty list would price the lot without any container: refused like any unreadable value.
+  if (!Array.isArray(raw) || raw.length === 0 || !raw.every(c => isObject(c) && typeof c.type === "string" && equipment(c.type) !== "" &&
+    (typeof c.quantity === "number" || (typeof c.quantity === "string" && /^\d+$/.test(c.quantity))) &&
+    Number.isSafeInteger(Number(c.quantity)) && Number(c.quantity) > 0)) return { status: "invalid" };
+  return { status: "valid", containers: raw as Record<string, unknown>[] };
+}
 
 /** Per-lot counterpart of the dossier-level PAD allocation check: in a multi-lot dossier the
  * global facts describe only one lot, so a group is compared with the facts of the line it is
@@ -240,12 +278,9 @@ const equipment = (v: unknown) => normalizeDthcContainerType(v).replace(/^(20|40
  * match; a weight stated by the line must equal the group weight. Nothing is inferred. */
 export function lotPadAllocationIssue(group: PadGroup, line: LotLine): string | null {
   const facts = lineFacts(line);
-  const containers = facts.filter(f => f.key === "cargo.containers");
-  if (containers.length !== 1) return "LOT_PAD_ALLOCATION_MISMATCH";
-  let raw = containers[0].value;
-  if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { return "LOT_PAD_ALLOCATION_MISMATCH"; } }
-  if (!Array.isArray(raw) || raw.length !== 1 || !isObject(raw[0])) return "LOT_PAD_ALLOCATION_MISMATCH";
-  const c = raw[0];
+  const reading = readLotContainers(facts);
+  if (reading.status !== "valid" || reading.containers.length !== 1) return "LOT_PAD_ALLOCATION_MISMATCH";
+  const c = reading.containers[0];
   const ownership = String(c.coc_soc ?? c.cocSoc ?? "").trim().toUpperCase();
   if (equipment(c.type) === "" || equipment(c.type) !== equipment(group.equipment_code) || Number(c.quantity) !== group.quantity ||
     (ownership !== "" && ownership !== group.ownership)) return "LOT_PAD_ALLOCATION_MISMATCH";

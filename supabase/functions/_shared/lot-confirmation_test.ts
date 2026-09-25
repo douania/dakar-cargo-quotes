@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   evaluateLotRequirements, lotPadAllocationIssue, lotPadEmissionValid, lotPadScopeIssues, parseLotContext,
-  resolveLotConfirmations, withConfirmedLotTerminalMode, type LotContext,
+  readLotContainers, resolveLotConfirmations, withConfirmedLotTerminalMode, type LotContext,
 } from "./lot-confirmation.ts";
 import { TERMINAL_OPERATION_MODE_FACT_KEY } from "./terminal-operation-mode.ts";
 import type { ConfirmedPadLine, PadGroup } from "./pad-group-confirmation.ts";
@@ -120,6 +120,61 @@ Deno.test("LOT PAD: a group is compared with the facts of its own line only", ()
   assertEquals(lotPadAllocationIssue(group(), facts([{ type: "40HC", quantity: 1 }, { type: "40HC", quantity: 1 }])), "LOT_PAD_ALLOCATION_MISMATCH");
   assertEquals(lotPadAllocationIssue(group(), facts([{ type: "40HC", quantity: 2 }], 30000)), "LOT_PAD_WEIGHT_MISMATCH");
   assertEquals(lotPadAllocationIssue(group(), line("l1", 1, H, [])), "LOT_PAD_ALLOCATION_MISMATCH");
+});
+
+Deno.test("LOT PAD: the strict single-group text written by the real extraction is compared like the JSON form", () => {
+  const facts = (containers: unknown, weight?: unknown) => line("l1", 1, H, [{ key: "cargo.containers", value: containers },
+    ...(weight === undefined ? [] : [{ key: "cargo.weight_kg", value: weight }])]);
+  const dv = group({ unit_ref: "b", equipment_code: "20dv", quantity: 1, total_weight_kg: 12000 });
+  // Forms observed on the deployed sandbox (valueType text).
+  assertEquals(lotPadAllocationIssue(group(), facts("2x40HC", "36000")), null);
+  assertEquals(lotPadAllocationIssue(dv, facts("1x20DV", "12000")), null);
+  for (const ok of ["2X40HC", " 2 x 40HC ", "2x40'HC", "2 × 40 HQ", "2x40hc"]) assertEquals(lotPadAllocationIssue(group(), facts(ok)), null, ok);
+  // Quantity and equipment are still checked against the bound group.
+  assertEquals(lotPadAllocationIssue(group(), facts("3x40HC")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(group(), facts("2x20DV")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(group(), facts("2x40DV")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(dv, facts("1x20GP")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(group(), facts("2x40HC", "30000")), "LOT_PAD_WEIGHT_MISMATCH");
+  // Invalid quantities, unknown equipment, several groups, extra or ambiguous text: refused.
+  for (const bad of ["0x40HC", "02x40HC", "-2x40HC", "2.5x40HC", "1000x40HC", "x40HC", "40HC", "2", "2x40", "2x40XX", "2x30HC",
+    "2x40HCX", "2x40 DRY", "2x40HC + 1x20DV", "2x40HC, 1x20DV", "2x40HC 1x20DV", "2x40HC SOC", "environ 2x40HC",
+    "2x40HC ou 3x40HC", "2 conteneurs 40HC", "2x40HC\n1x20DV", ""]) {
+    assertEquals(lotPadAllocationIssue(group(), facts(bad)), "LOT_PAD_ALLOCATION_MISMATCH", bad);
+  }
+  // Order: strict text first, otherwise the unchanged JSON path ("2" is not a list; a JSON string still works).
+  assertEquals(lotPadAllocationIssue(group(), facts("2")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(group(), facts(JSON.stringify([{ type: "40HC", quantity: 2 }]))), null);
+  // Line breaks inside the value are not accepted; 45HQ is not an alias of 45HC (same as the JSON form).
+  for (const bad of ["2\nx40HC", "2x\n40HC", "2x40\nHC"]) assertEquals(lotPadAllocationIssue(group(), facts(bad)), "LOT_PAD_ALLOCATION_MISMATCH", bad);
+  assertEquals(lotPadAllocationIssue(group({ equipment_code: "45hc" }), facts("2x45HQ")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(group({ equipment_code: "45hc" }), facts("2x45HC")), null);
+  // The text form states no ownership: accepted as for a JSON entry without coc_soc (the group keeps its own).
+  // Two container facts on the same line stay refused whatever their form.
+  assertEquals(lotPadAllocationIssue(group(), line("l1", 1, H, [{ key: "cargo.containers", value: "2x40HC" },
+    { key: "cargo.containers", value: "2x40HC" }])), "LOT_PAD_ALLOCATION_MISMATCH");
+});
+
+Deno.test("LOT CONTAINERS: one reader for PAD allocation and pricing; unreadable is explicit, never an empty list", () => {
+  const read = (value: unknown) => readLotContainers([{ key: "cargo.weight_kg", value: "1" }, { key: "cargo.containers", value }]);
+  // Absent: the unchanged path (no container fact on the lot).
+  assertEquals(readLotContainers([{ key: "cargo.weight_kg", value: "1" }]), { status: "absent" });
+  // Existing JSON forms are kept as they are (list or JSON string, several entries allowed for pricing).
+  const json = [{ type: "40HC", quantity: 2, coc_soc: "SOC" }, { type: "20DV", quantity: 1 }];
+  assertEquals(read(json), { status: "valid", containers: json });
+  assertEquals(read(JSON.stringify(json)), { status: "valid", containers: json });
+  assertEquals(read([{ type: "40HC", quantity: "2" }]), { status: "valid", containers: [{ type: "40HC", quantity: "2" }] });
+  // Strict text: same shape and values as the extraction's JSON entry for the same lot.
+  assertEquals(read("2x40HC"), { status: "valid", containers: [{ type: "40HC", quantity: 2, coc_soc: null }] });
+  assertEquals(read("1x20DV"), { status: "valid", containers: [{ type: "20DV", quantity: 1, coc_soc: null }] });
+  assertEquals(read("2 × 40' HQ"), { status: "valid", containers: [{ type: "40HC", quantity: 2, coc_soc: null }] });
+  // Present but unreadable → invalid (pricing blocks the lot with LOT_CONTAINERS_UNREADABLE).
+  for (const bad of ["deux conteneurs 40HC", "2x40HC + 1x20DV", "2x40HC SOC", "0x40HC", "", "2", "{}", JSON.stringify({ type: "40HC", quantity: 2 }),
+    [], "[]", [{ type: "40HC", quantity: true }], [{ type: "40HC", quantity: "2 " }],
+    [{ type: "40HC", quantity: 0 }], [{ type: "40HC", quantity: 1.5 }], [{ type: "40HC" }], [{ quantity: 2 }], [{ type: "", quantity: 2 }], ["40HC"], [null], 42, null, {}]) {
+    assertEquals(read(bad), { status: "invalid" }, JSON.stringify(bad));
+  }
+  assertEquals(readLotContainers([{ key: "cargo.containers", value: "2x40HC" }, { key: "cargo.containers", value: "2x40HC" }]), { status: "invalid" });
 });
 
 const padLine = (unit_ref: string, amount: number): ConfirmedPadLine => ({ unit_ref, category: "T02", quantity: 1, unit_price: amount, amount,
