@@ -6066,6 +6066,78 @@ export type Database = {
           },
         ]
       }
+      quote_lot_confirmations: {
+        Row: {
+          action: string
+          case_id: string
+          context_hash: string
+          created_at: string
+          decided_by: string
+          decision_kind: string
+          decision_version: number
+          id: string
+          idempotency_key: string
+          line_fingerprint: string | null
+          request_fingerprint: string
+          scenario_id: string
+          scope_hash: string
+          source_reference: string
+          terminal_mode: string | null
+          unit_ref: string
+        }
+        Insert: {
+          action: string
+          case_id: string
+          context_hash: string
+          created_at?: string
+          decided_by: string
+          decision_kind: string
+          decision_version: number
+          id?: string
+          idempotency_key: string
+          line_fingerprint?: string | null
+          request_fingerprint: string
+          scenario_id: string
+          scope_hash: string
+          source_reference: string
+          terminal_mode?: string | null
+          unit_ref: string
+        }
+        Update: {
+          action?: string
+          case_id?: string
+          context_hash?: string
+          created_at?: string
+          decided_by?: string
+          decision_kind?: string
+          decision_version?: number
+          id?: string
+          idempotency_key?: string
+          line_fingerprint?: string | null
+          request_fingerprint?: string
+          scenario_id?: string
+          scope_hash?: string
+          source_reference?: string
+          terminal_mode?: string | null
+          unit_ref?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_lot_confirmations_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_lot_confirmations_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "quote_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_request_lines: {
         Row: {
           case_id: string
@@ -8186,6 +8258,18 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_lot_pricing: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_lot_heads: Json
+          p_pad_heads: Json
+          p_result: Json
+          p_run_id: string
+          p_weight_head_id: string
+        }
+        Returns: undefined
+      }
       complete_pad_group_pricing: {
         Args: {
           p_case_id: string
@@ -8442,6 +8526,15 @@ export type Database = {
         Args: { p_fact_key: string; p_value: Json; p_value_type: string }
         Returns: string
       }
+      quote_request_line_fingerprint: {
+        Args: {
+          p_extracted_facts: Json
+          p_line_label: string
+          p_segment_text: string
+          p_source_excerpt: string
+        }
+        Returns: string
+      }
       quote_scenario_cargo_unit_v2_violation: {
         Args: { p_path: string; p_unit: Json }
         Returns: string
@@ -8491,12 +8584,20 @@ export type Database = {
         Args: { p_allowed: string[]; p_node: Json }
         Returns: string
       }
+      read_lot_confirmation_context: {
+        Args: { p_case_id: string }
+        Returns: Json
+      }
       read_maritime_fee_case_context: {
         Args: { p_case_id: string }
         Returns: Json
       }
       read_pad_group_context: { Args: { p_case_id: string }; Returns: Json }
       read_pad_weight_context: { Args: { p_case_id: string }; Returns: Json }
+      record_lot_confirmation: {
+        Args: { p_actor: string; p_case_id: string; p_request: Json }
+        Returns: Json
+      }
       record_maritime_fee_decision: {
         Args: {
           p_actor_user_id: string
