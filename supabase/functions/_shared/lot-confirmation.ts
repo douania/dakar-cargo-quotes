@@ -272,6 +272,26 @@ export function readLotContainers(facts: readonly unknown[]): LotContainersReadi
   return { status: "valid", containers: raw as Record<string, unknown>[] };
 }
 
+/** Blocker raised by run-pricing when a containerised (or undetermined) lot has no own containers. */
+export const LOT_CONTAINERS_REQUIRED = "LOT_CONTAINERS_REQUIRED";
+/** Line hints that run-pricing already prices without containers (LCL and air packages, see
+ * `resolveServicePackageForLot`). Any other hint, or none, may be containerised. */
+const NON_CONTAINERISED_LOT_HINTS: ReadonlySet<string> = new Set(["SEA_LCL_IMPORT", "AIR_IMPORT", "AIR_LCL_IMPORT"]);
+
+/** Containers a multi-lot run prices a lot with (GO CTO 2026-09-26): only the lot's own
+ * readable value. Never the dossier's nor another lot's: without an own value, a lot is priced
+ * with none only when both its hint and its resolved package are LCL/air; any other lot is
+ * blocked, ambiguity (e.g. an LCL hint overridden by an export package) included. */
+export function lotPricingContainers(reading: LotContainersReading, requestTypeHint: unknown, resolvedPackage: unknown):
+  { containers: Record<string, unknown>[] } | { blocker: string } {
+  if (reading.status === "valid") return { containers: reading.containers };
+  if (reading.status === "invalid") return { blocker: LOT_CONTAINERS_UNREADABLE };
+  const hint = typeof requestTypeHint === "string" ? requestTypeHint.trim().toUpperCase() : "";
+  const pkg = typeof resolvedPackage === "string" ? resolvedPackage.trim().toUpperCase() : "";
+  return NON_CONTAINERISED_LOT_HINTS.has(hint) && /^(LCL|AIR)_IMPORT_/.test(pkg)
+    ? { containers: [] } : { blocker: LOT_CONTAINERS_REQUIRED };
+}
+
 /** Per-lot counterpart of the dossier-level PAD allocation check: in a multi-lot dossier the
  * global facts describe only one lot, so a group is compared with the facts of the line it is
  * bound to. Equipment and quantity must match exactly; an ownership stated by the line must

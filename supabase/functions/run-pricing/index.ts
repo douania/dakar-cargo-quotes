@@ -57,8 +57,8 @@ import {
   evaluateLotRequirements,
   lotBindingForLine,
   lotPadEmissionValid,
-  LOT_CONTAINERS_UNREADABLE,
   lotPadScopeIssues,
+  lotPricingContainers,
   readLotContainers,
   withConfirmedLotTerminalMode,
 } from "../_shared/lot-confirmation.ts";
@@ -1784,16 +1784,18 @@ Deno.serve(async (req) => {
         const imoLotScope = scopeImoFactsForLot(mergeFactsForLot(globalFacts || [], extractedFacts), extractedFacts);
         const mergedFacts = imoLotScope.facts;
         const lotInputs = buildPricingInputs(mergedFacts);
-        // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25, option B): the lot's own containers are read
-        // with the same reader as the PAD allocation check. Unreadable → the lot is blocked below,
-        // never priced with an empty list nor with the dossier's containers. Absent → unchanged.
-        const lotContainers = readLotContainers(extractedFacts);
-        if (lotContainers.status === "valid") lotInputs.containers = lotContainers.containers as PricingInputs["containers"];
 
         // Resolve per-lot service package and transport mode
         const lotIncoterm = String(lotInputs.incoterm ?? "").trim().toUpperCase();
         const lotServicePackage = resolveServicePackageForLot(requestTypeHint, lotIncoterm, lotInputs.servicePackage);
         const lotTransportMode = resolveTransportModeForLot(requestTypeHint);
+
+        // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25 option B, 2026-09-26): the lot's own containers
+        // are read with the same reader as the PAD allocation check and always replace the merged
+        // value, so a lot is never priced with the dossier's or another lot's containers.
+        // Unreadable, or absent on a lot not explicitly non-containerised → blocked below.
+        const lotContainers = lotPricingContainers(readLotContainers(extractedFacts), requestTypeHint, lotServicePackage);
+        if ("containers" in lotContainers) lotInputs.containers = lotContainers.containers as PricingInputs["containers"];
 
 
         if (lotServicePackage) {
@@ -1805,7 +1807,7 @@ Deno.serve(async (req) => {
         const lotScopeWantsDuties = lotPkg.endsWith("_DDP") || lotPkg === "DDP" || lotIncoterm === "DDP";
 
         const lotBlockers: string[] = [];
-        if (lotContainers.status === "invalid") lotBlockers.push(LOT_CONTAINERS_UNREADABLE);
+        if ("blocker" in lotContainers) lotBlockers.push(lotContainers.blocker);
         lotBlockers.push(...imoLotScope.blockers, ...(lotInputs.imoResolution?.blockers ?? []));
         const lotEffectiveServiceKeys = resolveEffectiveServiceKeys(lotPkg, readOverridesFromFacts(mergedFacts));
         // MULTI-LOT-TERMINAL-1: a lot in the PAD scope of a dossier priced by confirmed groups is

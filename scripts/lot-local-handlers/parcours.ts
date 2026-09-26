@@ -73,6 +73,29 @@ if (Deno.args.includes("--mono-only")) {
   Deno.exit(0);
 }
 
+// ── X. Out of PAD (and terminal) scope: two lots, only lot A states its containers; the dossier
+// holds a DIFFERENT containers fact. Lot B must never receive lot A's nor the dossier's. ──
+const OUT_OF_PAD = JSON.stringify({ add: [], remove: ["PORT_DAKAR_HANDLING", "DTHC", "PAD_DROIT_PASSAGE"] });
+async function inheritanceCase(hintB: string) {
+  const id = await newCase();
+  await operatorFact(id, "service.overrides", "service", OUT_OF_PAD);
+  await operatorFact(id, "cargo.containers", "cargo", JSON.stringify([{ type: "20DV", quantity: 3 }]));
+  const lines = TWO_LINES.map((l, i) => i === 0
+    ? { ...l, extracted_facts: l.extracted_facts.map(f => f.key === "cargo.containers" ? { ...f, value: "2x40HC", valueType: "text" } : f) }
+    : { ...l, request_type_hint: hintB, extracted_facts: l.extracted_facts.filter(f => f.key !== "cargo.containers") });
+  const built = await build(id, lines);
+  const r = await price(id);
+  const runs = JSON.parse(await sql(`select coalesce(jsonb_agg(jsonb_build_object('status',status,'lots',
+    (select jsonb_agg(jsonb_build_object('lot',x->'lot_index','containers',x->'params'->'containers')) from jsonb_array_elements(engine_request->'lots') x))
+    order by created_at),'[]')::text from public.pricing_runs where case_id=${q(id)};`));
+  return { built, r, runs };
+}
+if (Deno.args.includes("--inheritance-probe")) {
+  const { built, r, runs } = await inheritanceCase("SEA_FCL_IMPORT");
+  console.log(`INHERITANCE_PROBE ${JSON.stringify({ status: built.state.status, http: r.status, blocked_lots: r.json.blocked_lots ?? null, runs })}`);
+  Deno.exit(0);
+}
+
 if (baseline) {
   // Base commit: the circular block the exception removes.
   const id = await newCase();
@@ -293,16 +316,48 @@ for (const [value, valueType] of [["deux conteneurs 40HC", "text"], ["2x40HC + 1
 }
 ok("V unreadable containers (free text, several groups, JSON object, zero quantity, no type, extra word, empty list, duplicate fact): lot blocked LOT_CONTAINERS_UNREADABLE, no priced run");
 
-// ── N. Lot without container fact: absent, unchanged path (no unreadable blocker) ──
+// ── N. Containerised lot without its own container fact (PAD scope): blocked, never inherited ──
 {
   const id = await newCase();
   const noContainers = TWO_LINES.map((l, i) => i === 0 ? { ...l, extracted_facts: l.extracted_facts.filter(f => f.key !== "cargo.containers") } : l);
   await build(id, noContainers);
   const r = await price(id);
   assertEquals(r.status, 200, JSON.stringify(r.json).slice(0, 300));
-  for (const l of r.json.blocked_lots ?? []) assert(!l.blockers.includes("LOT_CONTAINERS_UNREADABLE"), JSON.stringify(l));
+  const lot = (i: number) => r.json.blocked_lots.find((l: { lot_index: number }) => l.lot_index === i);
+  assert(lot(1)?.blockers.includes("LOT_CONTAINERS_REQUIRED"), JSON.stringify(r.json.blocked_lots));
+  assert(!lot(2)?.blockers.some((b: string) => b.startsWith("LOT_CONTAINERS_")), JSON.stringify(r.json.blocked_lots));
 }
-ok("N lot without cargo.containers: no LOT_CONTAINERS_UNREADABLE (absent path unchanged)");
+ok("N PAD scope, lot without cargo.containers: LOT_CONTAINERS_REQUIRED, the other lot unaffected");
+
+// ── X. Out of PAD scope (the case PAD used to hide) ──
+{
+  const fcl = await inheritanceCase("SEA_FCL_IMPORT");
+  assertEquals(fcl.built.state.status, "READY_TO_PRICE", JSON.stringify(fcl.built.state));
+  assertEquals(fcl.r.status, 200, JSON.stringify(fcl.r.json).slice(0, 400));
+  const lotB = fcl.r.json.blocked_lots?.find((l: { lot_index: number }) => l.lot_index === 2);
+  assertEquals(lotB?.blockers, ["LOT_CONTAINERS_REQUIRED"], JSON.stringify(fcl.r.json.blocked_lots));
+  assert(!fcl.r.json.blocked_lots.some((l: { lot_index: number }) => l.lot_index === 1), JSON.stringify(fcl.r.json.blocked_lots));
+  assertEquals(fcl.runs.map((x: { status: string }) => x.status), ["blocked"]);
+  ok("X1 out of PAD, FCL lot B without containers: blocked LOT_CONTAINERS_REQUIRED only, lot A clean, no priced run");
+  for (const [hint, code] of [["UNKNOWN_HINT", "LOT_CONTAINERS_REQUIRED"], ["", "LOT_REQUEST_TYPE_REQUIRED"]]) {
+    // A missing hint is refused earlier by the existing LOT_REQUEST_TYPE_REQUIRED guard.
+    const amb = await inheritanceCase(hint);
+    const b = amb.r.json.blocked_lots?.find((l: { lot_index: number }) => l.lot_index === 2);
+    assert(b?.blockers.includes(code), `${hint}: ${JSON.stringify(amb.r.json).slice(0, 400)}`);
+    assert(amb.runs.every((x: { status: string; lots: unknown }) => x.status !== "success" && x.lots === null), hint);
+  }
+  ok("X2 out of PAD, lot B with unknown or no hint: blocked (LOT_CONTAINERS_REQUIRED / existing LOT_REQUEST_TYPE_REQUIRED), nothing sent to the engine");
+  const air = await inheritanceCase("AIR_IMPORT");
+  assertEquals(air.r.status, 200, JSON.stringify(air.r.json).slice(0, 400));
+  for (const l of air.r.json.blocked_lots ?? []) assert(!l.blockers.some((b: string) => b.startsWith("LOT_CONTAINERS_")), JSON.stringify(l));
+  const sent = air.runs.flatMap((x: { lots: Array<{ lot: number; containers: unknown }> | null }) => x.lots ?? []);
+  // End-to-end proof required: the run is priced and records what each lot sent to the engine.
+  assertEquals(air.runs.map((x: { status: string }) => x.status), ["success"], JSON.stringify(air.r.json).slice(0, 400));
+  assertEquals(sent.find((l: { lot: number }) => l.lot === 1)?.containers, [{ type: "40HC", quantity: 2, coc_soc: null }]);
+  assertEquals(sent.find((l: { lot: number }) => l.lot === 2)?.containers, []);
+  console.log(`X3 air run statuses: ${JSON.stringify(air.runs.map((x: { status: string }) => x.status))}, engine lots: ${JSON.stringify(sent)}`);
+  ok("X3 out of PAD, explicitly non-containerised lot B (AIR_IMPORT): no container blocker; lot B sent none, lot A its own 2x40HC");
+}
 
 // ── M (patched run). Mono-lot still priced; base comparison done on MONO_OUTPUT. ──
 await monoOutput();

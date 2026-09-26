@@ -1,11 +1,12 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { LOT_CONTAINERS_UNREADABLE, readLotContainers } from "../_shared/lot-confirmation.ts";
+import { LOT_CONTAINERS_UNREADABLE, lotPricingContainers, readLotContainers } from "../_shared/lot-confirmation.ts";
 
 /**
  * MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25, option B) — per-lot containers in run-pricing.
  * The multi-lot loop reads the lot's own `cargo.containers` with `readLotContainers` (shared
  * with the PAD allocation check): valid → these containers are priced; invalid → the lot is
- * blocked with LOT_CONTAINERS_UNREADABLE before the engine; absent → unchanged merged path.
+ * blocked with LOT_CONTAINERS_UNREADABLE before the engine; absent → none for an explicitly
+ * non-containerised lot, LOT_CONTAINERS_REQUIRED otherwise (never the merged dossier value).
  * The loop itself is exercised end to end by scripts/lot-local-handlers/parcours.ts.
  */
 
@@ -32,9 +33,13 @@ Deno.test("LOT CONTAINERS/run-pricing: the lot's own text or JSON gives the same
   assertEquals(fromText, fromJson);
 });
 
-Deno.test("LOT CONTAINERS/run-pricing: unreadable is explicit; absent keeps the merged path", () => {
+Deno.test("LOT CONTAINERS/run-pricing: unreadable or absent never falls back to the merged dossier value", () => {
   assertEquals(readLotContainers(lot("deux conteneurs 40HC")), { status: "invalid" });
   assertEquals(LOT_CONTAINERS_UNREADABLE, "LOT_CONTAINERS_UNREADABLE");
-  assertEquals(readLotContainers([{ key: "cargo.weight_kg", value: "36000", valueType: "number" }]), { status: "absent" });
-  assertEquals(buildPricingInputs(mergeFactsForLot(dossier, [])).containers, [{ type: "20DV", quantity: 1, coc_soc: null }]);
+  // The legacy merged read would hand the dossier's containers (another lot's) to a lot without its own…
+  const noOwn = [{ key: "cargo.weight_kg", value: "36000", valueType: "number" }];
+  assertEquals(buildPricingInputs(mergeFactsForLot(dossier, noOwn)).containers, [{ type: "20DV", quantity: 1, coc_soc: null }]);
+  // …the loop replaces it: none for an explicitly non-containerised lot, a blocker otherwise.
+  assertEquals(lotPricingContainers(readLotContainers(noOwn), "AIR_IMPORT", "AIR_IMPORT_DAP"), { containers: [] });
+  assertEquals(lotPricingContainers(readLotContainers(noOwn), "SEA_FCL_IMPORT", "DAP_PROJECT_IMPORT"), { blocker: "LOT_CONTAINERS_REQUIRED" });
 });

@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   evaluateLotRequirements, lotPadAllocationIssue, lotPadEmissionValid, lotPadScopeIssues, parseLotContext,
-  readLotContainers, resolveLotConfirmations, withConfirmedLotTerminalMode, type LotContext,
+  lotPricingContainers, readLotContainers, resolveLotConfirmations, withConfirmedLotTerminalMode, type LotContext,
 } from "./lot-confirmation.ts";
 import { TERMINAL_OPERATION_MODE_FACT_KEY } from "./terminal-operation-mode.ts";
 import type { ConfirmedPadLine, PadGroup } from "./pad-group-confirmation.ts";
@@ -175,6 +175,25 @@ Deno.test("LOT CONTAINERS: one reader for PAD allocation and pricing; unreadable
     assertEquals(read(bad), { status: "invalid" }, JSON.stringify(bad));
   }
   assertEquals(readLotContainers([{ key: "cargo.containers", value: "2x40HC" }, { key: "cargo.containers", value: "2x40HC" }]), { status: "invalid" });
+});
+
+Deno.test("LOT CONTAINERS: a lot is priced only with its own containers, never the dossier's or another lot's", () => {
+  const own = readLotContainers([{ key: "cargo.containers", value: "2x40HC" }]);
+  const absent = readLotContainers([{ key: "cargo.weight_kg", value: "12000" }]);
+  const unreadable = readLotContainers([{ key: "cargo.containers", value: "deux conteneurs" }]);
+  assertEquals(lotPricingContainers(own, "SEA_FCL_IMPORT", "DAP_PROJECT_IMPORT"), { containers: [{ type: "40HC", quantity: 2, coc_soc: null }] });
+  assertEquals(lotPricingContainers(own, "AIR_IMPORT", "AIR_IMPORT_DAP"), { containers: [{ type: "40HC", quantity: 2, coc_soc: null }] });
+  assertEquals(lotPricingContainers(unreadable, "AIR_IMPORT", "AIR_IMPORT_DAP"), { blocker: "LOT_CONTAINERS_UNREADABLE" });
+  // Explicitly non-containerised (LCL/air hint AND LCL/air package): none, no block.
+  for (const [hint, pkg] of [["SEA_LCL_IMPORT", "LCL_IMPORT_DAP"], ["AIR_IMPORT", "AIR_IMPORT_EXW"], ["AIR_LCL_IMPORT", "AIR_IMPORT_DDP"], [" air_import ", "air_import_dap"]]) {
+    assertEquals(lotPricingContainers(absent, hint, pkg), { containers: [] }, hint);
+  }
+  // Containerised, undetermined or contradictory: blocked, never inherited.
+  for (const [hint, pkg] of [["SEA_FCL_IMPORT", "DAP_PROJECT_IMPORT"], ["IMPORT_PROJECT_DAP", "DAP_PROJECT_IMPORT"], ["", undefined], ["UNKNOWN", undefined],
+    ["SEA_IMPORT", undefined], ["AIR_FCL_IMPORT", undefined], [null, undefined], [42, "AIR_IMPORT_DAP"],
+    ["SEA_LCL_IMPORT", "EXPORT_SENEGAL"], ["AIR_IMPORT", "DAP_PROJECT_IMPORT"], ["SEA_LCL_IMPORT", undefined], ["SEA_LCL_IMPORT", ""]]) {
+    assertEquals(lotPricingContainers(absent, hint, pkg), { blocker: "LOT_CONTAINERS_REQUIRED" }, String(hint) + "/" + String(pkg));
+  }
 });
 
 const padLine = (unit_ref: string, amount: number): ConfirmedPadLine => ({ unit_ref, category: "T02", quantity: 1, unit_price: amount, amount,
