@@ -53,12 +53,16 @@ import {
 } from "../_shared/terminal-operation-mode.ts";
 // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25): explicit per-lot decisions (binding, terminal mode).
 import { loadLotConfirmationState, type LotConfirmationState } from "../_shared/lot-confirmation-store.ts";
+import { normalizeDpwDthcFamily } from "../_shared/dpw-dthc-tariff.ts";
 import {
   evaluateLotRequirements,
   lotBindingForLine,
   lotPadEmissionValid,
+  lotDthcFamilyIssue,
+  lotOwnText,
   lotPadScopeIssues,
   lotPricingContainers,
+  lotWeightFacts,
   readLotContainers,
   withConfirmedLotTerminalMode,
 } from "../_shared/lot-confirmation.ts";
@@ -1766,6 +1770,7 @@ Deno.serve(async (req) => {
         mergedFacts: any[]; inputs: PricingInputs; servicePackage: string | undefined;
         transportMode: string; scopeWantsDuties: boolean; blockers: string[];
         line_id: string; lotUnitRef: string | null; padGroupsRequired: boolean; padLine: ConfirmedPadLine | null;
+        lotDthcFamily: string | null;
       }> = [];
 
       // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-25): per-lot decisions and PAD group state are read
@@ -1796,6 +1801,18 @@ Deno.serve(async (req) => {
         // Unreadable, or absent on a lot not explicitly non-containerised → blocked below.
         const lotContainers = lotPricingContainers(readLotContainers(extractedFacts), requestTypeHint, lotServicePackage);
         if ("containers" in lotContainers) lotInputs.containers = lotContainers.containers as PricingInputs["containers"];
+        // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-26): weight, designation and DTHC family come from
+        // the lot only. The merged dossier total, per-container weight and designation are never
+        // kept: a missing or unreadable own total stays unknown (weight-dependent services are left
+        // unresolved downstream, option B); per-container weight known only for a single
+        // container. A dossier DTHC family is kept for the danger evaluation only and blocks a
+        // lot in DTHC scope (below) unless a family is attributed to the lot itself.
+        const lotWeight = lotWeightFacts(extractedFacts, "containers" in lotContainers ? lotContainers.containers : null);
+        lotInputs.cargoWeight = lotWeight.totalKg !== null ? lotWeight.totalKg / 1000 : undefined;
+        lotInputs.weightPerContainerKg = lotWeight.perContainerKg ?? undefined;
+        lotInputs.cargoDescription = lotOwnText(extractedFacts, "cargo.description") ?? undefined;
+        const lotOwnDthcFamily = normalizeDpwDthcFamily(lotOwnText(extractedFacts, "pricing.dthc_family"));
+        if (lotOwnDthcFamily) lotInputs.dthcFamily = lotOwnDthcFamily;
 
 
         if (lotServicePackage) {
@@ -1808,8 +1825,16 @@ Deno.serve(async (req) => {
 
         const lotBlockers: string[] = [];
         if ("blocker" in lotContainers) lotBlockers.push(lotContainers.blocker);
+        if (lotWeight.issue) console.warn(`[LOT-WEIGHT][multi-lot ${lotIndex}] poids propre ${lotWeight.issue} — prestations dépendantes du poids non résolues, aucun poids du dossier repris.`);
         lotBlockers.push(...imoLotScope.blockers, ...(lotInputs.imoResolution?.blockers ?? []));
         const lotEffectiveServiceKeys = resolveEffectiveServiceKeys(lotPkg, readOverridesFromFacts(mergedFacts));
+        const lotDthcIssue = lotDthcFamilyIssue({
+          lotInDthcScope: lotEffectiveServiceKeys.includes("DTHC"),
+          dossierFamily: ((globalFacts || []) as Array<{ fact_key?: unknown; value_text?: unknown }>)
+            .find(f => f.fact_key === "pricing.dthc_family")?.value_text,
+          lotFamily: lotOwnDthcFamily,
+        });
+        if (lotDthcIssue) lotBlockers.push(lotDthcIssue);
         // MULTI-LOT-TERMINAL-1: a lot in the PAD scope of a dossier priced by confirmed groups is
         // priced only from the PAD decision of the scenario lot explicitly bound to this line.
         // Otherwise the P0-E fail-closed legacy path applies unchanged: PAD_CATEGORY_REQUIRED
@@ -1932,6 +1957,7 @@ Deno.serve(async (req) => {
           lotUnitRef: lotRequirement?.unit_ref ?? null,
           padGroupsRequired: lotPadGroupsRequired,
           padLine: lotRequirement?.padLine ?? null,
+          lotDthcFamily: lotOwnDthcFamily,
         });
       }
 
@@ -2120,10 +2146,13 @@ Deno.serve(async (req) => {
             carrier: lc.inputs.carrier,
             transportMode: lc.transportMode,
             cargoDescription: lc.inputs.cargoDescription,
-            dthcFamily: lc.inputs.dthcFamily,
+            // Only a family attributed to the lot reaches the DTHC calculation; the dossier family
+            // stays in lc.inputs for the danger evaluation below (isIMO), never for pricing.
+            dthcFamily: lc.lotDthcFamily ?? undefined,
             // DTHC-4-A : caractère dangereux du lot, attendu par le moteur.
             isIMO: resolveDangerousForEngine(lc.inputs),
             weightPerContainerKg: lc.inputs.weightPerContainerKg,
+            lotWeightStrict: true,
             clientCompany: lc.inputs.clientCompany,
             hsCode: lc.inputs.hsCode,
             articlesDetail: lc.inputs.articlesDetail,
@@ -2249,7 +2278,14 @@ Deno.serve(async (req) => {
                   container_count: Array.isArray(lc.inputs.containers)
                     ? lc.inputs.containers.reduce((s: number, c: any) => s + Number(c?.quantity ?? 1), 0)
                     : null,
-                  weight_kg: lc.inputs.cargoWeight || null,
+                  // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-26): the lot's own total in kg (lc.inputs
+                  // holds tonnes for the engine), its own per-container weight (explicit only, never
+                  // an average) and designation; never the dossier's DTHC family.
+                  weight_kg: lc.inputs.cargoWeight ? lc.inputs.cargoWeight * 1000 : null,
+                  weight_per_container_kg: lc.inputs.weightPerContainerKg ?? null,
+                  lot_weight_strict: true,
+                  cargo_description: lc.inputs.cargoDescription ?? null,
+                  dthc_family: lc.lotDthcFamily,
                   caf_value: null,
                   destination_city: lc.inputs.finalDestination || null,
                   destination_country: null,
@@ -2282,14 +2318,21 @@ Deno.serve(async (req) => {
                     if (pl.source === 'fee_rule_skipped') continue;
                     const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                     const label = feeLineLabels.get(serviceKey) || SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                    // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-26): a service without an amount keeps that
+                    // state and its reserve (TO_CONFIRM, amount null) — never a silent 0. A priced 0 stays 0.
+                    const unresolved = pl.rate === null || pl.rate === undefined;
                     const packageLine = canonicalizeLine({
                       category: serviceKey,
                       label: label,
-                      amount: pl.rate ?? 0,
+                      amount: unresolved ? null : pl.rate,
                       currency: pl.currency || 'XOF',
                       type: 'service_package',
                       bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
-                      source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
+                      source: unresolved
+                        ? { type: 'TO_CONFIRM', reference: `P5:${pl.source || 'price-service-lines'}`, confidence: 0,
+                            note: pl.explanation || `${label} : montant à confirmer.` }
+                        : { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
+                      ...(unresolved ? { notes: pl.explanation || `${label} : montant à confirmer.` } : {}),
                       quantity: pl.quantity_used ?? 1,
                       unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                       explanation: pl.explanation || '',
@@ -2470,6 +2513,19 @@ Deno.serve(async (req) => {
 
       const mlDurationMs = Date.now() - startTime;
 
+      // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-26): incompleteness follows the run to storage.
+      const mlToConfirmCount = allTaggedLines.filter((l: { source?: { type?: unknown } }) =>
+        String(l?.source?.type ?? "").trim().split("+")[0].split(":")[0].toUpperCase() === "TO_CONFIRM").length;
+      const mlWeightNotices = quotationWeightNotices(allTaggedLines);
+      const mlQualification = mlToConfirmCount > 0 || mlWeightNotices.length > 0 ? {
+        level: "provisional",
+        reasons: [
+          ...(mlToConfirmCount > 0 ? [{ code: "RATE_PENDING_CONFIRMATION", message: "Au moins un poste tarifaire est en attente de confirmation (TO_CONFIRM)." }] : []),
+          ...mlWeightNotices.map(message => ({ code: "PROVISIONAL_WEIGHT_BASIS", message })),
+        ],
+        firmTotalPolicy: mlToConfirmCount > 0 ? "excludes_reserved_items" : "all_included",
+      } : null;
+
       // Dual storage: structured detail in outputs_json + root-level columns
       const mlOutputsJson = {
         multi_lot: true,
@@ -2506,7 +2562,12 @@ Deno.serve(async (req) => {
           computed_at: new Date().toISOString(),
           mode: "multi_lot",
           lot_count: lotResults.length,
+          to_confirm_count: mlToConfirmCount,
         },
+        // A successful run can still be incomplete: same qualification as the mono-lot run and the
+        // version snapshot (lines to confirm ⇒ provisional, firm total excludes them). The case
+        // status cycle is unchanged.
+        ...(mlQualification ? { quoteQualification: mlQualification } : {}),
       };
 
       const mlRunResult = {

@@ -31,6 +31,7 @@ const FUNCTION_NAME = "generate-quotation-version";
 
 // Lot 3D-1 — QQM source de vérité snapshot (helper pur testable)
 import { resolveSnapshotQualification } from "./qqm-resolver.ts";
+import { versionLineBreakdown } from "../_shared/quotation-line-status.ts";
 
 // P0-E — normalisation déterministe pricing_run → snapshot (helper pur testable)
 import {
@@ -51,6 +52,9 @@ interface VersionSnapshotLot {
     amount: number;
     currency: string;
     source?: unknown;
+    type?: string | null;
+    category?: string | null;
+    label?: string | null;
     canonical?: unknown;
     accounting?: unknown;
   }>;
@@ -409,11 +413,16 @@ Deno.serve(async (req) => {
         label: lot.label ?? `Lot ${lot.lot_index ?? '?'}`,
         lines: Array.isArray(lot.lines) ? lot.lines.map((l: any) => ({
           service_code: l.service_code || l.charge_code || 'LINE',
-          description: l.description || l.charge_name || null,
+          // MULTI-LOT-TERMINAL-1: same label fallback as mono-lot lines, so a service priced only by
+          // price-service-lines (label/category, no description) keeps its name next to "À confirmer".
+          description: l.description || l.charge_name || l.label || l.category || null,
           // P0-E: même normalisation prix que les lignes mono-lot
           ...normalizeLinePricing(l),
           currency: l.currency || 'XOF',
           source: l.source ?? null,
+          type: l.type ?? null,
+          category: l.category ?? null,
+          label: l.label ?? null,
           canonical: l.canonical ?? null,
           accounting: l.accounting ?? null,
         })) : [],
@@ -466,7 +475,8 @@ Deno.serve(async (req) => {
       unit_price: line.unit_price,
       amount: line.amount,
       currency: line.currency,
-      breakdown: tariffLines[idx]?.breakdown || null,
+      // MULTI-LOT-TERMINAL-1: the table needs a numeric amount; breakdown keeps "to confirm" ≠ free.
+      breakdown: versionLineBreakdown(line, tariffLines[idx]?.breakdown),
     }));
 
     if (versionLines.length > 0) {

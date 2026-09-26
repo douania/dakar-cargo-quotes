@@ -17,6 +17,7 @@ import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { handleCors } from "../_shared/cors.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
+import { isToConfirmLine, lotSubtotalLabel } from "../_shared/quotation-line-status.ts";
 import {
   isScenarioOutputSnapshot,
   readScenarioOutputContext,
@@ -306,11 +307,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     const amount = line.amount || 0;
     // Lot 4-A: detect "À confirmer" / reserve lines and never render "0 FCFA" for them.
     // Covers canonical TO_CONFIRM (Lot 3D) + provisional_reserve / CUSTOMS_RESERVE (Lot 4 DDP guard).
-    const srcType = typeof line?.source === 'string' ? line.source : line?.source?.type;
-    const isToConfirm =
-      srcType === 'TO_CONFIRM' ||
-      line?.type === 'provisional_reserve' ||
-      String(line?.category || '').toUpperCase() === 'CUSTOMS_RESERVE';
+    const isToConfirm = isToConfirmLine(line);
     currentPage.drawText(serviceText, { x: colService, y, size: 9, font, color: black });
     currentPage.drawText(descText, { x: colDesc, y, size: 9, font, color: black });
     currentPage.drawText((line.quantity || 1).toString(), { x: colQty, y, size: 9, font, color: black });
@@ -570,7 +567,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
       y -= 5;
       const lotTotal = lot.totals?.ht ?? 0;
       const lotCurrency = lot.totals?.currency ?? 'XOF';
-      currentPage.drawText(sanitize(`Sous-total: ${formatAmount(lotTotal)} ${lotCurrency}`), {
+      currentPage.drawText(sanitize(lotSubtotalLabel(formatAmount(lotTotal), lotCurrency, lotLines)), {
         x: colRate, y, size: 10, font: fontBold, color: black,
       });
       y -= sectionGap;

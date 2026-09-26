@@ -53,14 +53,17 @@ const REASON_LABELS: Record<string, string> = {
   RATE_PENDING_CONFIRMATION: 'Certains tarifs restent à confirmer',
 };
 
+// Same reading as run-pricing's totals and the quotation PDF (`to_confirm+note` included): a line
+// to confirm is excluded from the firm totals and must never be presented as priced.
+function isToConfirmTariffLine(line: any): boolean {
+  const src = line?.source;
+  const raw = typeof src === 'string' ? src : src && typeof src === 'object' ? src.type : null;
+  return String(raw ?? '').trim().split('+')[0].split(':')[0].toUpperCase() === 'TO_CONFIRM';
+}
+
 function hasToConfirmTariffLines(tariffLines: any[] | null | undefined): boolean {
   if (!Array.isArray(tariffLines)) return false;
-  return tariffLines.some((line: any) => {
-    const src = line?.source;
-    if (typeof src === 'string') return src === 'TO_CONFIRM';
-    if (src && typeof src === 'object') return src.type === 'TO_CONFIRM';
-    return false;
-  });
+  return tariffLines.some(isToConfirmTariffLine);
 }
 
 function mergeReasonIfMissing(reasons: QQMReason[] | undefined, reason: QQMReason): QQMReason[] {
@@ -184,10 +187,10 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
 
   const tariffLines = pricingRun.tariff_lines || [];
   const tariffSources = pricingRun.tariff_sources || [];
-  const toConfirmCount = tariffLines.filter((l: any) => l.source?.type === 'TO_CONFIRM').length;
+  const toConfirmCount = tariffLines.filter(isToConfirmTariffLine).length;
   const informationalCount = tariffLines.filter((l: any) => {
     const v = l.amount ?? l.total;
-    return l.source?.type !== 'TO_CONFIRM' && v === 0 && (
+    return !isToConfirmTariffLine(l) && v === 0 && (
       l.source?.type === 'business_rule' || l.source?.type === 'OFFICIAL'
     );
   }).length;
@@ -258,9 +261,16 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
               </Badge>
             )}
           </div>
+          {/* Execution and completeness are distinct: a run executed successfully can still hold
+              services to confirm (the case status cycle is unchanged). */}
           <Badge variant="outline" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-            Succès
+            Calcul exécuté
           </Badge>
+          {toConfirmCount > 0 && (
+            <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" title="Toutes les prestations ne sont pas chiffrées.">
+              Incomplet · {toConfirmCount} à confirmer
+            </Badge>
+          )}
           {qualification.level === 'firm' && (
             <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" title="Devis ferme : tous les éléments sont confirmés.">
               <ShieldCheck className="h-3 w-3 mr-1" />
@@ -356,14 +366,15 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
         {/* Operator summary — values are read from the saved pricing run only. */}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Synthèse du pricing confirmé">
           <div className="border p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Total à payer</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{toConfirmCount > 0 ? 'Total à payer provisoire' : 'Total à payer'}</p>
             <p className="mt-1 text-2xl font-bold">{formatAmount(totalPayable)} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
+            {toConfirmCount > 0 && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Hors {toConfirmCount} poste{toConfirmCount > 1 ? 's' : ''} à confirmer</p>}
             {hasDetailedCommercialTotals && <p className="mt-1 text-xs text-muted-foreground">Sous-total avant TVA SODATRA : {formatAmount(subtotalBeforeSodatraVat)}</p>}
           </div>
           <div className="border p-4">
             <p className="text-xs font-medium uppercase text-muted-foreground">Total des lignes</p>
-            <p className="mt-1 text-2xl font-bold">{formatAmount(tariffLines.reduce((sum: number, line: Record<string, unknown>) => sum + (Number(line.amount) || 0), 0))} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
-            <p className="mt-1 text-xs text-muted-foreground">Sous-total des lignes enregistrées</p>
+            <p className="mt-1 text-2xl font-bold">{formatAmount(tariffLines.filter((line: any) => !isToConfirmTariffLine(line)).reduce((sum: number, line: Record<string, unknown>) => sum + (Number(line.amount) || 0), 0))} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
+            <p className="mt-1 text-xs text-muted-foreground">{toConfirmCount > 0 ? 'Lignes chiffrées seulement, hors postes à confirmer' : 'Sous-total des lignes enregistrées'}</p>
           </div>
           <div className="border p-4">
             <p className="text-xs font-medium uppercase text-muted-foreground">Lignes</p>
@@ -425,6 +436,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
             {lots.map((lot: any) => {
               const lotLines = lot.lines || [];
               const lotTotals = lot.totals || {};
+              const lotToConfirm = lotLines.filter(isToConfirmTariffLine).length;
               const isLotExpanded = expandedLots[lot.lot_index] ?? false;
 
               return (
@@ -437,6 +449,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
                         <Badge variant="secondary" className="text-xs">{lotLines.length} lignes</Badge>
                         <span className="text-sm text-muted-foreground">
                           {formatAmount(lotTotals.ht)} {lotTotals.currency || 'XOF'} HT
+                          {lotToConfirm > 0 && <span className="ml-1 text-amber-700 dark:text-amber-300">· partiel ({lotToConfirm} à confirmer)</span>}
                         </span>
                       </span>
                       {isLotExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -455,7 +468,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
                         <tbody>
                           {lotLines.slice(0, showAllLotLines[lot.lot_index] ? lotLines.length : 15).map((line: any, idx: number) => {
                             const value = line.amount ?? line.total;
-                            const isToConfirm = line.source?.type === 'TO_CONFIRM';
+                            const isToConfirm = isToConfirmTariffLine(line);
                             const isInformational = !isToConfirm && value === 0 && (
                               line.source?.type === 'business_rule' || line.source?.type === 'OFFICIAL'
                             );
@@ -556,7 +569,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
                   <tbody>
                     {tariffLines.slice(0, showAllLines ? tariffLines.length : 10).map((line: any, idx: number) => {
                       const value = line.amount ?? line.total;
-                      const isToConfirm = line.source?.type === 'TO_CONFIRM';
+                      const isToConfirm = isToConfirmTariffLine(line);
                       const isInformational = !isToConfirm && value === 0 && (
                         line.source?.type === 'business_rule' || line.source?.type === 'OFFICIAL'
                       );

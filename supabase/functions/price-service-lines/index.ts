@@ -155,6 +155,10 @@ interface PricingContext {
   cargo_description: string | null; // DTHC-1: canonical fact cargo.description
   dthc_family: DpwDthcFamily | null; // DTHC-2: famille choisie par l'opérateur (fait pricing.dthc_family), jamais inférée ici
   weight_per_container_kg: number | null; // TRUCKING-22T: poids marchandise par conteneur (fait cargo.weight_per_container_kg)
+  // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-26, option B): set by run-pricing's per-lot override only.
+  // The per-container weight is the explicit lot value or unknown (never total ÷ boxes); an unknown
+  // 20' weight gives a transport to confirm; a weight-based quantity without lot weight is not priced.
+  lot_weight_strict?: boolean;
   cargo_value: number | null; // H2-c: fait cargo.value (assiette « valeur marchandise » des règles d'honoraires)
   customs_regime_code: string | null; // H2-c: fait customs.regime_code
   service_package: string | null; // H2-c: fait service.package (profil d'envoi)
@@ -271,6 +275,9 @@ function computeQuantity(
     // LCL mode: TRUCKING/ON_CARRIAGE use weight-based or forfait instead of container count
     if (isLCL && (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE")) {
       const weightKg = ctx.weight_kg;
+      if (ctx.lot_weight_strict === true && !(weightKg && weightKg > 0)) {
+        return { quantity_used: null, unit_used: rule.default_unit, rule_id: rule.id, conversion_used: "lot_weight_unknown_no_pricing" };
+      }
       if (weightKg && weightKg > 0) {
         const tonnes = Math.ceil(weightKg / 1000);
         return {
@@ -325,6 +332,9 @@ function computeQuantity(
 
   if (basis === "TONNE") {
     const weightKg = ctx.weight_kg;
+    if (ctx.lot_weight_strict === true && (!weightKg || weightKg <= 0)) {
+      return { quantity_used: null, unit_used: rule.default_unit, rule_id: rule.id, conversion_used: "lot_weight_unknown_no_pricing" };
+    }
     if (!weightKg || weightKg <= 0) {
       return { quantity_used: 1, unit_used: rule.default_unit, rule_id: rule.id, conversion_used: "missing_weight_default_1" };
     }
@@ -583,6 +593,7 @@ function findLocalTransportRate(
   pricingCtx: PricingContext,
   isAirMode: boolean,
   isLCL: boolean = false,
+  onUnresolved?: (message: string) => void,
 ): { rate: number; currency: string; source: string; confidence: number; explanation: string } | null {
   // Only TRUCKING and ON_CARRIAGE use local transport rates
   if (serviceKey !== "TRUCKING" && serviceKey !== "ON_CARRIAGE") return null;
@@ -617,11 +628,13 @@ function findLocalTransportRate(
   // aérien, où weight_kg peut porter le poids taxable, est exclu plus haut).
   // Le résolveur ajoute la tare de référence : un 20' au-delà de 22 t est servi
   // au tarif 40' ; poids inconnu ⇒ tarif 20' avec mention.
-  const cargoWeightPerContainerKg = deriveCargoWeightPerContainerKg({
-    explicitPerContainerKg: pricingCtx.weight_per_container_kg,
-    totalCargoWeightKg: pricingCtx.weight_kg,
-    containers: pricingCtx.containers,
-  });
+  const cargoWeightPerContainerKg = pricingCtx.lot_weight_strict === true
+    ? deriveCargoWeightPerContainerKg({ explicitPerContainerKg: pricingCtx.weight_per_container_kg })
+    : deriveCargoWeightPerContainerKg({
+      explicitPerContainerKg: pricingCtx.weight_per_container_kg,
+      totalCargoWeightKg: pricingCtx.weight_kg,
+      containers: pricingCtx.containers,
+    });
 
   const resolution = resolveOfficialLocalTransportRate(preloadedRates, {
     destination: pricingCtx.destination_city,
@@ -629,9 +642,11 @@ function findLocalTransportRate(
     clientCode: ctxClientCode,
     asOfDate: today,
     cargoWeightPerContainerKg,
+    unknownWeightToConfirm: pricingCtx.lot_weight_strict === true,
   });
 
   if (resolution.status !== "RESOLVED") {
+    onUnresolved?.(resolution.message);
     console.log(
       `[P0-D-3] local_transport not served (no exact validated tariff): dest=${JSON.stringify(pricingCtx.destination_city)}, container=${JSON.stringify(pricingCtx.container_type)}, ctx_client=${JSON.stringify(ctxClientCode)}, reason=${resolution.reason}, matches=${resolution.matchCount}`,
     );
@@ -1319,7 +1334,9 @@ Deno.serve(async (req) => {
         (serviceKey === "TRUCKING" || serviceKey === "ON_CARRIAGE") && !isAirMode && !isLCL;
 
       if (isContainerisedTransportService) {
-        const transportFallback = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL);
+        let transportUnresolved: string | null = null;
+        const transportFallback = findLocalTransportRate(preloadedTransportRates, serviceKey, pricingCtx, isAirMode, isLCL,
+          (message) => { transportUnresolved = message; });
 
         if (transportFallback) {
           let lineTotal = transportFallback.rate;
@@ -1362,7 +1379,7 @@ Deno.serve(async (req) => {
         pricedLines.push({
           id: line.id, rate: null, currency, source: "TO_CONFIRM",
           confidence: 0,
-          explanation: `Tarif transport à confirmer : aucun barème validé pour ${serviceKey} (client_code=${ctxClientCodeTransport ?? "generic"}, dest=${pricingCtx.destination_city ?? "?"}, container=${pricingCtx.container_type ?? "?"})`,
+          explanation: `${pricingCtx.lot_weight_strict === true && transportUnresolved ? `${transportUnresolved} — ` : ""}Tarif transport à confirmer : aucun barème validé pour ${serviceKey} (client_code=${ctxClientCodeTransport ?? "generic"}, dest=${pricingCtx.destination_city ?? "?"}, container=${pricingCtx.container_type ?? "?"})`,
           quantity_used: computed.quantity_used,
           unit_used: computed.unit_used,
           rule_id: computed.rule_id,

@@ -225,7 +225,9 @@ describe('lot 3 operator presentation', () => {
     ];
     render(<QueryClientProvider client={new QueryClient()}><PricingResultPanel caseId="case-a" /></QueryClientProvider>);
     const summary = screen.getByLabelText('Synthèse du pricing confirmé');
-    expect(within(summary).getByText('Total à payer')).toBeVisible();
+    // One line to confirm: the payable total is qualified (GO CTO 2026-09-26), never presented as complete.
+    expect(within(summary).getByText('Total à payer provisoire')).toBeVisible();
+    expect(within(summary).getByText('Hors 1 poste à confirmer')).toBeVisible();
     expect(within(summary).getByText('Total des lignes')).toBeVisible();
     expect(within(summary).getByText('Lignes')).toBeVisible();
     expect(within(summary).getByText('À confirmer')).toBeVisible();

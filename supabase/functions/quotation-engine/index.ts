@@ -406,6 +406,10 @@ interface QuotationRequest {
   dthcFamily?: string | null;
   // TRUCKING-22T : poids marchandise par conteneur en kg (fact cargo.weight_per_container_kg), passe-plat de run-pricing
   weightPerContainerKg?: number | null;
+  // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-26, option B) : posé par la seule préparation multi-lot
+  // de run-pricing. Poids par conteneur explicite uniquement (jamais total ÷ boîtes) ; poids d'un
+  // 20' inconnu ⇒ Transport à confirmer ; tarif à la tonne sans poids du lot ⇒ ligne à confirmer.
+  lotWeightStrict?: boolean;
   cargoValue?: number;
   cargoCurrency?: string;
   cargoWeight?: number; // en tonnes
@@ -1925,11 +1929,13 @@ export async function generateQuotationLines(
       // total ÷ nombre de boîtes si un seul type canonique — jamais inventé.
       // Le résolveur ajoute la tare de référence et sert le tarif 40' au-delà
       // de 22 t ; poids inconnu ⇒ tarif 20' avec mention.
-      const cargoWeightPerContainerKg = deriveCargoWeightPerContainerKg({
-        explicitPerContainerKg: request.weightPerContainerKg,
-        totalCargoWeightKg: typeof request.cargoWeight === 'number' ? request.cargoWeight * 1000 : null,
-        containers: containers.map((c) => ({ type: c.type, quantity: c.quantity })),
-      });
+      const cargoWeightPerContainerKg = request.lotWeightStrict === true
+        ? deriveCargoWeightPerContainerKg({ explicitPerContainerKg: request.weightPerContainerKg })
+        : deriveCargoWeightPerContainerKg({
+          explicitPerContainerKg: request.weightPerContainerKg,
+          totalCargoWeightKg: typeof request.cargoWeight === 'number' ? request.cargoWeight * 1000 : null,
+          containers: containers.map((c) => ({ type: c.type, quantity: c.quantity })),
+        });
 
       for (const container of containers) {
         const localTransport = resolveOfficialLocalTransportRate(officialLocalRates ?? [], {
@@ -1938,6 +1944,7 @@ export async function generateQuotationLines(
           clientCode: request.clientCode ?? null,
           asOfDate: localTransportAsOf,
           cargoWeightPerContainerKg: scenarioPlan ? scenarioPlan.rows.find(r => r.unitRef === container.unit_ref)?.weightPerContainerKg ?? null : cargoWeightPerContainerKg,
+          unknownWeightToConfirm: request.lotWeightStrict === true,
         });
 
         if (localTransport.status === 'RESOLVED') {
@@ -1998,7 +2005,7 @@ export async function generateQuotationLines(
             reference: `${localTransport.code} — ${localTransport.reason}`,
             confidence: 0
           },
-          notes: `${localTransport.message} ${kmEstimate?.reason ?? (transportBasis ? 'Estimation kilométrique hors périmètre : import Sénégal via Dakar et scénario DAP requis.' : 'Aucune hypothèse de distance et de qualification transport liée : préparer le transport hors barème, vérifier les lots puis lier cette hypothèse au scénario.')} ${historicalHint}`,
+          notes: localTransport.reason === 'WEIGHT_PER_CONTAINER_UNKNOWN' ? localTransport.message : `${localTransport.message} ${kmEstimate?.reason ?? (transportBasis ? 'Estimation kilométrique hors périmètre : import Sénégal via Dakar et scénario DAP requis.' : 'Aucune hypothèse de distance et de qualification transport liée : préparer le transport hors barème, vérifier les lots puis lier cette hypothèse au scénario.')} ${historicalHint}`,
           isEditable: true
         });
         warnings.push(`Transport ${container.type} → ${request.finalDestination}: ${localTransport.message} (${localTransport.reason})`);
@@ -2088,6 +2095,19 @@ export async function generateQuotationLines(
             confidence: 0.85
           },
           notes: rate.notes,
+          isEditable: true
+        });
+      } else if (request.lotWeightStrict === true && rate.calculation_method === 'PER_TONNE' && rate.rate_per_tonne && !(totalWeightTonnes > 0)) {
+        // Multi-lot : sans poids propre au lot, la prestation à la tonne reste visible, sans montant.
+        lines.push({
+          id: `terminal_${rate.charge_code.toLowerCase()}_${lines.length}`,
+          bloc: 'terminal',
+          category: 'Terminal Mali',
+          description: rate.charge_name,
+          amount: null,
+          currency: rate.currency || 'XOF',
+          source: { type: 'TO_CONFIRM', reference: 'POIDS_DU_LOT_INCONNU', confidence: 0 },
+          notes: 'Tarif à la tonne : poids propre du lot inconnu — montant à confirmer (aucun poids du dossier repris).',
           isEditable: true
         });
       }

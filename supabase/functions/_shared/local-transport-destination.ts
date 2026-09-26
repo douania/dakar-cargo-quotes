@@ -299,7 +299,8 @@ export type LocalTransportToConfirmReason =
   | "CONTAINER_UNSUPPORTED"
   | "NO_MATCHING_RATE"
   | "AMBIGUOUS_RATE"
-  | "INVALID_RATE_AMOUNT";
+  | "INVALID_RATE_AMOUNT"
+  | "WEIGHT_PER_CONTAINER_UNKNOWN";
 
 /** Messages FR déterministes, réutilisés tels quels par les deux lecteurs. */
 export const LOCAL_TRANSPORT_TO_CONFIRM_MESSAGES: Readonly<
@@ -320,6 +321,8 @@ export const LOCAL_TRANSPORT_TO_CONFIRM_MESSAGES: Readonly<
     "Plusieurs tarifs officiels concurrents pour cette destination et ce conteneur — tarif transport à confirmer.",
   INVALID_RATE_AMOUNT:
     "Tarif officiel trouvé mais montant inexploitable — tarif transport à confirmer.",
+  WEIGHT_PER_CONTAINER_UNKNOWN:
+    "Poids de chaque conteneur 20' non établi (poids du lot absent ou réparti sur plusieurs conteneurs) — seuil de 22 t non tranché — tarif transport à confirmer.",
 });
 
 /**
@@ -463,6 +466,11 @@ export interface LocalTransportResolutionInput {
    * de référence est ajoutée ici). Absent ⇒ tarif 20' avec mention.
    */
   cargoWeightPerContainerKg?: number | null;
+  /**
+   * Multi-lot only (GO CTO 2026-09-26, option B): an unknown weight on a 20' gives
+   * TO_CONFIRM instead of the "assumed ≤ 22 t" 20' rate. Absent/false ⇒ unchanged doctrine.
+   */
+  unknownWeightToConfirm?: boolean;
 }
 
 export type LocalTransportResolution =
@@ -571,6 +579,9 @@ export function resolveOfficialLocalTransportRate(
     requestedContainerType,
     input.cargoWeightPerContainerKg,
   );
+  if (input.unknownWeightToConfirm === true && weight.rule === "WEIGHT_UNKNOWN_ASSUMED_UNDER") {
+    return toConfirm("WEIGHT_PER_CONTAINER_UNKNOWN", destination.canonical, null, 0, requestedContainerType, weight);
+  }
   const containerType = weight.rule === "OVER_THRESHOLD_40_RATE"
     ? LOCAL_TRANSPORT_CONTAINER_40
     : requestedContainerType;

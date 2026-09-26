@@ -12,7 +12,7 @@
  * - The dossier-level terminal fact never satisfies a per-lot requirement.
  */
 import { normalizeTerminalOperationMode, TERMINAL_OPERATION_MODE_FACT_KEY, type TerminalOperationMode } from "./terminal-operation-mode.ts";
-import { normalizeDthcContainerType } from "./dpw-dthc-tariff.ts";
+import { normalizeDpwDthcFamily, normalizeDthcContainerType } from "./dpw-dthc-tariff.ts";
 import type { ConfirmedPadLine, PadGroup, PadGroupDecision } from "./pad-group-confirmation.ts";
 
 export type LotDecisionKind = "line_binding" | "terminal_mode";
@@ -290,6 +290,42 @@ export function lotPricingContainers(reading: LotContainersReading, requestTypeH
   const pkg = typeof resolvedPackage === "string" ? resolvedPackage.trim().toUpperCase() : "";
   return NON_CONTAINERISED_LOT_HINTS.has(hint) && /^(LCL|AIR)_IMPORT_/.test(pkg)
     ? { containers: [] } : { blocker: LOT_CONTAINERS_REQUIRED };
+}
+
+/** Blocker raised when a dossier-level DTHC family exists but none is attributed to the lot. */
+export const LOT_DTHC_FAMILY_REQUIRED = "LOT_DTHC_FAMILY_REQUIRED";
+
+/** Weight data a multi-lot run prices a lot with (GO CTO 2026-09-26, option B): only the lot's
+ * own `cargo.weight_kg` (a total, in kg) — never the dossier's total nor its per-container fact.
+ * The per-container weight is known only when the lot holds exactly one container (its total is
+ * then that container's weight); an average over several containers is not a per-container
+ * weight. A missing or unreadable total does not block the lot: it stays unknown and only the
+ * weight-dependent services are left unresolved downstream (`lot_weight_strict`). */
+export function lotWeightFacts(lotFacts: readonly unknown[], containers: readonly Record<string, unknown>[] | null):
+  { totalKg: number | null; perContainerKg: number | null; issue: "absent" | "unreadable" | null } {
+  const found = lotFacts.filter(isObject).filter(f => f.key === "cargo.weight_kg");
+  if (found.length === 0) return { totalKg: null, perContainerKg: null, issue: "absent" };
+  const raw = found.length === 1 ? found[0].value : undefined;
+  const totalKg = typeof raw === "number" ? raw : typeof raw === "string" && /^\s*\d+(\.\d+)?\s*$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isFinite(totalKg) || totalKg <= 0) return { totalKg: null, perContainerKg: null, issue: "unreadable" };
+  const count = (containers ?? []).reduce((sum, c) => sum + Number(c.quantity), 0);
+  return { totalKg, perContainerKg: count === 1 ? totalKg : null, issue: null };
+}
+
+/** The lot's own single non-empty text value for a key (e.g. `cargo.description`), never the
+ * dossier's; absent or ambiguous (several values) → null. */
+export function lotOwnText(lotFacts: readonly unknown[], key: string): string | null {
+  const values = lotFacts.filter(isObject).filter(f => f.key === key)
+    .map(f => typeof f.value === "string" ? f.value.trim() : "").filter(Boolean);
+  return values.length === 1 ? values[0] : null;
+}
+
+/** A dossier-level DTHC family is never passed to a lot: for a lot whose scope includes DTHC,
+ * it blocks until a family is attributed to the lot itself. Without a dossier family the lot's
+ * own designation feeds the existing inference. */
+export function lotDthcFamilyIssue(params: { lotInDthcScope: boolean; dossierFamily: unknown; lotFamily: unknown }): string | null {
+  if (!params.lotInDthcScope || normalizeDpwDthcFamily(params.lotFamily) !== null) return null;
+  return typeof params.dossierFamily === "string" && params.dossierFamily.trim() !== "" ? LOT_DTHC_FAMILY_REQUIRED : null;
 }
 
 /** Per-lot counterpart of the dossier-level PAD allocation check: in a multi-lot dossier the

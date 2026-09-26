@@ -947,6 +947,29 @@ Deno.test("TRUCKING-22T: an unknown weight keeps the 20' tariff with an explicit
   }
 });
 
+Deno.test("TRUCKING-22T multi-lot option: an unknown 20' weight gives TO_CONFIRM, known weights and 40' unchanged", () => {
+  const resolve = (containerType: string, weight: number | null | undefined) =>
+    resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], {
+      destination: "Dakar", containerType, asOfDate: TODAY, cargoWeightPerContainerKg: weight, unknownWeightToConfirm: true,
+    });
+  for (const weight of [undefined, null, 0]) {
+    const result = resolve("20DV", weight);
+    assertEquals(result.status, "TO_CONFIRM", `weight ${String(weight)}`);
+    if (result.status !== "TO_CONFIRM") continue;
+    assertEquals([result.reason, result.amount, result.code], ["WEIGHT_PER_CONTAINER_UNKNOWN", null, LOCAL_TRANSPORT_TO_CONFIRM_CODE]);
+    assertEquals(result.requestedContainerType, LOCAL_TRANSPORT_CONTAINER_20);
+    assert(result.message.includes("tarif transport à confirmer"), result.message);
+  }
+  const under = resolve("20DV", 22_000 - LOCAL_TRANSPORT_20_DRY_TARE_KG);
+  const over = resolve("20DV", 22_000 - LOCAL_TRANSPORT_20_DRY_TARE_KG + 1);
+  const forty = resolve("40HC", null);
+  assertEquals([under.status, under.amount, over.status, over.amount, forty.status, forty.amount],
+    ["RESOLVED", 82600, "RESOLVED", 125080, "RESOLVED", 125080]);
+  // Without the option (mono-lot and every other reader) the doctrine is unchanged.
+  const legacy = resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], { destination: "Dakar", containerType: "20DV", asOfDate: TODAY, cargoWeightPerContainerKg: null });
+  assertEquals([legacy.status, legacy.amount], ["RESOLVED", 82600]);
+});
+
 Deno.test("TRUCKING-22T: a 40' is never affected by the weight rule", () => {
   for (const weight of [null, 5_000, 28_000, 40_000]) {
     const result = resolveOfficialLocalTransportRate([ZONE1_20, ZONE1_40], {

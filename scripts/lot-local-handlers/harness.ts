@@ -25,6 +25,9 @@ Object.defineProperty(Deno, "serve", { configurable: true, writable: true, value
 
 /** Synthetic multi-quote answer returned for the next builds (null → HTTP 503). */
 export const ai: { multiQuoteLines: unknown[] | null; calls: string[] } = { multiQuoteLines: null, calls: [] };
+/** Bodies received by function-to-function calls (e.g. run-pricing → price-service-lines), for
+ * comparing the data each path actually received. */
+export const functionCalls: Array<{ name: string; body: unknown; response?: unknown }> = [];
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = input instanceof Request ? input.url : String(input);
@@ -32,7 +35,11 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     const name = url.slice(`${SUPABASE_URL}/functions/v1/`.length).split(/[/?]/)[0];
     const h = handlers.get(name);
     if (!h) throw new Error(`HARNESS: no local handler for ${name}`);
-    return await h(input instanceof Request ? input : new Request(url, init));
+    let record: { name: string; body: unknown; response?: unknown } | null = null;
+    if (typeof init?.body === "string") { try { record = { name, body: JSON.parse(init.body) }; functionCalls.push(record); } catch { /* non-JSON body */ } }
+    const res = await h(input instanceof Request ? input : new Request(url, init));
+    if (record) { try { record.response = await res.clone().json(); } catch { /* non-JSON response */ } }
+    return res;
   }
   if (url.startsWith("https://ai.gateway.lovable.dev/")) {
     const body = JSON.parse(String(init?.body ?? "{}"));
@@ -56,7 +63,7 @@ async function load(name: string, dir: URL = root) {
   if (!handlers.has(name)) throw new Error(`HARNESS: ${name} did not register a handler`);
 }
 export async function loadHandlers(dir: URL = root) {
-  for (const n of ["quotation-engine", "price-service-lines", "build-case-puzzle", "run-pricing"]) await load(n, dir);
+  for (const n of ["quotation-engine", "price-service-lines", "build-case-puzzle", "run-pricing", "generate-quotation-version"]) await load(n, dir);
   // Absent from the base commit (baseline run): only loaded when present.
   const lotUrl = new URL("manage-lot-confirmation/index.ts", dir);
   if (await Deno.stat(lotUrl).then(() => true, () => false)) {

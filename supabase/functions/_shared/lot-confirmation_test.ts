@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   evaluateLotRequirements, lotPadAllocationIssue, lotPadEmissionValid, lotPadScopeIssues, parseLotContext,
-  lotPricingContainers, readLotContainers, resolveLotConfirmations, withConfirmedLotTerminalMode, type LotContext,
+  lotDthcFamilyIssue, lotOwnText, lotPricingContainers, lotWeightFacts, readLotContainers, resolveLotConfirmations, withConfirmedLotTerminalMode, type LotContext,
 } from "./lot-confirmation.ts";
 import { TERMINAL_OPERATION_MODE_FACT_KEY } from "./terminal-operation-mode.ts";
 import type { ConfirmedPadLine, PadGroup } from "./pad-group-confirmation.ts";
@@ -194,6 +194,38 @@ Deno.test("LOT CONTAINERS: a lot is priced only with its own containers, never t
     ["SEA_LCL_IMPORT", "EXPORT_SENEGAL"], ["AIR_IMPORT", "DAP_PROJECT_IMPORT"], ["SEA_LCL_IMPORT", undefined], ["SEA_LCL_IMPORT", ""]]) {
     assertEquals(lotPricingContainers(absent, hint, pkg), { blocker: "LOT_CONTAINERS_REQUIRED" }, String(hint) + "/" + String(pkg));
   }
+});
+
+Deno.test("LOT WEIGHT: only the lot's own total; per-container weight only for a single container; missing stays unknown", () => {
+  const w = (value: unknown, containers: Record<string, unknown>[] | null) => lotWeightFacts([{ key: "cargo.weight_kg", value }], containers);
+  // One container: its weight is the lot total (under, at and over the 22 t threshold are the resolver's concern).
+  for (const kg of [12000, 19770, 25000]) assertEquals(w(String(kg), [{ type: "20DV", quantity: 1 }]), { totalKg: kg, perContainerKg: kg, issue: null });
+  // Several containers: the total is kept, the per-container weight stays unknown (no average).
+  assertEquals(w("36000", [{ type: "40HC", quantity: 2 }]), { totalKg: 36000, perContainerKg: null, issue: null });
+  assertEquals(w(50000, [{ type: "20DV", quantity: 2 }]), { totalKg: 50000, perContainerKg: null, issue: null });
+  assertEquals(w("30000", [{ type: "20DV", quantity: 1 }, { type: "40HC", quantity: 1 }]), { totalKg: 30000, perContainerKg: null, issue: null });
+  // Non-containerised lot: total only.
+  assertEquals(w("800", []), { totalKg: 800, perContainerKg: null, issue: null });
+  assertEquals(w("800", null), { totalKg: 800, perContainerKg: null, issue: null });
+  // Absent (a dossier weight never fills it) or unreadable: unknown, not a blocker (option B) —
+  // only the weight-dependent services are left unresolved downstream.
+  assertEquals(lotWeightFacts([{ key: "cargo.description", value: "x" }], [{ type: "20DV", quantity: 1 }]), { totalKg: null, perContainerKg: null, issue: "absent" });
+  for (const bad of ["0", "-5", "abc", "36 000", "36000 kg", "", null, {}, true]) assertEquals(w(bad, null), { totalKg: null, perContainerKg: null, issue: "unreadable" }, String(bad));
+  assertEquals(lotWeightFacts([{ key: "cargo.weight_kg", value: "1" }, { key: "cargo.weight_kg", value: "2" }], null), { totalKg: null, perContainerKg: null, issue: "unreadable" });
+});
+
+Deno.test("LOT DTHC: the lot's own designation; a dossier family blocks a lot in DTHC scope until attributed to it", () => {
+  assertEquals(lotOwnText([{ key: "cargo.description", value: " pieces " }], "cargo.description"), "pieces");
+  assertEquals(lotOwnText([{ key: "cargo.weight_kg", value: "1" }], "cargo.description"), null);
+  assertEquals(lotOwnText([{ key: "cargo.description", value: "a" }, { key: "cargo.description", value: "b" }], "cargo.description"), null);
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: true, dossierFamily: "STANDARD", lotFamily: null }), "LOT_DTHC_FAMILY_REQUIRED");
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: true, dossierFamily: "DANGEROUS", lotFamily: undefined }), "LOT_DTHC_FAMILY_REQUIRED");
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: true, dossierFamily: "not-a-family", lotFamily: null }), "LOT_DTHC_FAMILY_REQUIRED");
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: true, dossierFamily: "STANDARD", lotFamily: "DANGEROUS" }), null);
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: true, dossierFamily: "STANDARD", lotFamily: "bogus" }), "LOT_DTHC_FAMILY_REQUIRED");
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: true, dossierFamily: null, lotFamily: null }), null);
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: true, dossierFamily: "  ", lotFamily: null }), null);
+  assertEquals(lotDthcFamilyIssue({ lotInDthcScope: false, dossierFamily: "DANGEROUS", lotFamily: null }), null);
 });
 
 const padLine = (unit_ref: string, amount: number): ConfirmedPadLine => ({ unit_ref, category: "T02", quantity: 1, unit_price: amount, amount,

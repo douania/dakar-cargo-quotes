@@ -24,7 +24,9 @@ export async function runSql(text: string, asUser = false): Promise<{ out: strin
   }).spawn();
   const w = child.stdin.getWriter();
   const who = asUser
-    ? `select set_config('request.jwt.claims', ${quote(JSON.stringify({ sub: SYNTHETIC_ACTOR, role: "authenticated" }))}, false);\nset role authenticated;\n` : "";
+    // A DO block prints nothing: the claims row of a plain `select set_config` used to precede the
+    // JSON result and broke its parsing for every table read made as the user.
+    ? `do $$ begin perform set_config('request.jwt.claims', ${quote(JSON.stringify({ sub: SYNTHETIC_ACTOR, role: "authenticated" }))}, false); end $$;\nset role authenticated;\n` : "";
   await w.write(new TextEncoder().encode(`set search_path = public, extensions;\n${who}${text}\n`));
   await w.close();
   const out = await child.output();
