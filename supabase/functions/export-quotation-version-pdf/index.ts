@@ -231,12 +231,12 @@ function getTotalLabel(q: QuoteQualification): string {
 // ============================================================================
 
 /**
- * Service column of a multi-lot line. Lot lines were stored with the generic code "LINE" (or
- * "LINE_n") when the priced line carried no service code: show the business information already
+ * Service column of a quotation line, mono-lot or multi-lot. Lines were stored with the generic
+ * code "LINE" (lots) or "LINE_n" (mono-lot) when the priced line carried no service code: show the business information already
  * in the snapshot (category, then canonical service key) instead, never an invented code. Older
  * snapshots without either keep an empty cell; a real service code is shown unchanged.
  */
-export function lotLineServiceLabel(line: unknown): string {
+export function lineServiceLabel(line: unknown): string {
   const rec = (v: unknown): Record<string, unknown> => (typeof v === "object" && v !== null ? v as Record<string, unknown> : {});
   const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
   const code = text(rec(line).service_code);
@@ -314,9 +314,9 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   }
 
   // deno-lint-ignore no-explicit-any
-  function drawLine(line: any, serviceLabel?: string) {
+  function drawLine(line: any) {
     ensureSpace(lineHeight + 5);
-    const serviceText = sanitize((serviceLabel ?? (line.service_code || '')).substring(0, 15));
+    const serviceText = sanitize(lineServiceLabel(line).substring(0, 15));
     const descText = sanitize((line.description || '').substring(0, 25));
     const amount = line.amount || 0;
     // Lot 4-A: detect "À confirmer" / reserve lines and never render "0 FCFA" for them.
@@ -569,7 +569,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
 
       const lotLines = lot.lines || [];
       for (const line of lotLines) {
-        drawLine(line, lotLineServiceLabel(line));
+        drawLine(line);
       }
 
       // Lot subtotal
