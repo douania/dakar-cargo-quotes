@@ -71,6 +71,8 @@ import {
   ASSUMPTION_VALUE_TYPE_LABELS,
   ASSUMPTION_VALUE_TYPES,
   buildAssumptionRequestBody,
+  findActiveAssumptionConflict,
+  isActiveAssumptionConflictMessage,
   type AssumptionDraft,
   type AssumptionOperation,
   type AssumptionRiskLevel,
@@ -212,6 +214,9 @@ interface AssumptionFormProps {
   onSubmit: () => void;
   onCancel: () => void;
   submitting: boolean;
+  /** Hypothèse active qui occupe déjà la même cible (création seulement). */
+  conflict?: QuoteScenarioAssumption | null;
+  onReviseConflict?: () => void;
 }
 
 function AssumptionForm({
@@ -222,6 +227,8 @@ function AssumptionForm({
   onSubmit,
   onCancel,
   submitting,
+  conflict = null,
+  onReviseConflict,
 }: AssumptionFormProps) {
   const set = <K extends keyof AssumptionDraft>(key: K, value: AssumptionDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -454,11 +461,32 @@ function AssumptionForm({
         </Label>
       </div>
 
+      {conflict ? (
+        <Alert className="border-amber-300 bg-amber-50 py-2" role="alert" data-testid="assumption-active-conflict">
+          <AlertDescription className="text-xs space-y-2">
+            <p>
+              <span className="font-medium">Une hypothèse active occupe déjà cette cible</span>{" "}
+              (périmètre « {conflict.scope_key || "case"} », gap « {conflict.gap_key || "aucun"} », fait « {conflict.assumed_fact_key || "aucun"} ») :
+              « {conflict.statement} ».
+            </p>
+            <p>
+              Révisez-la pour la remplacer, ou renseignez un périmètre, un gap ou un fait réellement distinct. Votre saisie est conservée.
+            </p>
+            {onReviseConflict ? (
+              <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={onReviseConflict} disabled={submitting}>
+                <Pencil className="h-3 w-3 mr-1" />
+                Réviser l&apos;hypothèse existante avec cette saisie
+              </Button>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onCancel} disabled={submitting}>
           Annuler
         </Button>
-        <Button size="sm" className="h-7 text-xs" onClick={onSubmit} disabled={submitting}>
+        <Button size="sm" className="h-7 text-xs" onClick={onSubmit} disabled={submitting || !!conflict}>
           {submitting ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
           {mode === "create" ? "Enregistrer l'hypothèse" : "Enregistrer la révision"}
         </Button>
@@ -539,8 +567,16 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
         queryClient.invalidateQueries({ queryKey: ["quote-scenario-linkable-assumptions", caseId] }),
       ]);
     },
-    onError: (err: unknown) => {
-      toast.error(errorMessage(err) ?? "Mutation refusée");
+    onError: (err: unknown, variables) => {
+      const message = errorMessage(err);
+      if (variables.operation === "create" && isActiveAssumptionConflictMessage(message)) {
+        // Création concurrente : la saisie reste ouverte ; la liste rechargée
+        // fait apparaître l'hypothèse active et sa révision explicite.
+        toast.error("Une autre hypothèse active vient d'être enregistrée sur cette cible. Votre saisie est conservée : révisez-la ou choisissez une cible distincte.");
+        void queryClient.invalidateQueries({ queryKey: ["quote-scenario-assumptions", caseId] });
+        return;
+      }
+      toast.error(message ?? "Mutation refusée");
     },
     onSettled: () => setPendingId(null),
   });
@@ -561,6 +597,13 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
   const startRevise = (a: QuoteScenarioAssumption) => {
     setReviseTargetId(a.id);
     setDraft(draftFromAssumption(a));
+    setFormMode("revise");
+  };
+
+  // Révision explicite de l'hypothèse active en conflit, avec la saisie en cours
+  // (même cible par définition : la révision hérite de son périmètre).
+  const reviseConflictWithDraft = (target: QuoteScenarioAssumption) => {
+    setReviseTargetId(target.id);
     setFormMode("revise");
   };
 
@@ -612,6 +655,7 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
 
   const assumptions = data ?? [];
   const submitting = mutation.isPending;
+  const createConflict = formMode === "create" ? findActiveAssumptionConflict(assumptions, draft) : null;
 
   return (
     <Card className="mb-6 border-violet-200 bg-violet-50/30">
@@ -658,6 +702,8 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
             onSubmit={submitForm}
             onCancel={cancelForm}
             submitting={submitting}
+            conflict={createConflict}
+            onReviseConflict={createConflict ? () => reviseConflictWithDraft(createConflict) : undefined}
           />
         ) : null}
 

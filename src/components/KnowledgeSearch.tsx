@@ -79,13 +79,17 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
     return () => document.removeEventListener('keydown', down);
   }, []);
 
-  // Debounced search
+  // Debounced search. A cleared query drops every previous result (knowledge and
+  // e-mails); a response that arrives after the query changed is ignored.
   useEffect(() => {
     if (!query || query.length < 2) {
       setResults([]);
+      setEmailResults([]);
+      setIsSearching(false);
       return;
     }
 
+    let stale = false;
     const timeoutId = setTimeout(async () => {
       setIsSearching(true);
       try {
@@ -93,19 +97,24 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
           body: { action: 'search', data: { query } }
         });
 
+        if (stale) return;
         if (error) throw error;
         setResults(data?.results || []);
         setEmailResults(data?.emails || []);
       } catch (err) {
+        if (stale) return;
         console.error('Search error:', err);
         setResults([]);
         setEmailResults([]);
       } finally {
-        setIsSearching(false);
+        if (!stale) setIsSearching(false);
       }
     }, 300);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      stale = true;
+      clearTimeout(timeoutId);
+    };
   }, [query]);
 
   const handleSelect = useCallback((result: SearchResult) => {
@@ -116,8 +125,9 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
     setQuery('');
   }, [onSelectResult]);
 
-  const handleSelectEmail = useCallback(() => {
-    navigate('/');
+  // Opens the selected e-mail in the existing reader of /admin/emails (targeted read there).
+  const handleSelectEmail = useCallback((email: EmailSearchResult) => {
+    navigate(`/admin/emails?email=${encodeURIComponent(email.id)}`);
     setOpen(false);
     setQuery('');
   }, [navigate]);
@@ -260,7 +270,7 @@ export function KnowledgeSearch({ onSelectResult, triggerButton }: KnowledgeSear
                   <CommandItem
                     key={email.id}
                     value={`${email.subject || ''} ${email.from_address}`}
-                    onSelect={handleSelectEmail}
+                    onSelect={() => handleSelectEmail(email)}
                     className="flex items-center justify-between cursor-pointer"
                   >
                     <div className="flex items-center gap-2 flex-1 min-w-0">

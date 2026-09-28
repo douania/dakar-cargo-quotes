@@ -363,3 +363,52 @@ export function buildAssumptionRequestBody(
 
   return { ok: true, body };
 }
+
+/**
+ * Cible d'unicité d'une hypothèse active, normalisée comme l'index
+ * `uq_quote_scenario_assumptions_active` et la RPC de création : `btrim`, gap et
+ * fait vides confondus (NULL ↔ ''), périmètre vide → `case`.
+ */
+export function activeAssumptionTarget(
+  scopeKey: string | null | undefined,
+  gapKey: string | null | undefined,
+  assumedFactKey: string | null | undefined,
+): { scopeKey: string; gapKey: string; assumedFactKey: string } {
+  const text = (v: string | null | undefined) => (typeof v === "string" ? v.trim() : "");
+  return { scopeKey: text(scopeKey) || "case", gapKey: text(gapKey), assumedFactKey: text(assumedFactKey) };
+}
+
+interface ActiveAssumptionRow {
+  id: string;
+  status: string;
+  scope_key: string | null;
+  gap_key: string | null;
+  assumed_fact_key: string | null;
+}
+
+/**
+ * Hypothèse ACTIVE du même dossier (lignes déjà filtrées sur le caseId) qui
+ * occupe exactement la même cible scope + gap + fait que le brouillon. Les
+ * statuts non actifs ne bloquent jamais. Aucune clé n'est inventée : seule une
+ * cible réellement distinte, ou la révision de l'existante, lève le conflit.
+ */
+export function findActiveAssumptionConflict<T extends ActiveAssumptionRow>(
+  assumptions: readonly T[],
+  draft: Pick<AssumptionDraft, "scopeKey" | "gapKey" | "assumedFactKey">,
+): T | null {
+  const target = activeAssumptionTarget(draft.scopeKey, draft.gapKey, draft.assumedFactKey);
+  return assumptions.find((a) => {
+    if (a.status !== "active") return false;
+    const t = activeAssumptionTarget(a.scope_key, a.gap_key, a.assumed_fact_key);
+    return t.scopeKey === target.scopeKey && t.gapKey === target.gapKey && t.assumedFactKey === target.assumedFactKey;
+  }) ?? null;
+}
+
+/**
+ * Refus serveur d'unicité active (création concurrente). Distinct d'un conflit
+ * d'idempotence, qui porte le même code runtime mais un autre message.
+ */
+export function isActiveAssumptionConflictMessage(message: string | null | undefined): boolean {
+  if (!message || message.includes("IDEMPOTENCY_CONFLICT")) return false;
+  return message.includes("une hypothèse active existe déjà pour ce périmètre");
+}

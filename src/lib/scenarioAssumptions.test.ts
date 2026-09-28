@@ -8,6 +8,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  activeAssumptionTarget,
+  findActiveAssumptionConflict,
+  isActiveAssumptionConflictMessage,
   allowedActionsForStatus,
   ASSUMPTION_OPERATIONS,
   buildAssumptionRequestBody,
@@ -240,5 +243,31 @@ describe("construction de la requête", () => {
     const open = buildAssumptionRequestBody(CASE_ID, "create", KEY, draft({ clientVisible: true }));
     expect(open.ok).toBe(true);
     expect(open.body?.client_visible).toBe(true);
+  });
+});
+
+describe("conflit d'hypothèse active (alerte 8)", () => {
+  const active = (over: Record<string, unknown> = {}) => ({
+    id: "a1", status: "active", scope_key: "case", gap_key: null as string | null, assumed_fact_key: null as string | null, ...over,
+  });
+
+  it("normalise comme l'index unique : btrim, NULL ↔ vide, périmètre vide → case", () => {
+    expect(activeAssumptionTarget("  ", null, "  ")).toEqual({ scopeKey: "case", gapKey: "", assumedFactKey: "" });
+    expect(activeAssumptionTarget(" lot:2 ", " cargo.weight_kg ", "")).toEqual({ scopeKey: "lot:2", gapKey: "cargo.weight_kg", assumedFactKey: "" });
+  });
+
+  it("détecte la cible exacte, ignore les statuts non actifs et les cibles distinctes", () => {
+    const rows = [active({ gap_key: "" }), active({ id: "a2", status: "superseded", scope_key: "lot:2" })];
+    expect(findActiveAssumptionConflict(rows, { scopeKey: "", gapKey: "  ", assumedFactKey: "" })?.id).toBe("a1");
+    expect(findActiveAssumptionConflict(rows, { scopeKey: "lot:2", gapKey: "", assumedFactKey: "" })).toBeNull();
+    expect(findActiveAssumptionConflict(rows, { scopeKey: "case", gapKey: "g", assumedFactKey: "" })).toBeNull();
+    expect(findActiveAssumptionConflict(rows, { scopeKey: "case", gapKey: "", assumedFactKey: "cargo.weight_kg" })).toBeNull();
+  });
+
+  it("distingue le refus d'unicité active d'un conflit d'idempotence", () => {
+    expect(isActiveAssumptionConflictMessage("CONFLICT_INVALID_STATE: une hypothèse active existe déjà pour ce périmètre (scope=case, gap=-, fait=-). Réviser l'existante.")).toBe(true);
+    expect(isActiveAssumptionConflictMessage("IDEMPOTENCY_CONFLICT: la clé k a déjà été utilisée avec un contenu différent")).toBe(false);
+    expect(isActiveAssumptionConflictMessage("CONFLICT_INVALID_STATE: seule une hypothèse active peut être révisée (statut courant: refuted)")).toBe(false);
+    expect(isActiveAssumptionConflictMessage(null)).toBe(false);
   });
 });

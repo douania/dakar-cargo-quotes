@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -104,6 +105,68 @@ function getInvokeErrorMessage(err: unknown): string {
   return 'Erreur de synchronisation';
 }
 
+const EMAIL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Lien `/admin/emails?email=<id>` (recherche globale) : lecture ciblée de cet
+ * e-mail avec le client authentifié, sous RLS — il peut être absent des 300
+ * e-mails chargés dans la liste. Aucune analyse, ingestion ni mutation. Une
+ * réponse devenue obsolète (autre résultat choisi entre-temps) est ignorée.
+ */
+// Exported for its behaviour tests; the lot keeps it next to the page it serves (no new file).
+// eslint-disable-next-line react-refresh/only-export-components
+export function useEmailDeepLink(open: (email: Email | null) => void) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get('email');
+  const openRef = useRef(open);
+  openRef.current = open;
+  const setParamsRef = useRef(setSearchParams);
+  setParamsRef.current = setSearchParams;
+  const clearRef = useRef(() => {
+    setParamsRef.current((prev) => {
+      if (!prev.has('email')) return prev;
+      const next = new URLSearchParams(prev);
+      next.delete('email');
+      return next;
+    }, { replace: true });
+  });
+
+  useEffect(() => {
+    if (!requested) return;
+    if (!EMAIL_ID_RE.test(requested)) {
+      // An invalid link must not leave a previously opened e-mail on screen either.
+      openRef.current(null);
+      toast.error("Lien d'e-mail invalide.");
+      clearRef.current();
+      return;
+    }
+    let stale = false;
+    // Never leave a previously opened e-mail on screen while another one is requested.
+    openRef.current(null);
+    (async () => {
+      let found: Email | null = null;
+      try {
+        const { data, error } = await supabase.from('emails').select('*').eq('id', requested).maybeSingle();
+        if (!error && data) found = data as Email;
+      } catch {
+        found = null;
+      }
+      if (stale) return;
+      if (!found) {
+        toast.error("E-mail introuvable ou inaccessible avec vos droits.");
+        clearRef.current();
+        return;
+      }
+      openRef.current(found);
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [requested]);
+
+  return { clearEmailParam: clearRef.current };
+}
+
 export default function Emails() {
   const [configs, setConfigs] = useState<EmailConfig[]>([]);
   const [emails, setEmails] = useState<Email[]>([]);
@@ -117,6 +180,12 @@ export default function Emails() {
   const [syncing, setSyncing] = useState(false);
   const [analyzingBulk, setAnalyzingBulk] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const { clearEmailParam } = useEmailDeepLink(setSelectedEmail);
+  // Closing the reader also drops the link, so it never reopens on its own.
+  const closeEmailDialog = () => {
+    setSelectedEmail(null);
+    clearEmailParam();
+  };
   const [selectedDraft, setSelectedDraft] = useState<EmailDraft | null>(null);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [showGuidanceDialog, setShowGuidanceDialog] = useState(false);
@@ -426,7 +495,7 @@ export default function Emails() {
       if (!data?.success) throw new Error(data?.error || 'Erreur');
 
       toast.success('Email supprimé');
-      setSelectedEmail(null);
+      closeEmailDialog();
       loadData();
     } catch (error) {
       console.error('Delete error:', error);
@@ -1497,7 +1566,7 @@ export default function Emails() {
         </Tabs>
 
         {/* Email Detail Dialog */}
-        <Dialog open={!!selectedEmail} onOpenChange={() => setSelectedEmail(null)}>
+        <Dialog open={!!selectedEmail} onOpenChange={(isOpen) => { if (!isOpen) closeEmailDialog(); }}>
           <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
             {selectedEmail && (
               <>
@@ -1533,7 +1602,7 @@ export default function Emails() {
                       </SelectContent>
                     </Select>
                     <Button onClick={() => {
-                      setSelectedEmail(null);
+                      closeEmailDialog();
                       openGuidanceDialog(selectedEmail.id, selectedEmail.subject || 'Sans objet');
                     }}>
                       <MessageSquare className="h-4 w-4 mr-2" />

@@ -215,6 +215,11 @@ export function AssumptionPromotionDialog({
         const detail = await readEdgeErrorMessage(error);
         throw new Error(detail ?? error.message ?? "Promotion refusée");
       }
+      // Une enveloppe de refus ne doit jamais produire d'effet de succès.
+      if (data && typeof data === "object" && (data as { ok?: unknown }).ok === false) {
+        const refused = (data as { error?: { message?: unknown } }).error?.message;
+        throw new Error(typeof refused === "string" && refused ? refused : "Promotion refusée");
+      }
       return data;
     },
     onSuccess: async () => {
@@ -223,6 +228,14 @@ export function AssumptionPromotionDialog({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["quote-scenario-assumptions", caseId] }),
         queryClient.invalidateQueries({ queryKey: ["quote-fact-current", caseId] }),
+        // Consommateurs réels du fait promu et de son événement, pour ce dossier seul :
+        // faits et historique de la vue dossier, hypothèses liables aux scénarios.
+        queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["quote-scenario-linkable-assumptions", caseId] }),
+        // Lectures de faits promouvables : contrôle de périmètre et faits PAD des scénarios.
+        queryClient.invalidateQueries({ queryKey: ["scope-gate-facts", caseId] }),
+        queryClient.invalidateQueries({ queryKey: ["quote-scenario-pad-scope-facts", caseId] }),
       ]);
     },
     onError: (err: unknown) => {
