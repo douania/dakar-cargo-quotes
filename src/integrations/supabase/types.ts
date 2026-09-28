@@ -8220,6 +8220,17 @@ export type Database = {
       }
     }
     Functions: {
+      adopt_operator_quotation_basis: {
+        Args: {
+          p_actor_user_id: string
+          p_case_id: string
+          p_expected_scope_hash: string
+          p_idempotency_key: string
+          p_scenario_id: string
+          p_scenario_pricing_run_id: string
+        }
+        Returns: Json
+      }
       assert_pad_weight_head: {
         Args: {
           p_case_id: string
