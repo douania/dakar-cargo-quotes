@@ -24,6 +24,17 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-28 11:50 UTC] PARTIAL — PDF mono-lot sans « LINE_n » générique : publié (6ac316e) et déployé ; recette Cloud reportée
+**Origine** : GO de réalisation locale puis GO de publication du 28/09 ; exécutant unique Claude Code ; arbitrage utilisateur « clôture PARTIAL ».
+**Correctif** : `export-quotation-version-pdf` : `lineServiceLabel` (ex-`lotLineServiceLabel`) appliqué à toutes les lignes, mono-lot compris : un code générique « LINE » / « LINE_n » est remplacé par la catégorie ou la clé de service déjà présentes dans le snapshot ; vrai code conservé ; case vide pour une ligne ancienne sans l'une ni l'autre. Aucun changement de montant, moteur, stockage ni des versions ; aucune migration.
+**Publication** : préflight : `origin/work` en avance de deux commits du bot Lovable (bcb3f2b, 698ab98, `.lovable/plan.md` seul) → avance rapide ; 698ab98 → 6ac316e (2 fichiers). CI 36416788980 : config, bundles, Typecheck PASS ; seul échec Vitest `LocalTransportEstimateFields` = baseline. Local : tests PDF 4/4 (texte réellement tracé : aucun LINE_n, catégories et clés affichées, « À confirmer » / vrai zéro distincts, case vide pour une ligne ancienne, snapshot intact ; le test échoue sur le code précédent), Deno 1735/1 baseline, typecheck Deno et lint sans aggravation.
+**Déploiement Lovable depuis 6ac316e** : `export-quotation-version-pdf` seule ; sondes OPTIONS 200, POST sans auth 401.
+**Recette Cloud : NOT_RUN** — l'export réutilise tout PDF existant ; aucune version mono-lot synthétique sans PDF n'existe et aucun sandbox synthétique n'a de calcul mono-lot réussi (aa01530d… et d937116b… multi-lot, dossiers IMO en NEED_INFO) ; un nouveau calcul n'était pas autorisé. À vérifier à la prochaine version mono-lot synthétique. Les versions existantes (dont 450cb321…, 4 versions avec LINE_n et PDF déjà produits) gardent leur ancien PDF : aucun historique réécrit.
+**Écritures Cloud** : aucune.
+**Rollback** : revert ciblé de 6ac316e, puis redéploiement de `export-quotation-version-pdf` depuis a86c4e6.
+
+---
+
 ## [2026-09-28 11:25 UTC] TRAITÉ — Alertes Lovable 6, 7 et 8 (e-mail recherché, promotion, conflit d'hypothèse) : publiées (fb19b6a) et recettées
 **Origine** : GO de réalisation locale, reprise ciblée de contre-revue et GO de publication du 28/09 ; exécutant unique Claude Code.
 **Correctif (frontend seul)** : (6) la recherche globale ouvre l'e-mail choisi par `/admin/emails?email=<id>`, lecture ciblée sous RLS (même hors des 300 chargés), lien invalide ou inaccessible signalé et ancien e-mail fermé, recherche effacée sans ancien résultat, réponses obsolètes ignorées ; (7) après promotion réussie, actualisation pour ce seul dossier de `case-facts`, `case-timeline`, `quote-scenario-linkable-assumptions`, `scope-gate-facts`, `quote-scenario-pad-scope-facts` (en plus des existantes), aucun effet de succès après refus ; (8) conflit d'hypothèse active sur scope + gap + fait détecté avant envoi (normalisation de l'index unique), révision explicite avec la saisie, cible distincte autorisée, conflit serveur concurrent sans perte de saisie et distinct de l'idempotence. Aucun backend, migration, Auth/RLS ni tarification.
