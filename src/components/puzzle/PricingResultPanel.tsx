@@ -708,7 +708,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
                   <p className="text-sm font-medium">Résumé :</p>
                   <ul className="text-sm text-muted-foreground mt-1 space-y-1">
                     <li>• {tariffLines.length} lignes tarifaires{isMultiLot ? ` (${lots.length} lots)` : ''}</li>
-                    <li>• Total à payer : {formatAmount(totalPayable)} {pricingRun.currency || 'XOF'}</li>
+                    <li>• {toConfirmCount > 0 ? 'Total à payer provisoire' : 'Total à payer'} : {formatAmount(totalPayable)} {pricingRun.currency || 'XOF'}{toConfirmCount > 0 ? ` (hors ${toConfirmCount} poste${toConfirmCount > 1 ? 's' : ''} à confirmer)` : ''}</li>
                     <li>• Statut : DRAFT (non envoyé au client)</li>
                   </ul>
                 </div>

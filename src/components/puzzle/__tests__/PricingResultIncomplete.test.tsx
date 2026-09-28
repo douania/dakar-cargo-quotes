@@ -84,4 +84,22 @@ describe('PricingResultPanel — incomplete multi-lot run', () => {
     expect(screen.queryByText('Total à payer provisoire')).toBeNull();
     expect(screen.queryByText('partiel', { exact: false })).toBeNull();
   });
+it("the version confirmation qualifies an incomplete total and names the lines to confirm", async () => {
+    pricingMock.pricingRun = run([known, unknown, trueZero]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Créer la version v1/ }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("Total à payer provisoire : 400");
+    expect(dialog.textContent).toContain("(hors 1 poste à confirmer)");
+    expect(dialog.textContent).not.toMatch(/• Total à payer :/);
+  });
+
+  it("the version confirmation of a complete run keeps the plain total (genuine zero is not a line to confirm)", async () => {
+    pricingMock.pricingRun = run([known, trueZero]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Créer la version v1/ }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toMatch(/• Total à payer : 400/);
+    expect(dialog.textContent).not.toMatch(/provisoire|à confirmer/);
+  });
 });

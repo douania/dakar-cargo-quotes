@@ -17,6 +17,7 @@ import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
+import { isToConfirmLine } from "../_shared/quotation-line-status.ts";
 import {
   buildScenarioEmailBody,
   buildScenarioEmailSubject,
@@ -155,6 +156,38 @@ function buildReserveBlock(qualification: QuoteQualification): string[] {
   return lines;
 }
 
+/**
+ * Per-lot summary of a multi-lot snapshot. A lot still holding lines to confirm is qualified
+ * individually ("partiel, hors N postes à confirmer"): its amount covers priced lines only and is
+ * never presented as complete. A fully priced lot keeps the plain label. Snapshots whose lot lines
+ * carry no source keep the historical wording.
+ */
+export function buildLotSummaries(lots: readonly unknown[]): Array<{ line: string; pending: number }> {
+  // deno-lint-ignore no-explicit-any
+  return lots.map((lot: any) => {
+    const lotPresentation = resolveCommercialTotalPresentation({
+      total_ht: lot.totals?.ht ?? lot.totals?.total_ht ?? 0,
+      total_ttc: lot.totals?.ttc ?? lot.totals?.total_ttc ?? lot.totals?.ht ?? 0,
+      subtotal_before_sodatra_vat: lot.totals?.subtotal_before_sodatra_vat,
+      total_payable: lot.totals?.total_payable,
+      honoraires_tva: lot.totals?.honoraires_tva,
+      currency: lot.totals?.currency ?? 'XOF',
+    });
+    const label = lotPresentation.isDetailed ? 'à payer' : 'HT';
+    const amount = lotPresentation.isDetailed
+      ? lotPresentation.totalPayable
+      : lotPresentation.subtotalBeforeSodatraVat;
+    const pending = (Array.isArray(lot.lines) ? lot.lines : []).filter(isToConfirmLine).length;
+    const qualifier = pending > 0 ? `, partiel (hors ${pending} poste${pending > 1 ? 's' : ''} à confirmer)` : '';
+    return { line: `  - ${lot.label || `Lot ${lot.lot_index}`}: ${formatAmountFR(amount)} ${lotPresentation.currency} ${label}${qualifier}`, pending };
+  });
+}
+
+/** An AI body is kept only if it reproduces every qualified lot line verbatim. */
+export function aiBodyKeepsLotQualification(body: string, lotSummaries: ReadonlyArray<{ line: string; pending: number }>): boolean {
+  return lotSummaries.every((s) => s.pending === 0 || body.includes(s.line.trim()));
+}
+
 // deno-lint-ignore no-explicit-any
 export function buildDeterministicBody(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotSummaryLines: string[], hasPdf: boolean, qualification: QuoteQualification): string {
   const weightNotices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
@@ -262,7 +295,7 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
 }
 
 // deno-lint-ignore no-explicit-any
-function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotCount: number, hasPdf: boolean, qualification: QuoteQualification): Record<string, unknown> {
+function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotCount: number, hasPdf: boolean, qualification: QuoteQualification, lotSummaryLines: string[] = []): Record<string, unknown> {
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
   const inputsBlock = snapshot?.inputs as Record<string, unknown> | undefined;
   const totalsBlock = snapshot?.totals as Record<string, unknown> | undefined;
@@ -277,6 +310,7 @@ function buildAiContextPack(snapshot: Record<string, any> | null, versionNumber:
     currency: typeof totalsBlock?.currency === "string" ? totalsBlock.currency : "XOF",
     lot_count: lotCount,
     is_multi_lot: isMultiLot,
+    lot_summaries: lotSummaryLines.map((l) => l.trim()),
     has_pdf: hasPdf,
     quote_qualification: {
       level: qualification.level,
@@ -297,6 +331,7 @@ Utilise UNIQUEMENT les données fournies dans le contexte. Ne jamais inventer de
 Le ton doit être professionnel, courtois et commercial.
 IMPORTANT: Si le champ quote_qualification.level vaut "provisional", le mail DOIT contenir le mot "provisoire" et mentionner les réserves.
 Si le champ quote_qualification.level vaut "partial", le mail DOIT contenir le mot "partielle" et préciser que le montant est partiel.
+Si le champ lot_summaries est non vide, reproduis chaque ligne telle quelle, sans la reformuler ni en modifier le montant.
 Retourne un JSON strict : { "body_text": "..." }
 Le body_text doit commencer par une salutation et finir par "Cordialement,\\nL'équipe SODATRA".`;
 
@@ -467,26 +502,13 @@ if (import.meta.main) Deno.serve(async (req: Request) => {
   // deno-lint-ignore no-explicit-any
   const snapData = snapshot as Record<string, any> | null;
   let lotSummaryLines: string[] = [];
+  let lotSummaries: Array<{ line: string; pending: number }> = [];
   let isMultiLot = false;
 
   if (snapData?.is_multi_lot === true && Array.isArray(snapData.lots) && snapData.lots.length > 1) {
     isMultiLot = true;
-    // deno-lint-ignore no-explicit-any
-    lotSummaryLines = snapData.lots.map((lot: any) => {
-      const lotPresentation = resolveCommercialTotalPresentation({
-        total_ht: lot.totals?.ht ?? lot.totals?.total_ht ?? 0,
-        total_ttc: lot.totals?.ttc ?? lot.totals?.total_ttc ?? lot.totals?.ht ?? 0,
-        subtotal_before_sodatra_vat: lot.totals?.subtotal_before_sodatra_vat,
-        total_payable: lot.totals?.total_payable,
-        honoraires_tva: lot.totals?.honoraires_tva,
-        currency: lot.totals?.currency ?? 'XOF',
-      });
-      const label = lotPresentation.isDetailed ? 'à payer' : 'HT';
-      const amount = lotPresentation.isDetailed
-        ? lotPresentation.totalPayable
-        : lotPresentation.subtotalBeforeSodatraVat;
-      return `  - ${lot.label || `Lot ${lot.lot_index}`}: ${formatAmountFR(amount)} ${lotPresentation.currency} ${label}`;
-    });
+    lotSummaries = buildLotSummaries(snapData.lots);
+    lotSummaryLines = lotSummaries.map((s) => s.line);
   } else if (Array.isArray(snapData?.raw_lines) && snapData.raw_lines.some((r: any) => r.lot_index != null)) {
     // Legacy fallback: derive lot count from raw_lines tags
     const lotLabels = new Map<number, string>();
@@ -537,7 +559,7 @@ if (import.meta.main) Deno.serve(async (req: Request) => {
   // For a reserved weight basis, keep the deterministic commercial wording.
   // An AI marker alone cannot guarantee preservation of the exact reservation.
   if (useAiEnrichment && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0) {
-    const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification);
+    const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification, lotSummaryLines);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {
       let sanitized = aiBody;
@@ -552,19 +574,26 @@ if (import.meta.main) Deno.serve(async (req: Request) => {
       // Lot 3C — Post-AI qualification guard:
       // If qualification ≠ firm, the AI body MUST contain qualification markers.
       // If not, reinject a deterministic reserve block to guarantee coherence.
+      let aiAccepted = true;
       if (qualification.level !== "firm") {
         const qualMarkers = ["provisoire", "partiel", "partielle", "réserve", "sous réserve", "confirmer"];
         const bodyLower = sanitized.toLowerCase();
         const hasQualMarker = qualMarkers.some(m => bodyLower.includes(m));
         if (!hasQualMarker) {
           console.warn("[create-quotation-email-draft] AI lost qualification markers, falling back to deterministic body");
-          sanitized = deterministicBody;
-          generationMode = "deterministic";
+          aiAccepted = false;
         }
       }
+      // A lot amount that excludes lines to confirm must keep its own qualification.
+      if (aiAccepted && !aiBodyKeepsLotQualification(sanitized, lotSummaries)) {
+        console.warn("[create-quotation-email-draft] AI lost a partial lot qualification, falling back to deterministic body");
+        aiAccepted = false;
+      }
 
-      finalBody = sanitized;
-      generationMode = "ai";
+      if (aiAccepted) {
+        finalBody = sanitized;
+        generationMode = "ai";
+      }
     } else {
       console.log("[create-quotation-email-draft] AI fallback → deterministic template used");
     }
