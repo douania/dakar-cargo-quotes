@@ -24,6 +24,16 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
+## [2026-09-28 12:15 UTC] LOCAL (non commité, GO de publication requis) — Débordement du sous-total de lot du PDF multi-lot
+**Origine** : constat de contre-revue (Codex, reproduit visuellement) ; mesure Claude Code ; GO du 28/09 « suivi documentaire et correction locale » ; exécutant unique Claude Code.
+**Défaut** : depuis 5cf908b, le sous-total d'un lot contenant des postes à confirmer (« Sous-total hors N postes a confirmer : montant XOF », Helvetica gras 10) commençait à la colonne Tarif (x = 380) et mesurait 242 à 261 pt : fin à 622–641 pt pour une page de 595 pt, soit une coupure au bord de la page (fin du montant et devise illisibles). Le libellé non qualifié tenait. Touchés : tous les PDF multi-lot avec un lot incomplet, dont ceux des recettes du 27/09 (aa01530d…, document 367458f5…) et du 28/09 (d937116b…, document c97e1094…). Ces recettes lisaient le texte extrait, pas sa position : elles valident le contenu (libellés, « À confirmer », vrais zéros, montants), pas le rendu visuel.
+**Correction locale** (`export-quotation-version-pdf/index.ts` seul) : sous-total aligné sur la marge droite (545 pt), `wrapToWidth` coupe entre les mots selon la largeur réelle de la police, montant et devise gardés ensemble sur la dernière ligne, mention des postes à confirmer intacte ; hauteur de tout le bloc réservée avant saut de page ; aucun montant, calcul, stockage ni migration modifié.
+**Preuves locales** : nouveau `layout_test.ts` (4 tests) : largeur réelle de chaque texte tracé, contrôle des deux marges sur tout le document ; lots incomplets, complet et montant long (123 456 789 012 XOF) alignés à droite ; bas de page n = 20 à 34 lignes (dernière place en page 1 et report entier en page 2, toujours au-dessus du numéro de page) ; mono-lot dans les marges ; ces tests échouent sur le code publié (« right margin crossed », x = 380, largeur 250). Tests PDF 11/11, Deno 1739/1 (baseline `set_intake_facts_batch.test.ts:191`), typecheck Deno et lint sans aggravation, config PASS. Rendus pdf.js synthétiques avant/après (multi-lot 2 pages, mono-lot, bas de page n = 22 / 23) : avant « …confirmer : 1 148 5 » coupé ; après, sous-totaux entiers sur la marge ; mono-lot identique octet pour octet.
+**Constats non corrigés (hors GO)** : un sous-total reporté en haut de page est séparé des lignes de son lot ; pour un montant de 12 chiffres, les colonnes Tarif et Montant d'une ligne se chevauchent (colonnes fixes, préexistant) ; colonne Service tronquée à 15 caractères.
+**Réserves maintenues** : rendu Cloud non vérifié (ni mono-lot, entrée du 28/09 11:50 UTC, ni multi-lot corrigé) ; les PDF existants gardent leur rendu coupé (l'export réutilise le PDF d'une version).
+
+---
+
 ## [2026-09-28 11:50 UTC] PARTIAL — PDF mono-lot sans « LINE_n » générique : publié (6ac316e) et déployé ; recette Cloud reportée
 **Origine** : GO de réalisation locale puis GO de publication du 28/09 ; exécutant unique Claude Code ; arbitrage utilisateur « clôture PARTIAL ».
 **Correctif** : `export-quotation-version-pdf` : `lineServiceLabel` (ex-`lotLineServiceLabel`) appliqué à toutes les lignes, mono-lot compris : un code générique « LINE » / « LINE_n » est remplacé par la catégorie ou la clé de service déjà présentes dans le snapshot ; vrai code conservé ; case vide pour une ligne ancienne sans l'une ni l'autre. Aucun changement de montant, moteur, stockage ni des versions ; aucune migration.
@@ -33,6 +43,7 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 **Écritures Cloud** : aucune.
 **Rollback** : revert ciblé de 6ac316e, puis redéploiement de `export-quotation-version-pdf` depuis a86c4e6.
 
+**Réserve ajoutée le 28/09 12:15 UTC** : ce lot ne corrige pas le débordement du sous-total de lot multi-lot (entrée du 28/09 12:15 UTC) ; les sondes OPTIONS/POST prouvent la disponibilité de la fonction, pas son rendu.
 ---
 
 ## [2026-09-28 11:25 UTC] TRAITÉ — Alertes Lovable 6, 7 et 8 (e-mail recherché, promotion, conflit d'hypothèse) : publiées (fb19b6a) et recettées
@@ -56,6 +67,7 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 **Limites** : les deux lots du sandbox sont incomplets : le libellé d'un lot complet et la garde de l'enrichissement IA sont prouvés par les tests seulement ; colonne Service tronquée à 15 caractères (« PAD_DROIT_PASSA ») ; PDF mono-lot garde « LINE_n » (hors GO).
 **Rollback** : revert ciblé de a86c4e6, puis redéploiement des deux fonctions depuis 16479cd.
 
+**Réserve ajoutée le 28/09 12:15 UTC** : le sous-total de lot qualifié de ce PDF est coupé au bord droit de la page ; la recette a validé le texte extrait, pas le rendu visuel (entrée du 28/09 12:15 UTC).
 ---
 
 ## [2026-09-27 11:40 UTC] TRAITÉ — Poids et famille DTHC par lot, option B et prestations non résolues conservées : publié (5cf908b), déployé et recetté
@@ -71,6 +83,7 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 **État final des sandbox** : aa01530d… QUOTED_VERSIONED (par la création de version, aucun statut forcé) ; lignes : lot 1 2x20DV 30 000 kg DAP, lot 2 1x20DV 12 000 kg FCA ; fait ajouté `pricing.dthc_family = STANDARD` ; scénario 70b97914… (rév. 2) sélectionné ; 14 décisions de lot, 6 PAD ; runs 2–5 ; version v1 draft ; 1 PDF. Une liaison erronée (lot-1 → ligne 2, v2) corrigée par une nouvelle décision, historique conservé. d937116b… : 1 run. Hors périmètre depuis le 26/09 22:00 UTC : 0 run, 0 version d'un autre dossier, 0 e-mail créé ; aucun envoi.
 **Réserves séparées (hors lot)** : e-mail, boîte de confirmation de version et colonne Service du PDF multi-lot — résolues par a86c4e6 (entrée du 28/09 10:05 UTC) ; priorité des libellés PDF/e-mail en mono-lot ; mappings mono-lot `?? 0` (dette connue, sortie mono inchangée volontairement).
 
+**Réserve ajoutée le 28/09 12:15 UTC** : le sous-total de lot qualifié de ce PDF est coupé au bord droit de la page ; la recette a validé le texte extrait, pas le rendu visuel (entrée du 28/09 12:15 UTC).
 ---
 
 ## [2026-09-26 13:10 UTC] TRAITÉ (publié 5cf908b, recetté — entrée du 27/09 11:40 UTC) — Arbitrage multi-lot : poids par conteneur et famille DTHC hérités du dossier
