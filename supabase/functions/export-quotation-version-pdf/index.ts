@@ -244,6 +244,27 @@ export function lineServiceLabel(line: unknown): string {
   return text(rec(line).category) || text(rec(rec(line).canonical).service_key);
 }
 
+/**
+ * Splits a label into lines no wider than `maxWidth` (measured with the real font), breaking
+ * only between words. `keepTogether` (the amount and currency ending the label) stays whole on
+ * the last line; no character is dropped. A single token wider than `maxWidth` keeps its own line.
+ */
+export function wrapToWidth(text: string, measure: (s: string) => number, maxWidth: number, keepTogether = ""): string[] {
+  const suffix = keepTogether && text.endsWith(keepTogether) ? keepTogether : "";
+  const head = suffix ? text.slice(0, text.length - suffix.length) : text;
+  const tokens = head.split(" ").filter(Boolean);
+  if (suffix) tokens.push(suffix);
+  const lines: string[] = [];
+  let current = "";
+  for (const token of tokens) {
+    const candidate = current ? `${current} ${token}` : token;
+    if (!current || measure(candidate) <= maxWidth) current = candidate;
+    else { lines.push(current); current = token; }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 // deno-lint-ignore no-explicit-any
 export async function generateDraftPdf(snapshot: any, caseId: string): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
@@ -572,17 +593,31 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
         drawLine(line);
       }
 
-      // Lot subtotal
-      ensureSpace(lineHeight + 10);
+      // Lot subtotal: right-aligned on the right margin, wrapped with the real font width so the
+      // amount, the currency and the "à confirmer" mention are never cut; the whole block is
+      // reserved before a page break.
+      const lotTotal = lot.totals?.ht ?? 0;
+      const lotCurrency = lot.totals?.currency ?? 'XOF';
+      const rightEdge = PAGE_W - margin;
+      const subtotalSize = 10;
+      const measureSubtotal = (s: string) => fontBold.widthOfTextAtSize(s, subtotalSize);
+      const subtotalLines = wrapToWidth(
+        sanitize(lotSubtotalLabel(formatAmount(lotTotal), lotCurrency, lotLines)),
+        measureSubtotal,
+        rightEdge - margin,
+        sanitize(`${formatAmount(lotTotal)} ${lotCurrency}`),
+      );
+      ensureSpace(lineHeight * subtotalLines.length + 10);
       currentPage.drawLine({
-        start: { x: colRate, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
+        start: { x: colRate, y: y + 10 }, end: { x: rightEdge, y: y + 10 },
         thickness: 0.5, color: gray,
       });
       y -= 5;
-      const lotTotal = lot.totals?.ht ?? 0;
-      const lotCurrency = lot.totals?.currency ?? 'XOF';
-      currentPage.drawText(sanitize(lotSubtotalLabel(formatAmount(lotTotal), lotCurrency, lotLines)), {
-        x: colRate, y, size: 10, font: fontBold, color: black,
+      subtotalLines.forEach((text, i) => {
+        if (i > 0) y -= lineHeight;
+        currentPage.drawText(text, {
+          x: Math.max(margin, rightEdge - measureSubtotal(text)), y, size: subtotalSize, font: fontBold, color: black,
+        });
       });
       y -= sectionGap;
     }
