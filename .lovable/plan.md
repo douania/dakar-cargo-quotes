@@ -1,20 +1,19 @@
-Vérification finale en lecture seule : rapport sans action
+# Dossier 5e9cd222 — remise à niveau sur le moteur actuel
 
-Statut : UNKNOWN pour le panneau. Aucune modification n'est prévue par ce plan.
+## Constat (lecture seule, 28/09/2026)
+- Statut PRICED_DRAFT, type SEA_FCL_IMPORT, 12 faits courants, aucune version sélectionnée.
+- Dernier calcul : run n°1 du 07/06/2026 (HT 7 335 000 XOF, TTC 7 702 200 XOF).
+- Faits modifiés après ce calcul (dernier le 10/09/2026) : le calcul ne les intègre pas.
+- 1 gap bloquant ouvert.
+- Le calcul date d'avant les corrections moteur déployées en septembre (DTHC/poids par lot, prestations « à confirmer », PAD v3, IMO).
 
-Faits vérifiés
-- HEAD 1a9922868ae2f4a3603c48d332d2674f20d90dd6. Aucun écart local n'est signalé par `git status`, et le correctif PDF local n'a pas été touché.
-- CTO_GO_QUEUE, entrée du 28/09 à 11:25 UTC, statut TRAITÉ : alertes 6, 7 et 8 publiées (fb19b6a) et recettées. Roadmap §3.28 : alerte 3 close.
-- Je n'ai aucun outil qui accède au panneau « problèmes détectés » (8 problèmes) ou qui relance son analyse. Les seuls résultats lisibles sont ceux des scanners de sécurité : connector_security_scan (28/04), git_hygiene (28/04) et supply_chain (15/09). Tous sont à 0 constat et marqués « up_to_date: false ». Ce n'est pas le panneau, et ce n'est pas une nouvelle analyse.
+Conclusion : le dossier ne reflète pas les résultats de l'application actuelle.
 
-Résultat par sujet (panneau)
-- Résultat ancien : 8 problèmes (d'après votre message).
-- Nouvelle analyse : non lancée, faute d'accès.
-- Sujets 1 à 8 : non vérifiables via le panneau. Leur clôture n'est attestée que par la documentation : 1-2 (§3.25-3.26), 3 (§3.28), 4-5 (§3.27), 6-8 (entrée du 28/09 ; pour 8, la contrainte d'unicité est conservée et la correction porte sur l'interface).
-- Défaut encore reproduit : aucun n'a été testé dans ce tour.
+## Étapes proposées (sous GO CTO explicite, car écriture en base)
+1. Lecture seule : identifier le gap bloquant et les faits postérieurs au run.
+2. Résoudre le gap bloquant via l'interface (action opérateur).
+3. Relancer le pricing depuis la vue dossier (run n°2), sans modification de code.
+4. Comparer run 1 / run 2 ligne par ligne et rapporter les écarts.
 
-Nouvelles observations (non corrigées)
-- Limites consignées le 28/09 : l'historique du dossier n'est pas actualisé après la création ou la révision d'une hypothèse ; le refus RLS d'une lecture d'e-mail n'a pas été éprouvé avec un second compte.
-
-Action suivante
-- Relancez vous-même l'analyse depuis le panneau Lovable, puis transmettez-moi le résultat (date, nombre, libellés). Je le comparerai aux 8 sujets.
+## Hors périmètre
+Aucune modification de code, migration, déploiement ou envoi d'e-mail.
