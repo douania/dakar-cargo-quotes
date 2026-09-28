@@ -1,22 +1,20 @@
-# Lot 6 — Sources, faits et historique
+Vérification finale en lecture seule : rapport sans action
 
-## Objectif
-Appliquer les trois corrections mineures de clôture du lot 5, puis réorganiser la section Sources selon la maquette opérateur, sans modifier les contrats d’écriture, données, calculs, statuts ou services distants.
+Statut : UNKNOWN pour le panneau. Aucune modification n'est prévue par ce plan.
 
-## Réalisation
-- Corriger la communication client : compter les gaps chargés, distinguer les demandes déjà envoyées et afficher « E-mail client manquant » lorsque c’est le seul défaut.
-- Retirer uniquement le doublon de l’état de collecte sous le panneau de pricing et conserver son instance dans Partenaires et coordination.
-- Renommer l’onglet Timeline en « Historique (n) », afficher le compte réel des documents dans l’onglet et le résumé quand il est disponible.
-- Extraire le tableau des faits dans `CaseFactsTable.tsx` : regroupements métier ordonnés, libellé lisible avec clé technique, origine lisible, confiance colorée aux seuils demandés et actions d’édition/historique existantes.
-- Résumer les valeurs JSON en clair ; garder le brut derrière « Détail technique », avec l’adaptateur d’hypothèses seulement si la structure est compatible.
-- Conserver le filtre courant actif, afficher le nombre de faits sous 70 %, et garder « Ajouter un fait » en commande secondaire avec son formulaire et ses payloads inchangés.
-- Ne marquer comme conflit que les faits reliés à un signal explicite déjà chargé ; une confiance faible seule ne produit aucun conflit ni action d’arbitrage.
+Faits vérifiés
+- HEAD 1a9922868ae2f4a3603c48d332d2674f20d90dd6. Aucun écart local n'est signalé par `git status`, et le correctif PDF local n'a pas été touché.
+- CTO_GO_QUEUE, entrée du 28/09 à 11:25 UTC, statut TRAITÉ : alertes 6, 7 et 8 publiées (fb19b6a) et recettées. Roadmap §3.28 : alerte 3 close.
+- Je n'ai aucun outil qui accède au panneau « problèmes détectés » (8 problèmes) ou qui relance son analyse. Les seuls résultats lisibles sont ceux des scanners de sécurité : connector_security_scan (28/04), git_hygiene (28/04) et supply_chain (15/09). Tous sont à 0 constat et marqués « up_to_date: false ». Ce n'est pas le panneau, et ce n'est pas une nouvelle analyse.
 
-## Technique
-- Fichiers autorisés : `CommunicationSummaryCard.tsx`, `CaseView.tsx`, `case-view/constants.ts`, nouveau `CaseFactsTable.tsx`, nouveau test du tableau, tests `CoordinationCards` et `cockpit-layout` concernés.
-- Réutiliser `FactHistoryPopover` tel qu’il existe ; aucun nouveau mécanisme d’historique.
-- Aucun changement de requête d’écriture, payload `set-case-fact`, fonction distante, migration, base, authentification ou RLS.
-- Les signaux explicites absents de la vue chargée ne seront pas inventés ; le tableau accepte uniquement les clés explicitement signalées par son parent.
+Résultat par sujet (panneau)
+- Résultat ancien : 8 problèmes (d'après votre message).
+- Nouvelle analyse : non lancée, faute d'accès.
+- Sujets 1 à 8 : non vérifiables via le panneau. Leur clôture n'est attestée que par la documentation : 1-2 (§3.25-3.26), 3 (§3.28), 4-5 (§3.27), 6-8 (entrée du 28/09 ; pour 8, la contrainte d'unicité est conservée et la correction porte sur l'interface).
+- Défaut encore reproduit : aucun n'a été testé dans ce tour.
 
-## Validation
-Typecheck, Vitest ciblés, suite complète comparée à 522/523, ESLint ciblé, `lint:baseline` comparé à 734/16, build, contrôle du diff réel et rapport de rollback.
+Nouvelles observations (non corrigées)
+- Limites consignées le 28/09 : l'historique du dossier n'est pas actualisé après la création ou la révision d'une hypothèse ; le refus RLS d'une lecture d'e-mail n'a pas été éprouvé avec un second compte.
+
+Action suivante
+- Relancez vous-même l'analyse depuis le panneau Lovable, puis transmettez-moi le résultat (date, nombre, libellés). Je le comparerai aux 8 sujets.
