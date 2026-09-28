@@ -1,3 +1,4 @@
+import { OperatorBasisAdoption } from "./OperatorBasisAdoption";
 import { Button } from "@/components/ui/button";
 import { formatScenarioPricingAmount, type ScenarioPricingRunSummary } from "@/lib/scenarioPricing";
 import {
@@ -12,7 +13,7 @@ import {
 import { readStayInformation, stayRange, formatStayAmount } from "../../../supabase/functions/_shared/stay-information";
 import { DemurrageReferenceComparison } from "./DemurrageReferenceComparison";
 export interface SelectedScenarioEstimate {
-  caseId: string; title: string; run: ScenarioPricingRunSummary | null; pending: boolean; error: string | null;
+  caseId: string; scopeHash?: string; title: string; run: ScenarioPricingRunSummary | null; pending: boolean; error: string | null;
 }
 const isStayLine = (line: EstimateLine) => /^(Magasinage|Surestaries)$/i.test(String(line.category ?? "")) ||
   /^(warehouse_franchise|demurrage_estimate)/.test(String(line.id ?? ""));
@@ -27,7 +28,7 @@ function pendingFamily(line: EstimateLine) {
   if (/EMPTY_RETURN/i.test(key)) return { key: "RETURN", label: "Retour des conteneurs vides", action: "Consulter les conditions à confirmer" };
   return { key, label: String(line.description ?? line.category ?? "Prestation à préciser").split(" — ")[0], action: "Consulter la réserve du poste" };
 }
-export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { estimate: SelectedScenarioEstimate; onReview?: () => void; onStayReview?: () => void }) {
+export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdopted }: { onAdopted?: () => void; estimate: SelectedScenarioEstimate; onReview?: () => void; onStayReview?: () => void }) {
   const { run, pending, error } = estimate;
   const lines = Array.isArray(run?.tariff_lines) ? run.tariff_lines as EstimateLine[] : [];
   const stayLines = lines.filter(isStayLine);
@@ -52,6 +53,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview }: { e
       {run.status === "success" ? <>
         <p className="font-semibold text-lg">{run.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"} : HT {formatScenarioPricingAmount(run.indicative_total_ht, run.currency)} · TTC {formatScenarioPricingAmount(run.indicative_total_ttc, run.currency)}</p>
         <p className="text-sm text-muted-foreground">Estimation non ferme, distincte du devis confirmé. Les postes à confirmer ne sont pas gratuits.</p>
+        <OperatorBasisAdoption estimate={estimate} onAdopted={onAdopted} onReview={onReview} />
         {lines.length > 0 && <div id="estimate-service-details" className="overflow-x-auto rounded border"><table className="w-full text-sm">
           <caption className="sr-only">Prestations de cette estimation</caption>
           <thead><tr><th className="text-left p-2">Prestation</th><th className="text-right p-2 whitespace-nowrap">Montant</th><th className="text-left p-2">Base</th><th className="text-left p-2">Statut</th><th className="text-left p-2">Détail</th></tr></thead>

@@ -304,3 +304,6 @@ verify_jwt = false
 
 [functions.manage-lot-confirmation]
 verify_jwt = false
+
+[functions.adopt-operator-quotation-basis]
+verify_jwt = false

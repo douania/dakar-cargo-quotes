@@ -1,3 +1,4 @@
+import { operatorBasisText } from "../_shared/operator-quotation-basis.ts";
 /**
  * Phase 17C: export-quotation-version-pdf
  * Generates a DRAFT PDF from quotation_versions.snapshot
@@ -283,6 +284,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   const primary = rgb(0.1, 0.3, 0.6);
   const draftRed = rgb(0.8, 0.2, 0.2);
   const lotBg = rgb(0.93, 0.95, 0.98);
+  const operatorNotices = operatorBasisText(snapshot.operator_basis);
   const scenarioContext = readScenarioOutputContext(snapshot);
 
   // Column positions for services table
@@ -393,6 +395,10 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
 
   // === QUALIFICATION BLOCK (Lot 3B) ===
   const qualification = resolveQuoteQualification(snapshot);
+  if (operatorNotices.length) {
+    qualification.level = qualification.level === "partial" ? "partial" : "provisional";
+    qualification.firmTotalPolicy = "all_included";
+  }
   const amberColor = rgb(0.85, 0.55, 0.0);
   const qualGray = rgb(0.45, 0.45, 0.55);
 
@@ -477,6 +483,30 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     y -= sectionGap / 2;
   }
 
+  if (operatorNotices.length) {
+    ensureSpace(lineHeight * 3);
+    currentPage.drawText('BASES RETENUES - COTATION REVISABLE', { x: margin, y, size: 10, font: fontBold, color: primary });
+    y -= lineHeight;
+    const width = PAGE_W - 2 * margin;
+    const measure = (text: string) => font.widthOfTextAtSize(text, 9);
+    const splitLongWords = (text: string) => sanitize(text).split(/\s+/).flatMap(word => {
+      const chunks: string[] = [];
+      let current = "";
+      for (const char of word) {
+        if (current && measure(current + char) > width) { chunks.push(current); current = ""; }
+        current += char;
+      }
+      if (current) chunks.push(current);
+      return chunks;
+    }).join(" ");
+    for (const notice of operatorNotices) for (const line of wrapToWidth(splitLongWords(notice), measure, width)) {
+      ensureSpace(lineHeight);
+      currentPage.drawText(line, { x: margin, y, size: 9, font, color: black });
+      y -= lineHeight;
+    }
+    y -= sectionGap / 2;
+    ensureSpace(lineHeight * 6);
+  }
   const weightNotices = quotationWeightNotices(Array.isArray(snapshot.raw_lines) ? snapshot.raw_lines : []);
   if (weightNotices.length) {
     ensureSpace(lineHeight * 3);

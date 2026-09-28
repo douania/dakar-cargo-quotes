@@ -1602,7 +1602,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
   useEffect(() => {
     const selected = scenarios.find(s => s.id === openSelection?.scenario_id && !s.superseded_by_scenario_id);
     const error = errorMessage((pricingMutation.variables?.scenarioId === selected?.id ? pricingMutation.error : null) ?? scenariosQuery.error ?? selectionsQuery.error ?? pricingRunsQuery.error);
-    onSelectedEstimateChange?.(selected ? { caseId, title: selected.title,
+    onSelectedEstimateChange?.(selected ? { caseId, title: selected.title, scopeHash: selected.scope_hash,
       run: latestPricingByScenario.get(selected.id) ?? null, pending: pricingMutation.isPending,
       error } : null);
   }, [caseId, scenarios, openSelection, latestPricingByScenario, pricingMutation.isPending, pricingMutation.error, pricingMutation.variables,

@@ -2585,3 +2585,17 @@ Mettre ce document à jour uniquement lorsqu'un événement change l'état canon
 - priorité ou dépendance durablement modifiée.
 
 Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le verdict. Éviter les mises à jour purement narratives ou les rapports docs-only sans décision.
+
+
+### 28 septembre 2026 — Devis sur bases opérateur (local, publication en attente)
+- GO utilisateur fonctionnel : préparer le devis sans confirmation préalable des hypothèses ; corrections client/opérateur par révision, sans promotion implicite en faits. GO distinct reçu pour migration et rollback locaux uniquement.
+- Base `work` / GitHub : `a158d2c06c41224d9b9f46b23c268cd31ccb3b87`, HEAD inchangé ; aucun commit/push/déploiement.
+- Action « Préparer le devis sur ces bases » : scénario sélectionné et calculé → nouveau `pricing_runs` canonique, instantané des bases/réserves, ancien run préservé.
+- RPC/Edge `adopt-operator-quotation-basis` : acteur authentifié, accès RLS en lecture, contrôles de fraîcheur faits/hypothèses/réserves, transaction atomique, clé/source uniques ; prix exclusivement issus du run serveur.
+- Version/PDF/brouillon conservent les bases et les réserves ; aucun montant hypothétique qualifié ferme, enrichissement IA du brouillon désactivé pour ces bases. Révisions existantes réutilisées.
+- Migration/rollback `20260928150000_operator_quotation_basis.sql` préparés, NON appliqués Cloud. Rollback SQL refuse tout historique adopté ; après usage, conserver les données et leurs renderers.
+- Tests locaux : PostgreSQL17 hors réseau sur schéma synthétique ciblé PASS (concurrence, #2/#3, conflits, fraîcheur, échec tardif atomique, faits inchangés, rollback) ; 5 nouveaux tests Deno + 3 UI PASS ; PDF synthétique rendu et inspecté.
+- Gates configuration/bundles, TS app/node, build PASS ; Deno types 49 et lint 732/16 : PASS_WITH_BASELINE. Suites : Vitest 583 PASS/1 FAIL, Deno 1744 PASS/1 FAIL/6 ignorés ; les deux échecs reproduits sur archive `origin/work` (LocalTransportEstimateFields, set_intake_facts_batch).
+- Contre-revue indépendante lecture seule PASS après corrections qualification, exclusions, largeur PDF et conflit de clé ; root seul écrivain.
+- Limites : catalogue Cloud complet et chaîne HTTP réelle adoption→version→PDF→brouillon NOT_RUN ; run #2 réel non créé. Aucun changement Auth/RLS ni des moteurs FROZEN. Verrous SQL globaux brefs, attente bornée à 5s.
+- Verdict local PASS_WITH_BASELINE ; publication/migration Lovable Cloud et vérification du dossier réel exigent le GO de publication distinct (§2.1).

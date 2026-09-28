@@ -1349,7 +1349,7 @@ export default function CaseView() {
           const showPricingPanel = shouldShowPricingPanel(caseData.status, canProvisionalDdp);
 
           if (!showPricingPanel) return selectedEstimate?.caseId === caseId
-            ? <div className="mb-6"><ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} onStayReview={openStayReview} /></div>
+            ? <div className="mb-6"><ScenarioEstimateResult onAdopted={handlePricingComplete} estimate={selectedEstimate} onReview={openEstimateReview} onStayReview={openStayReview} /></div>
             : null;
 
           return (
@@ -1359,7 +1359,7 @@ export default function CaseView() {
                 estimateAvailable={selectedEstimate?.caseId === caseId && !!selectedEstimate.run}
                 onReview={openEstimateReview}
                 isEstimating={isScenarioEstimating}
-                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult estimate={selectedEstimate} onReview={openEstimateReview} onStayReview={openStayReview} /> : null}
+                estimateResult={selectedEstimate?.caseId === caseId ? <ScenarioEstimateResult onAdopted={handlePricingComplete} estimate={selectedEstimate} onReview={openEstimateReview} onStayReview={openStayReview} /> : null}
                 onEstimate={() => {
                   if (!scenarioPricingAction.current) { toast.warning("Scénarios indisponibles : réessayez après leur chargement."); return; }
                   if (!selectedEstimate || selectedEstimate.caseId !== caseId) openEstimateReview();
@@ -2374,7 +2374,7 @@ export default function CaseView() {
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <details className="mb-6 rounded border p-3">
-            <summary className="cursor-pointer">Résultat du devis confirmé — distinct de l’estimation par scénario, vérifier sa date</summary>
+            <summary className="cursor-pointer">Résultat du devis — vérifier les bases retenues et la date</summary>
             <PricingResultPanel
               caseId={caseId!}
               latestEstimateAt={selectedEstimate?.caseId === caseId && selectedEstimate.run?.status === 'success' ? selectedEstimate.run.completed_at : null}

@@ -1,3 +1,4 @@
+import { readOperatorBasis, type OperatorQuotationBasis } from "../_shared/operator-quotation-basis.ts";
 /**
  * Phase 12 + Phase 17B: generate-quotation-version
  * Creates an immutable quotation version from a successful pricing run.
@@ -72,6 +73,7 @@ interface VersionSnapshotLot {
 }
 
 interface VersionSnapshot {
+  operator_basis?: OperatorQuotationBasis;
   meta: {
     version_id: string;
     version_number: number;
@@ -327,10 +329,12 @@ Deno.serve(async (req) => {
     const outputsJson = pricingRun.outputs_json as Record<string, any> | null;
     const outputTotals = outputsJson?.totals as Record<string, any> | undefined;
 
+    const operatorBasis = readOperatorBasis(outputsJson?.operator_basis);
     const versionId = crypto.randomUUID();
     const now = new Date().toISOString();
 
     const snapshot: VersionSnapshot = {
+      ...(operatorBasis ? { operator_basis: operatorBasis } : {}),
       meta: {
         version_id: versionId,
         version_number: versionNumber,
@@ -405,6 +409,10 @@ Deno.serve(async (req) => {
       sources: tariffSources,
     };
 
+    if (operatorBasis) {
+      snapshot.meta.quoteQualification.level = snapshot.meta.quoteQualification.level === "partial" ? "partial" : "provisional";
+      snapshot.meta.quoteQualification.firmTotalPolicy = "all_included";
+    }
     // ── Multi-lot enrichment from outputs_json ───────────
     if (outputsJson?.multi_lot === true && Array.isArray(outputsJson.lots) && outputsJson.lots.length > 0) {
       snapshot.is_multi_lot = true;

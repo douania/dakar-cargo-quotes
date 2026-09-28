@@ -1,3 +1,4 @@
+import { operatorBasisText } from "../_shared/operator-quotation-basis.ts";
 /**
  * Phase 18 E2E — A4: create-quotation-email-draft
  * 
@@ -190,6 +191,8 @@ export function aiBodyKeepsLotQualification(body: string, lotSummaries: Readonly
 
 // deno-lint-ignore no-explicit-any
 export function buildDeterministicBody(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotSummaryLines: string[], hasPdf: boolean, qualification: QuoteQualification): string {
+  const operatorNotices = operatorBasisText(snapshot?.operator_basis);
+  if (operatorNotices.length) qualification = { ...qualification, level: qualification.level === "partial" ? "partial" : "provisional", firmTotalPolicy: "all_included" };
   const weightNotices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
   if (weightNotices.length) qualification = { ...qualification, level: qualification.level === "partial" ? "partial" : "provisional", firmTotalPolicy: "all_included" };
   const clientBlock = snapshot?.client as Record<string, unknown> | undefined;
@@ -272,6 +275,7 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
     }
   }
 
+  parts.push(...operatorNotices);
   // Reserve block
   parts.push(...buildReserveBlock(qualification));
   if (weightNotices.length) parts.push("", "Bases de poids retenues — cotation révisable :", ...weightNotices);
@@ -558,7 +562,7 @@ if (import.meta.main) Deno.serve(async (req: Request) => {
 
   // For a reserved weight basis, keep the deterministic commercial wording.
   // An AI marker alone cannot guarantee preservation of the exact reservation.
-  if (useAiEnrichment && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0) {
+  if (useAiEnrichment && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0 && !snapshot?.operator_basis) {
     const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification, lotSummaryLines);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {
