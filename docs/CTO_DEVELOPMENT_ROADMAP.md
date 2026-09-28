@@ -2587,15 +2587,16 @@ Mettre ce document à jour uniquement lorsqu'un événement change l'état canon
 Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le verdict. Éviter les mises à jour purement narratives ou les rapports docs-only sans décision.
 
 
-### 28 septembre 2026 — Devis sur bases opérateur (local, publication en attente)
-- GO utilisateur fonctionnel : préparer le devis sans confirmation préalable des hypothèses ; corrections client/opérateur par révision, sans promotion implicite en faits. GO distinct reçu pour migration et rollback locaux uniquement.
-- Base `work` / GitHub : `a158d2c06c41224d9b9f46b23c268cd31ccb3b87`, HEAD inchangé ; aucun commit/push/déploiement.
+### 28 septembre 2026 — Devis sur bases opérateur (publication et recette réelle)
+- GO utilisateur fonctionnel puis GO explicite commit/push `work`, migration Lovable Cloud, quatre fonctions et recette jusqu'au PDF/brouillon ; aucun envoi client autorisé.
+- Base `a158d2c` → code `1ec85a9` publié ; synchronisation Lovable `db573ec` (+11 lignes de type RPC générées, fonctions inchangées). CI 36451020347 : échec Vitest identique à la baseline.
 - Action « Préparer le devis sur ces bases » : scénario sélectionné et calculé → nouveau `pricing_runs` canonique, instantané des bases/réserves, ancien run préservé.
 - RPC/Edge `adopt-operator-quotation-basis` : acteur authentifié, accès RLS en lecture, contrôles de fraîcheur faits/hypothèses/réserves, transaction atomique, clé/source uniques ; prix exclusivement issus du run serveur.
 - Version/PDF/brouillon conservent les bases et les réserves ; aucun montant hypothétique qualifié ferme, enrichissement IA du brouillon désactivé pour ces bases. Révisions existantes réutilisées.
-- Migration/rollback `20260928150000_operator_quotation_basis.sql` préparés, NON appliqués Cloud. Rollback SQL refuse tout historique adopté ; après usage, conserver les données et leurs renderers.
+- Migration `20260928150000_operator_quotation_basis.sql` appliquée via connecteur Lovable Cloud, ledger unique, RPC/deux index vérifiés ; quatre fonctions déployées. Rollback SQL refuse tout historique adopté ; après usage, conserver les données et leurs renderers.
 - Tests locaux : PostgreSQL17 hors réseau sur schéma synthétique ciblé PASS (concurrence, #2/#3, conflits, fraîcheur, échec tardif atomique, faits inchangés, rollback) ; 5 nouveaux tests Deno + 3 UI PASS ; PDF synthétique rendu et inspecté.
 - Gates configuration/bundles, TS app/node, build PASS ; Deno types 49 et lint 732/16 : PASS_WITH_BASELINE. Suites : Vitest 583 PASS/1 FAIL, Deno 1744 PASS/1 FAIL/6 ignorés ; les deux échecs reproduits sur archive `origin/work` (LocalTransportEstimateFields, set_intake_facts_batch).
 - Contre-revue indépendante lecture seule PASS après corrections qualification, exclusions, largeur PDF et conflit de clé ; root seul écrivain.
-- Limites : catalogue Cloud complet et chaîne HTTP réelle adoption→version→PDF→brouillon NOT_RUN ; run #2 réel non créé. Aucun changement Auth/RLS ni des moteurs FROZEN. Verrous SQL globaux brefs, attente bornée à 5s.
-- Verdict local PASS_WITH_BASELINE ; publication/migration Lovable Cloud et vérification du dossier réel exigent le GO de publication distinct (§2.1).
+- Recette GoTrans UI PASS : run #2 `6ecd87db-6966-4be8-a314-fbf23b1d5003`, version v1 `96a93162-bb78-4533-bf26-b6fe6dec3c60`, PDF exporté, brouillon `8638d237-4827-422a-9786-cafadc6c84ae` DRAFT ; total partiel 48 024 930 XOF, sept postes réservés. Hashes faits/ancien run/ancienne version inchangés.
+- Correction de rendu après recette : transport en prose, réserves avec périmètre, suppression des identifiants techniques dans l'affichage seul ; cinq tests ciblés PASS et contre-revue delta PASS. Rendu local depuis snapshot réel contrôlé ; les PDF Cloud déjà exportés restent immuables, ce correctif concerne les nouveaux exports.
+- Verdict fonctionnel PASS_WITH_BASELINE ; Auth/RLS/moteurs FROZEN inchangés. Verrous SQL globaux brefs, attente bornée à 5s. Aucun envoi ni marquage SENT ; tests live Deno NOT_RUN.

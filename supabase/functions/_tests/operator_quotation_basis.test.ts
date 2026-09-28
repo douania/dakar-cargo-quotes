@@ -34,6 +34,16 @@ Deno.test("adoption request rejects browser prices, actor and malformed identifi
   for (const key of ["amount", "tariff_lines", "actor_user_id", "qualification", "operator_basis"]) assert(!validateScenarioOutputRequest({ ...request, [key]: 1 }).ok);
   assert(!validateScenarioOutputRequest({ ...request, scenario_id: "bad" }).ok);
 });
+Deno.test("client bases describe transport without internal JSON and keep scoped reserves", () => {
+  const value = { origin: "TEST PORT", destination: "TEST CITY", country: "SN", distance_km: 480.9, distance_source: "Synthetic routing source", verified_on: "2026-09-28", scenario_source: { id: "private-id", scope_hash: "a".repeat(64) }, groups: [{ unit_ref: "test-cargo", quantity: 2, equipment_code: "20HQ", weight_per_container_kg: 18000, standard_estimate_only: true, unknown_danger_base_only: true, max_payload_kg: null, qualification_source: "Synthetic qualification" }] };
+  const b = { ...basis, assumptions: [{ assumed_fact_key: "routing.local_transport_estimate", assumed_value: value, statement: "Transport routier" }], overlay: [{ fact_key: "routing.local_transport_estimate", basis: "assumption", value }], open_points: [{ code: "packaging_unknown", ref: "test-cargo" }] };
+  const before = JSON.stringify(b);
+  const rendered = operatorBasisText(b).join("\n");
+  for (const term of ["480.9 km", "18000 kg", "Danger inconnu", "véhicule, tare", "Conditionnement non précisé", "Périmètre test-cargo"]) assert(rendered.includes(term), term);
+  assert(!rendered.includes("private-id") && !rendered.includes('"groups"'));
+  assertEquals(rendered.split("480.9 km").length, 2);
+  assertEquals(JSON.stringify(b), before);
+});
 Deno.test("canonical email preserves bases and reservations and never labels assumed total firm", () => {
   const before = JSON.stringify(snapshot);
   const body = buildDeterministicBody(snapshot, 2, false, [], true, { level: "provisional", reasons: [], firmTotalPolicy: "excludes_reserved_items" });
