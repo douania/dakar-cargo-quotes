@@ -1141,14 +1141,17 @@ export default function CaseView() {
   ].filter(Boolean).join(" · ") : "";
 
   const focusPilotageAction = (action: PilotageAction) => {
-    const target = document.getElementById(action.targetId);
-    if (!target) return;
-    for (let parent: HTMLElement | null = target; parent; parent = parent.parentElement) {
-      if (parent instanceof HTMLDetailsElement) parent.open = true;
-    }
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    target.setAttribute("tabindex", "-1");
-    target.focus({ preventScroll: true });
+    revealTab(SECTION_TAB[action.targetId] ?? "devis");
+    afterTabPaint(() => {
+      const target = document.getElementById(action.targetId);
+      if (!target) return;
+      for (let parent: HTMLElement | null = target; parent; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement) parent.open = true;
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
+    });
   };
 
   // ── Loading state ──
