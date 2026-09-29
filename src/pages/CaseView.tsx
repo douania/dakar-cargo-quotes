@@ -120,16 +120,21 @@ export default function CaseView() {
   };
   const openEstimateReview = () => {
     openScenarioReview();
-    const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
-    if (variants) variants.open = true;
+    afterTabPaint(() => {
+      const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
+      if (variants) variants.open = true;
+    });
   };
   const openStayReview = () => {
-    const target = document.getElementById("section-stay-assumptions");
-    for (let parent = target?.parentElement; parent; parent = parent.parentElement) {
-      if (parent instanceof HTMLDetailsElement) parent.open = true;
-    }
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-    target?.focus({ preventScroll: true });
+    revealTab("marchandise");
+    afterTabPaint(() => {
+      const target = document.getElementById("section-stay-assumptions");
+      for (let parent = target?.parentElement; parent; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement) parent.open = true;
+      }
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.focus({ preventScroll: true });
+    });
   };
   const [isScenarioEstimating, setIsScenarioEstimating] = React.useState(false);
   const [selectedEstimate, setSelectedEstimate] = React.useState<SelectedScenarioEstimate | null>(null);
