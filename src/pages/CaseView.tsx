@@ -55,6 +55,7 @@ import {
   EDITABLE_FACT_KEYS,
   NUMERIC_FACT_KEYS,
   STATUS_LABELS,
+  FACT_LABELS,
 } from "./case-view/constants";
 import type { PricingPrecheck } from "./case-view/types";
 import { mapSourceType, toFactPayload, shouldShowPricingPanel, isPricingRerun } from "./case-view/helpers";
@@ -64,7 +65,7 @@ import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
 import { PricingResultPanel } from "@/components/puzzle/PricingResultPanel";
 import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
-import { SendQuotationPanel } from "@/components/puzzle/SendQuotationPanel";
+import { SendQuotationPanel, type QuotationPreparationSummary } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
 import { CargoCanonicalPreviewPanel } from "@/components/case/CargoCanonicalPreviewPanel";
@@ -87,7 +88,8 @@ import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDe
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
-import { buildPilotageViewModel, type PilotageAction } from "./case-view/presentation";
+import { buildPilotageViewModel, CASE_PRESENTATION_KEY, readGuidedQuote, type PilotageAction } from "./case-view/presentation";
+import { CaseTodoCard } from "@/components/case/CaseTodoCard";
 import { formatScenarioPricingAmount } from "@/lib/scenarioPricing";
 
 function formatPackageLabel(packageKey: string): string {
@@ -98,6 +100,8 @@ function formatPackageLabel(packageKey: string): string {
 const SECTION_TAB: Record<string, string> = {
   "section-pricing": "devis",
   "section-version": "devis",
+  "section-pricing-result": "devis",
+  "section-send": "devis",
   "section-data": "marchandise",
   "section-scenarios": "marchandise",
   "section-scenario-variants": "marchandise",
@@ -116,7 +120,20 @@ export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
   const scenarioPanel = React.useRef<HTMLDetailsElement>(null);
-  const [activeTab, setActiveTab] = useState<string>("devis");
+  const [guided, setGuided] = useState(() => {
+    try { return localStorage.getItem(CASE_PRESENTATION_KEY) !== "previous"; }
+    catch { return true; }
+  });
+  const [activeTab, setActiveTab] = useState<string>(() => guided ? "todo" : "devis");
+  const [sourceTab, setSourceTab] = useState("facts");
+  const [preparation, setPreparation] = useState<QuotationPreparationSummary | null>(null);
+  const togglePresentation = () => {
+    const next = !guided;
+    setGuided(next);
+    if (!next && activeTab === "todo") setActiveTab("devis");
+    try { localStorage.setItem(CASE_PRESENTATION_KEY, next ? "guided" : "previous"); }
+    catch { /* Storage may be disabled; the current session can still switch views. */ }
+  };
   // Chaque ancre historique reste atteignable : on active d'abord l'onglet hôte,
   // puis on agit sur la cible une fois l'onglet rendu.
   const revealTab = (tab: string) => setActiveTab((current) => (current === tab ? current : tab));
@@ -205,7 +222,7 @@ export default function CaseView() {
   const [pricingRefreshToken, setPricingRefreshToken] = useState(0);
   const [versionRefreshToken, setVersionRefreshToken] = useState(0);
   const navigate = useNavigate();
-  const { data: cockpitState } = useCockpitState(caseId);
+  const { data: cockpitState, isFetching: cockpitFetching, error: cockpitError } = useCockpitState(caseId);
   const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
 
   // ── Fetch quote_cases ──
@@ -275,7 +292,7 @@ export default function CaseView() {
   });
 
   // ── Fetch open gaps (source de vérité directe) ──
-  const { data: gaps = [], refetch: refetchGaps } = useQuery({
+  const { data: gaps = [], refetch: refetchGaps, isFetching: gapsFetching, error: gapsError } = useQuery({
     queryKey: ["case-gaps", caseId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -1146,8 +1163,8 @@ export default function CaseView() {
     : null;
   const openClientQuestions = gaps.filter((gap) => gap.gap_key !== PAD_REVIEW_GAP_KEY);
   const openClientBlockingQuestions = openClientQuestions.filter((gap) => gap.is_blocking).length;
-  const openCoordinationBlock = (id: string) => {
-    revealTab(SECTION_TAB[id] ?? "echanges");
+  const openCoordinationBlock = (id: string, tab?: string) => {
+    revealTab(tab ?? SECTION_TAB[id] ?? "echanges");
     afterTabPaint(() => {
       const target = document.getElementById(id);
       if (!target) return;
@@ -1155,6 +1172,8 @@ export default function CaseView() {
         if (current instanceof HTMLDetailsElement) current.open = true;
       }
       target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
     });
   };
   const confirmedQuoteSummary = cockpitState ? [
@@ -1164,9 +1183,11 @@ export default function CaseView() {
   ].filter(Boolean).join(" · ") : "";
 
   const focusPilotageAction = (action: PilotageAction) => {
-    revealTab(SECTION_TAB[action.targetId] ?? "devis");
+    const targetId = guided && action.kind === "create_version" ? "section-pricing-result"
+      : guided && (action.kind === "prepare_email" || action.kind === "mark_sent") ? "section-send" : action.targetId;
+    revealTab(SECTION_TAB[targetId] ?? "devis");
     afterTabPaint(() => {
-      const target = document.getElementById(action.targetId);
+      const target = document.getElementById(targetId);
       if (!target) return;
       for (let parent: HTMLElement | null = target; parent; parent = parent.parentElement) {
         if (parent instanceof HTMLDetailsElement) parent.open = true;
@@ -1175,6 +1196,19 @@ export default function CaseView() {
       target.setAttribute("tabindex", "-1");
       target.focus({ preventScroll: true });
     });
+  };
+
+  const openGuidedSection = (section: string) => {
+    if (section.startsWith("gap:")) {
+      openCoordinationBlock(`gap-review-${section.slice(4)}`, "marchandise");
+    } else if (section === "controls" || section === "pdf" || section === "send") {
+      openCoordinationBlock(section === "controls" ? "section-data" : section === "pdf" ? "section-version" : "section-send");
+    } else if (section === "documents" || section === "facts") {
+      setSourceTab(section);
+      openCoordinationBlock("section-sources");
+    } else {
+      revealTab(section);
+    }
   };
 
   // ── Loading state ──
@@ -1227,20 +1261,26 @@ export default function CaseView() {
             {clientName && (
               <p className="text-muted-foreground">Client : {clientName}</p>
             )}
+            {guided && <p className="text-sm text-muted-foreground">{["routing.origin_port", "routing.destination_port", "routing.destination_city"]
+              .map(key => facts.find(fact => fact.fact_key === key && fact.is_current)?.value_text)
+              .filter(Boolean).join(" → ")}</p>}
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={togglePresentation} className="print:hidden">
+              {guided ? "Présentation précédente" : "Présentation guidée"}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2 print:hidden">
               <Printer className="h-4 w-4" />
-              Imprimer PDF
+              Imprimer le dossier
             </Button>
             <Badge className={TASK_STATUS_COLORS[caseData.status.toLowerCase()] || "bg-muted text-muted-foreground"}>
-              État du devis confirmé : {STATUS_LABELS[caseData.status] || caseData.status}
+              {guided ? "Dossier : " : "État du devis confirmé : "}{STATUS_LABELS[caseData.status] || caseData.status}
             </Badge>
-            {caseData.request_type && (
+            {!guided && caseData.request_type && (
               <Badge variant="outline">Mode transport détecté : {caseData.request_type}</Badge>
             )}
             {servicePackageLabel && (
-              <Badge variant="outline">Package métier : {servicePackageLabel}</Badge>
+              <Badge variant="outline">{guided ? "Prestations : " : "Package métier : "}{servicePackageLabel}</Badge>
             )}
             {/* Phase 16: Intent badge */}
             {(() => {
@@ -1274,7 +1314,7 @@ export default function CaseView() {
           </div>
         </div>
 
-        {pilotage && <section aria-label="Pilotage du dossier" className="sticky top-0 z-20 mb-6 space-y-3 border bg-background/95 p-4 shadow-sm backdrop-blur print:static print:shadow-none">
+        {pilotage && <section hidden={guided} aria-label="Pilotage du dossier" className="sticky top-0 z-20 mb-6 space-y-3 border bg-background/95 p-4 shadow-sm backdrop-blur print:static print:shadow-none print:block">
           <ol aria-label="Progression du devis" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {pilotage.steps.map((step) => <li key={step.key} aria-current={step.current ? "step" : undefined} className="flex min-w-0 items-center gap-2 text-xs">
               {step.done
@@ -1314,13 +1354,34 @@ export default function CaseView() {
         </section>}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 print:hidden">
+          <nav hidden={!guided} aria-label="Navigation du dossier" className="print:hidden">
+            <div className="flex flex-wrap gap-2 border-b pb-3">
+              {[["todo", "À faire"], ["marchandise", "Marchandise"], ["devis", "Devis"], ["echanges", "Échanges et documents"]].map(([value, label]) =>
+                <Button key={value} id={`guided-nav-${value}`} variant={activeTab === value || (value === "echanges" && activeTab === "audit") ? "secondary" : "ghost"}
+                  aria-pressed={activeTab === value || (value === "echanges" && activeTab === "audit")} onClick={() => openGuidedSection(value)}>{label}</Button>)}
+            </div>
+            <div hidden={activeTab !== "echanges" && activeTab !== "audit"} className={`my-3 ${activeTab === "echanges" || activeTab === "audit" ? "flex" : "hidden"} flex-wrap gap-2`} aria-label="Échanges et sources">
+              <Button variant="outline" onClick={() => openGuidedSection("echanges")}>Client et partenaires</Button>
+              <Button variant="outline" onClick={() => openGuidedSection("documents")}>Documents et pièces jointes</Button>
+              <Button variant="outline" onClick={() => openGuidedSection("facts")}>Informations et sources</Button>
+            </div>
+          </nav>
+          <TabsList hidden={guided} className={`${guided ? "hidden" : "grid"} w-full grid-cols-2 sm:grid-cols-4 print:hidden`}>
             <TabsTrigger value="devis">Devis &amp; offre</TabsTrigger>
             <TabsTrigger value="marchandise">Marchandise</TabsTrigger>
             <TabsTrigger value="echanges">Partenaires</TabsTrigger>
             <TabsTrigger value="audit">Données &amp; audit</TabsTrigger>
           </TabsList>
-          <TabsContent value="devis" forceMount className="mt-4 print:block">
+          <TabsContent value="todo" forceMount hidden={!guided || activeTab !== "todo"} aria-labelledby="guided-nav-todo" className="mt-4 print:hidden">
+            <CaseTodoCard status={caseData.status} action={pilotage?.action ?? null}
+              quote={cockpitState ? readGuidedQuote(cockpitState) : null}
+              loading={!!cockpitFetching || !cockpitState} error={!!cockpitError}
+              missingItems={blockingGaps.map(gap => ({ id: gap.id, label: gap.question_fr || FACT_LABELS[gap.gap_key] || "Information à préciser dans les contrôles" }))}
+              missingLoading={!!gapsFetching} missingError={!!gapsError}
+              preparation={preparation?.caseId === caseId && (preparation.error || preparation.loading || preparation.versionId === cockpitState?.selectedVersionId) ? preparation : null}
+              onAction={focusPilotageAction} onOpen={openGuidedSection} />
+          </TabsContent>
+          <TabsContent value="devis" forceMount hidden={activeTab !== "devis"} aria-labelledby={guided ? "guided-nav-devis" : undefined} className="mt-4 print:block">
         {/* Pricing Launch Panel — visible for pricing-eligible statuses
             Lot 4.1: also visible upstream when canProvisionalDdp === true,
             so the amber CTA can appear even in NEED_INFO/FACTS_PARTIAL. */}
@@ -1445,7 +1506,7 @@ export default function CaseView() {
             </div>
           );
         })()}
-        <details className="mb-4 min-w-0 rounded-lg border p-4">
+        <details open={guided || undefined} className="mb-4 min-w-0 rounded-lg border p-4">
           <summary className="cursor-pointer font-medium">Devis confirmé, versions et envoi{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
         {/* M9b: Output pipeline stepper — read-only progression indicator */}
         {isPipelineVisible && (() => {
@@ -1457,7 +1518,7 @@ export default function CaseView() {
             { label: "Envoyé", done: ['SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) },
           ];
           return (
-            <div className="mb-4 flex items-center gap-1 px-1">
+            <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 px-1" aria-label="Étapes de préparation du devis">
               {steps.map((step, i) => (
                 <React.Fragment key={step.label}>
                   <div className="flex items-center gap-1.5">
@@ -1471,7 +1532,7 @@ export default function CaseView() {
                     </span>
                   </div>
                   {i < steps.length - 1 && (
-                    <div className={`flex-1 h-px min-w-4 ${step.done ? 'bg-green-400' : 'bg-muted-foreground/20'}`} />
+                    <div aria-hidden="true" className={`hidden sm:block flex-1 h-px min-w-4 ${step.done ? 'bg-green-400' : 'bg-muted-foreground/20'}`} />
                   )}
                 </React.Fragment>
               ))}
@@ -1509,7 +1570,7 @@ export default function CaseView() {
         </div>}
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <details className="mb-6 rounded border p-3">
+          <details id="section-pricing-result" className="mb-6 rounded border p-3">
             <summary className="cursor-pointer">Résultat du devis — vérifier les bases retenues et la date</summary>
             <PricingResultPanel
               caseId={caseId!}
@@ -1531,8 +1592,8 @@ export default function CaseView() {
 
         {/* Phase 19A: Send quotation */}
         {['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <div className="mb-6">
-            <SendQuotationPanel caseId={caseId!} />
+          <div className="mb-6" id="section-send">
+            <SendQuotationPanel caseId={caseId!} onPreparationChange={setPreparation} />
           </div>
         )}
 
@@ -1620,7 +1681,7 @@ export default function CaseView() {
 
         </details>
           </TabsContent>
-          <TabsContent value="marchandise" forceMount className="mt-4 print:block">
+          <TabsContent value="marchandise" forceMount hidden={activeTab !== "marchandise"} aria-labelledby={guided ? "guided-nav-marchandise" : undefined} className="mt-4 print:block">
         <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-data">
           <summary className="cursor-pointer font-medium">Données du dossier et contrôles avant devis confirmé</summary>
           <p className="my-3 text-sm text-muted-foreground">Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus.</p>
@@ -1866,7 +1927,7 @@ export default function CaseView() {
             const selectOptions = SELECT_FACT_OPTIONS[g.gap_key];
 
             return (
-              <li key={g.id} className={`flex items-center gap-2 text-sm ${textColorClass}`}>
+              <li key={g.id} id={`gap-review-${g.id}`} className={`flex flex-wrap items-center gap-2 text-sm ${textColorClass}`}>
                 <span className="flex-1">{g.gap_key === PAD_REVIEW_GAP_KEY ? g.question_fr === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR : g.question_fr || g.gap_key}</span>
                 {g.gap_key === PAD_REVIEW_GAP_KEY && (
                   <Button size="sm" variant="outline" onClick={openScenarioReview}>Examiner les groupes et sources</Button>
@@ -2045,7 +2106,7 @@ export default function CaseView() {
 
         </details>
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
-        {caseId && <details ref={scenarioPanel} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
+        {caseId && <details ref={scenarioPanel} open={guided || undefined} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
           <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
           {/* MULTI-LOT-TERMINAL-1: lots liés explicitement aux lignes, avant leurs confirmations PAD. */}
           <LotConfirmationsPanel caseId={caseId} onChanged={handleRefresh} />
@@ -2078,7 +2139,7 @@ export default function CaseView() {
           </details>
         </details>}
           </TabsContent>
-          <TabsContent value="echanges" forceMount className="mt-4 print:block">
+          <TabsContent value="echanges" forceMount hidden={activeTab !== "echanges"} aria-labelledby={guided ? "guided-nav-echanges" : undefined} className="mt-4 print:block">
         {/* ── Open Actions (C2/P0.3) — hidden for active dossiers (ORCH-SYNC-2) ── */}
         {['SENT', 'ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(caseData.status) && (
         <Card className="mb-6">
@@ -2535,11 +2596,11 @@ export default function CaseView() {
 
         </details>
           </TabsContent>
-          <TabsContent value="audit" forceMount className="mt-4 print:block">
-        <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-sources">
+          <TabsContent value="audit" forceMount hidden={activeTab !== "audit"} aria-labelledby={guided ? "guided-nav-echanges" : undefined} className="mt-4 print:block">
+        <details open={guided || undefined} className="mb-4 min-w-0 rounded-lg border p-4" id="section-sources">
           <summary className="cursor-pointer font-medium">Sources, faits et historique<span className="ml-2 text-sm font-normal text-muted-foreground">— {facts.length} fait{facts.length > 1 ? "s" : ""} · {events.length} événement{events.length > 1 ? "s" : ""}{typeof documentsCount === "number" ? ` · ${documentsCount} document${documentsCount > 1 ? "s" : ""}` : ""}</span></summary>
         {/* Tabs */}
-        <Tabs defaultValue="facts" className="space-y-4">
+        <Tabs value={sourceTab} onValueChange={setSourceTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="facts" className="flex items-center gap-2">
               <Puzzle className="h-4 w-4" />
@@ -2556,7 +2617,7 @@ export default function CaseView() {
           </TabsList>
 
           {/* Facts Tab */}
-          <TabsContent value="facts">
+          <TabsContent value="facts" forceMount hidden={sourceTab !== "facts"} className="print:block">
             <ImoClassificationNotice
               facts={facts}
               isMultiLot={isMultiLot}
@@ -2660,12 +2721,12 @@ export default function CaseView() {
           </TabsContent>
 
           {/* Documents Tab */}
-          <TabsContent value="documents">
+          <TabsContent value="documents" forceMount hidden={sourceTab !== "documents"} className="print:block">
             {caseId && <CaseDocumentsTab caseId={caseId} />}
           </TabsContent>
 
           {/* Timeline Tab */}
-          <TabsContent value="timeline">
+          <TabsContent value="timeline" forceMount hidden={sourceTab !== "timeline"} className="print:block">
             <Card>
               <CardHeader>
                 <CardTitle>Historique des événements</CardTitle>

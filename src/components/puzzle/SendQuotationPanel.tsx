@@ -32,6 +32,20 @@ import { toast } from 'sonner';
 
 interface SendQuotationPanelProps {
   caseId: string;
+  onPreparationChange?: (summary: QuotationPreparationSummary) => void;
+}
+
+export interface QuotationPreparationSummary {
+  caseId: string;
+  versionId: string | null;
+  loading: boolean;
+  error: boolean;
+  hasPdf: boolean;
+  hasDraft: boolean;
+  recipient: string;
+  subject: string;
+  hasMessage: boolean;
+  unsaved: boolean;
 }
 
 function PreCheckItem({ ok, label }: { ok: boolean; label: string }) {
@@ -51,7 +65,7 @@ export function SendQuotationPanel(props: SendQuotationPanelProps) {
   return <SendQuotationPanelInner key={props.caseId} {...props} />;
 }
 
-function SendQuotationPanelInner({ caseId }: SendQuotationPanelProps) {
+function SendQuotationPanelInner({ caseId, onPreparationChange }: SendQuotationPanelProps) {
   const queryClient = useQueryClient();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -126,6 +140,21 @@ function SendQuotationPanelInner({ caseId }: SendQuotationPanelProps) {
     editSubject.trim() !== (ownerDraft.subject ?? '') ||
     editBody.trim() !== (ownerDraft.body_text ?? '')
   );
+
+  // Read-only projection of the same saved draft as this editor; never an extra
+  // query or a second editor. Do not report local edits as saved client content.
+  const savedRecipient = ownerDraft?.to_addresses?.join(', ') ?? '';
+  const savedSubject = ownerDraft?.subject ?? '';
+  const hasDraft = !!ownerDraft;
+  useEffect(() => {
+    onPreparationChange?.({
+      caseId, versionId: selectedVersion?.id ?? null,
+      loading: isLoading || isFetching || isSelectingVersion, error: isError,
+      hasPdf, hasDraft, recipient: savedRecipient, subject: savedSubject,
+      hasMessage: hasBody, unsaved: hasUnsavedChanges,
+    });
+  }, [onPreparationChange, caseId, selectedVersion?.id, isLoading, isFetching, isSelectingVersion,
+    isError, hasPdf, hasDraft, savedRecipient, savedSubject, hasBody, hasUnsavedChanges]);
 
   if (isLoading) {
     return (

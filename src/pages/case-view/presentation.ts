@@ -9,6 +9,8 @@ import {
   type SeaFreightPartnerActionKind,
   type SeaFreightPartnerActionSpec,
 } from "@/lib/seaFreightPartnerAction";
+import { STATUS_LABELS } from "./constants";
+import { scenarioPricingCodeMessage } from "@/lib/scenarioPricing";
 
 export type PilotageActionKind =
   | "sea_freight"
@@ -229,4 +231,95 @@ export function buildPilotageViewModel(input: {
     variance,
     amountsComparable,
   };
+}
+
+export const CASE_PRESENTATION_KEY = "case-presentation-v1";
+
+// Navigation copy only: the existing action priority and mutation guards stay authoritative.
+export function guidedActionLabel(action: PilotageAction): string {
+  const labels: Partial<Record<PilotageActionKind, string>> = {
+    blocking_gap: "Examiner les informations manquantes",
+    pad_review: "Vérifier les bases de la marchandise",
+    unlock_pricing: "Revoir les conditions du calcul",
+    launch_pricing: "Préparer le calcul du devis",
+    confirm_scope: "Vérifier les prestations demandées",
+    create_version: "Relire le calcul avant de créer une version",
+    export_pdf: "Préparer le PDF de la version sélectionnée",
+    prepare_email: "Préparer le message client",
+    mark_sent: "Relire les éléments et tracer l’envoi manuel",
+  };
+  return labels[action.kind] ?? action.label.replace(/fait\(s\)/g, "information(s)");
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+}
+
+export interface GuidedQuoteSummary {
+  versionNumber: number;
+  amount: PilotageAmount | null;
+  qualification: string;
+  reservations: string[];
+  pendingItems: string[];
+}
+
+// Read the selected snapshot, never a live estimate or a recomputed total.
+// Missing qualification is explicitly unknown, never inferred as firm.
+export function readGuidedQuote(state: CockpitState): GuidedQuoteSummary | null {
+  if (!state.hasSelectedVersion || state.selectedVersionNumber == null) return null;
+  const snapshot = record(state.selectedVersionSnapshot);
+  const qualification = record(record(snapshot.meta).quoteQualification);
+  const rawLines: unknown[] = Array.isArray(snapshot.raw_lines) ? snapshot.raw_lines : [];
+  const pendingItems = rawLines.flatMap((value, index) => {
+    const line = record(value);
+    const source = typeof line.source === "string" ? line.source : record(line.source).type;
+    if (String(source ?? "").trim().split(/[+:]/)[0].toUpperCase() !== "TO_CONFIRM") return [];
+    const label = [line.description, line.charge_name, line.label, line.service_name].find(v => typeof v === "string" && v.trim());
+    const lot = line.lot_index != null ? `Lot ${line.lot_index} · ` : "";
+    return [`${lot}${label ?? `Poste ${index + 1}`} — à confirmer`];
+  });
+  const reservations = (Array.isArray(qualification.reasons) ? qualification.reasons : [])
+    .flatMap((value) => {
+      const message = record(value).message;
+      return typeof message === "string" && message.trim() ? [message] : [];
+    });
+  if (snapshot.operator_basis) {
+    reservations.push("Devis établi sur des bases opérateur : consulter les bases et réserves de la version.");
+    const basis = record(snapshot.operator_basis);
+    const points: unknown[] = [
+      ...(Array.isArray(basis.reservations) ? basis.reservations : []),
+      ...(Array.isArray(basis.open_points) ? basis.open_points : []),
+    ];
+    for (const [index, value] of points.entries()) {
+      const point = record(value);
+      const message = typeof value === "string" ? scenarioPricingCodeMessage(value)
+        : point.message ?? point.statement ?? point.reason ?? point.code;
+      const scope = point.unit_ref ?? point.ref;
+      reservations.push(`${scope ? `Périmètre ${scope} : ` : ""}${typeof message === "string" && message.trim()
+        ? message : `Réserve opérateur ${index + 1} à examiner dans la version`}`);
+    }
+  }
+  const partial = pendingItems.length > 0 || qualification.level === "partial"
+    || qualification.firmTotalPolicy === "excludes_reserved_items";
+  const label = partial ? "Total partiel — hors postes réservés"
+    : qualification.level === "provisional" || reservations.length > 0 ? "Montant provisoire — avec réserves"
+    : qualification.level === "firm" ? "Montant de la version — qualification ferme"
+    : "Montant de la version — qualification à vérifier";
+  return {
+    versionNumber: state.selectedVersionNumber,
+    amount: readConfirmedQuote(state), qualification: label,
+    reservations: [...new Set(reservations)], pendingItems,
+  };
+}
+
+export function guidedSituation(status: string, action: PilotageAction | null): string {
+  if (status === "PRICING_RUNNING") return "Calcul du devis en cours";
+  if (status === "SENT") return "Envoi du devis enregistré";
+  if (status === "ACCEPTED") return "Devis accepté par le client";
+  if (status === "REJECTED") return "Devis refusé par le client";
+  if (status === "ARCHIVED") return "Dossier archivé";
+  if (action?.kind === "blocking_gap" || action?.kind === "pad_review") return "Informations du dossier à vérifier";
+  if (action?.kind === "mark_sent") return "Éléments préparés — envoi manuel à vérifier";
+  return STATUS_LABELS[status] ?? "Situation du dossier à vérifier";
 }

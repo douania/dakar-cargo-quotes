@@ -262,6 +262,30 @@ afterEach(() => {
 });
 
 describe('QuotationVersionCard <-> SendQuotationPanel selection sync', () => {
+  it('reports the saved preparation and unsaved edits, then clears them for a different version', async () => {
+    seedTwoVersions('case-a');seedDraft('case-a-v1', {});
+    const report=vi.fn();
+    const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+    render(<QueryClientProvider client={client}><SendQuotationPanel caseId="case-a" onPreparationChange={report} /></QueryClientProvider>);
+    await screen.findByDisplayValue('Corps case-a-v1');
+    await waitFor(()=>expect(report).toHaveBeenLastCalledWith(expect.objectContaining({
+      caseId:'case-a',versionId:'case-a-v1',loading:false,error:false,recipient:'client@example.com',hasMessage:true,unsaved:false,
+    })));
+    fireEvent.change(screen.getByPlaceholderText('email@client.com'),{target:{value:'unsaved@example.com'}});
+    await waitFor(()=>expect(report).toHaveBeenLastCalledWith(expect.objectContaining({recipient:'client@example.com',unsaved:true})));
+    refetchGate=createDeferred();
+    void client.invalidateQueries({queryKey:['send-quotation-data','case-a']});
+    await waitFor(()=>expect(report).toHaveBeenLastCalledWith(expect.objectContaining({loading:true})));
+    db.quotation_versions.forEach(v=>{v.is_selected=v.id==='case-a-v2';});
+    await act(async()=>{refetchGate?.resolve();});
+    // First refresh may have captured v1 before the gate: explicitly refresh the selected v2.
+    refetchGate=null;await act(async()=>{await client.invalidateQueries({queryKey:['send-quotation-data','case-a']});});
+    await waitFor(()=>expect(report).toHaveBeenLastCalledWith(expect.objectContaining({
+      versionId:'case-a-v2',loading:false,hasDraft:false,recipient:'',subject:'',hasMessage:false,unsaved:false,
+    })));
+    expect(updateSpy).not.toHaveBeenCalled();expect(invokeMock).not.toHaveBeenCalled();client.clear();
+  });
+
   it.each([[false, false], [true, false], [false, true]])('creation lost response=%s / refresh failure=%s never enables stale draft', async (lostResponse, refreshFailure) => {
     seedTwoVersions('case-a');
     seedDraft('case-a-v1', {});

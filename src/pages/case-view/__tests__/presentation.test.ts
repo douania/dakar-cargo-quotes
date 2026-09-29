@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CockpitState } from "@/hooks/useCockpitState";
-import { buildPilotageViewModel, selectPilotageAction } from "../presentation";
+import { buildPilotageViewModel, guidedActionLabel, guidedSituation, readGuidedQuote, selectPilotageAction } from "../presentation";
 
 function cockpit(overrides: Partial<CockpitState> = {}): CockpitState {
   return {
@@ -54,5 +54,57 @@ describe("pilotage presentation", () => {
     const model = buildPilotageViewModel({ cockpit: cockpit(), hasCriticalUnconfirmed: false,
       selectedEstimate: { status: "success", totalTtc: 1_100, currency: "XOF" } });
     expect(model.confirmedQuote).toBeNull();
+  });
+});
+
+describe("guided presentation without changing commercial state", () => {
+  it("keeps partial money and all pending items together, including multi-lot legacy sources", () => {
+    const state = cockpit({ hasSelectedVersion: true, selectedVersionNumber: 2,
+      selectedVersionSnapshot: { totals: { total_payable: 1200, currency: "XOF" },
+        meta: { quoteQualification: { level: "firm", reasons: [] } },
+        raw_lines: [
+          { description: "Livraison", lot_index: 1, source: { type: "to_confirm+note" }, amount: null },
+          { label: "Séjour", lot_index: 2, source: "TO_CONFIRM:external", amount: 0 },
+          { description: "Service gratuit", source: "OFFICIAL", amount: 0 },
+        ] } });
+    const before = JSON.stringify(state);
+    expect(readGuidedQuote(state)).toMatchObject({ amount: { amount: 1200, currency: "XOF" },
+      qualification: "Total partiel — hors postes réservés",
+      pendingItems: ["Lot 1 · Livraison — à confirmer", "Lot 2 · Séjour — à confirmer"] });
+    expect(JSON.stringify(state)).toBe(before);
+  });
+  it("does not invent a version, money or a firm qualification", () => {
+    expect(readGuidedQuote(cockpit())).toBeNull();
+    expect(readGuidedQuote(cockpit({ hasSelectedVersion: true, selectedVersionNumber: 1,
+      selectedVersionSnapshot: { totals: { total_ttc: null, currency: "XOF" } } })))
+      .toMatchObject({ amount: null, qualification: "Montant de la version — qualification à vérifier" });
+  });
+  it("retains explicit reservations and operator bases even with a zero total", () => {
+    expect(readGuidedQuote(cockpit({ hasSelectedVersion: true, selectedVersionNumber: 3,
+      selectedVersionSnapshot: { totals: { total_payable: 0, currency: "XOF" }, operator_basis: {},
+        meta: { quoteQualification: { level: "provisional", reasons: [{ message: "Durée à confirmer" }] } } } })))
+      .toMatchObject({ amount: { amount: 0 }, qualification: "Montant provisoire — avec réserves",
+        reservations: ["Durée à confirmer", expect.stringContaining("bases opérateur")] });
+  });
+  it("keeps the scope and text of operator reservations and open points next to the version total", () => {
+    const summary = readGuidedQuote(cockpit({ hasSelectedVersion: true, selectedVersionNumber: 1,
+      selectedVersionSnapshot: { totals: { total_payable: 900, currency: "XOF" }, operator_basis: {
+        reservations: ["SCENARIO_DG_UNKNOWN", { unit_ref: "lot-2", message: "Transport spécialisé à consulter" }],
+        open_points: [{ ref: "lot-1", statement: "Durée de séjour à préciser" }],
+      } } }));
+    expect(summary?.reservations).toContain("Périmètre lot-2 : Transport spécialisé à consulter");
+    expect(summary?.reservations).toContain("Périmètre lot-1 : Durée de séjour à préciser");
+    expect(summary?.reservations.some(text => text.includes("SCENARIO_DG_UNKNOWN"))).toBe(false);
+    expect(summary?.qualification).toBe("Montant provisoire — avec réserves");
+  });
+  it("changes navigation words without changing the prioritized target or send semantics", () => {
+    const action = selectPilotageAction(cockpit({ status: "QUOTED_VERSIONED", hasSelectedVersion: true,
+      hasPdf: true, hasDraftEmail: true }), false, null)!;
+    expect(action.kind).toBe("mark_sent");
+    expect(guidedActionLabel(action)).toContain("envoi manuel");
+    expect(action.targetId).toBe("section-version");
+    expect(guidedSituation("QUOTED_VERSIONED", action)).toContain("à vérifier");
+    expect(guidedSituation("UNEXPECTED", null)).toBe("Situation du dossier à vérifier");
+    expect(guidedSituation("SENT", null)).toBe("Envoi du devis enregistré");
   });
 });
