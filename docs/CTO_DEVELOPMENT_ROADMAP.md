@@ -2657,3 +2657,30 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Navigateur local synthétique : trois situations à320px sans débordement global, deux colonnes desktop, accès clavier contrôle/envoi et conservation saisie entre présentations PASS. Panneaux voisins et E/S simulés ; recette Cloud et appréciation métier NOT_RUN.
 - Rollback global des cinq fichiers applicatifs PASS : patch appliqué puis inversé dans une copie de e5b262b, empreintes originales retrouvées avec core.autocrlf=false. Patch dossier-ui-complete-rollback.patch et capture dossier-figma-integre.png hors dépôt ; retour immédiat par Présentation précédente conservé.
 - Audit JSON généré à la racine au tour précédent identifié et déplacé hors dépôt ; .claude/ et notes antérieures préservés. Aucun commit/push, modification DB/Auth/RLS/FROZEN/runtime ni envoi. Publication privée du lot complet sous GO distinct §2.1.
+
+#### Dossier guidé — publication des contrôles et de la présentation Figma — 29 septembre 2026 — PASS_WITH_BASELINE
+
+- GO publication utilisateur reçu : commit/push work, synchronisation aperçu privé Lovable et recette synthétique, sans envoi client. e5b262b94416b0feba0b8303b8288e3b68ea1473 → 142bb583b638a81e43dbf1fffcc231ea2474813d ; six fichiers, +272/-54.
+- Diff : CaseTodoCard, CaseView, case-view/presentation, leurs deux tests et roadmap. Note locale transport lourd et .claude/ exclus du commit et préservés.
+- GitHub/local/Lovable alignés sur142bb58 ; aperçu redémarré pour résorber l'ancien rendu, build privé déclaré PASS par Lovable, aucun fichier ni commit supplémentaire. Nouvelle UI vérifiée dans le navigateur authentifié.
+- CI36600064818 : config/bundles/typecheck PASS ; Vitest623 PASS/1FAIL baseline LocalTransportEstimateFields:35 (ancien libellé). Étapes suivantes NOT_RUN en CI ; preuves locales build, lint/types Deno et tests Deno du lot ci-dessus conservées.
+- Recette Cloud : 8a06251d… incomplet, aa01530d… réserves/total partiel1 687 932FCFA, 450cb321… PDF+brouillon préparés/total partiel983 380FCFA PASS. Ce dernier reste sous réserves et sans destinataire, jamais présenté comme devis ferme prêt à envoyer.
+- Qualification en tête, action de relecture des réserves malgré PDF/brouillon, navigation clavier vers contrôle danger et section-send, libellés/guidances simplifiés, compteurs repliés PASS. Saisie synthétique non enregistrée conservée entre présentations puis effacée.
+- Accueils des trois dossiers et panneau Devis préparé à320px sans débordement global ; deux colonnes alignées à1280px. Taille navigateur restaurée ; capture dossier-ui-142bb58-publie.png hors dépôt.
+- Aucune sauvegarde de données pendant cette recette, aucun envoi/marquage SENT/recalcul/version/PDF créé. Aucun changement DB/Auth/RLS/migration/fonction serveur/FROZEN ; frontend privé seul actualisé, workspace_edit et is_published=false vérifiés.
+- Rollback immédiat : Présentation précédente ; rollback publié du présent lot : revert ciblé142bb58 puis reconstruction aperçu privé sous GO rollback. Patch cinq fichiers éprouvé au lot local, aucune restauration de données requise.
+- Clôture roadmap locale non commitée (pas de commit docs-only). Appréciation utilisateur en usage réel encore NOT_RUN ; suite recommandée : utiliser l'aperçu et corriger les difficultés observées.
+
+#### Bases de la marchandise — 29 septembre 2026 — PASS_WITH_BASELINE local, non publié
+
+- GO utilisateur : simplifier les bases de marchandise dans l’onglet Marchandise ; Codex seul écrivain, Frontend Design Premium appliqué, auto-revue proportionnée. Préflight work/local/GitHub142bb583 alignés ; notes antérieures et .claude/ préservées.
+- Périmètre : CaseView, PadGroupConfirmationsPanel, LotConfirmationsPanel et leurs deux tests ; aucun moteur FROZEN ni autre éditeur de scénarios modifié.
+- Vue guidée : résumé par groupe, poids total et poids déclaré/moyenne calculée distingués, formulaire ouvert à la demande ; ordre poids → catégorie → confirmation. Choix du poids en deux options explicites, réserve visible si provisoire, justificatifs consultables et attestations conservées.
+- Lots déjà liés avec terminal confirmé : édition repliée ; lots à compléter : liaison puis terminal. Détails de doctrine repliés, mêmes décisions explicites et mêmes contrôles serveur.
+- Résumé PAD : une confirmation périmée ou affectée par un problème n’est plus annoncée confirmée ; résumé effacé si lecture indisponible. Aucune nouvelle règle de confirmation ni nouvelle écriture.
+- Bascule précédente conservée ; champs et handlers communs, saisies préservées. Fonctions record des deux panneaux identiques à la base, payloads/verrous/attestations éprouvés par tests.
+- Tests ciblés57 PASS ; suite CI : config/bundles/typecheck PASS, Vitest628 PASS/1FAIL baseline LocalTransportEstimateFields:35. Étapes restantes exécutées séparément : build PASS, types Deno49/5 et lint732/16 sans aggravation ; Deno1745 PASS/1FAIL/6ignorés baseline set_intake_facts_batch:193. Deno live NOT_RUN.
+- ESLint des deux panneaux/deux tests PASS ; audit Premium116 constats contre120, zéro nouveau hors lignes et quatre retirés. Aucun DESIGN.md créé conformément à AGENTS ; tokens DM Sans/marine/or et primitives existantes conservés, listes natives courtes PAD et listes terminal existantes conservées.
+- Navigateur local synthétique : vrais CaseView et deux panneaux, E/S et voisins simulés ; résumé, formulaire au clavier, poids provisoire/réserve, liste PAD ouverte/Escape, refus d’enregistrement sans perte de saisie, lecture indisponible, chargement et absence de groupes PASS. Vue guidée à320px sans débordement global ; ancienne présentation vérifiée par les tests.
+- Rollback cinq fichiers PASS : patch appliqué/inversé sur copie isolée de142bb58, empreintes initiales retrouvées. Patch merchandise-rollback.patch et capture bases-marchandise-local.png hors dépôt.
+- Aucun commit/push, DB/Auth/RLS/migration/runtime ni envoi modifié ; recette Cloud de ce lot et appréciation utilisateur NOT_RUN. Publication privée sous GO distinct §2.1 ; Figma non utilisé pour ce lot, comparaison visuelle possible ultérieurement.

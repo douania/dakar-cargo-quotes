@@ -67,9 +67,9 @@ function DecisionForm({ kind, unit, state, head, lines, onSaved }: {
   const label = kind === "line_binding" ? "Ligne de demande de ce lot" : "Mode d’opération terminal de ce lot";
   const missing = [...(readOnly ? ["Dossier verrouillé."] : []), ...(!choice ? [kind === "line_binding" ? "Choisissez une ligne." : "Choisissez un mode."] : []),
     ...(source.trim().length < 3 ? ["Renseignez la source vérifiée."] : []), ...(!checked ? ["Cochez la vérification."] : [])];
-  return <fieldset className="space-y-2 rounded border p-3" disabled={pending}>
+  return <fieldset className="min-w-0 space-y-2 rounded border p-3" disabled={pending}>
     <legend className="px-1 text-sm font-medium">{label}</legend>
-    <select aria-label={`${label} — ${unit.unit_ref}`} className="block w-full rounded border bg-background p-2 text-sm" value={choice}
+    <select aria-label={`${label} — ${unit.unit_ref}`} className="block w-full min-w-0 rounded border bg-background p-2 text-sm" value={choice}
       onChange={e => { setChoice(e.target.value); setChecked(false); }} disabled={readOnly}>
       <option value="">{kind === "line_binding" ? "Choisir une ligne…" : "Choisir un mode…"}</option>
       {kind === "line_binding"
@@ -83,15 +83,15 @@ function DecisionForm({ kind, unit, state, head, lines, onSaved }: {
         : MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
     </select>
     <label className="block text-sm">Source vérifiée
-      <textarea className="mt-1 block min-h-16 w-full rounded border bg-background p-2" value={source} maxLength={2000}
+      <textarea rows={4} className="resize-none mt-1 block min-h-16 w-full rounded border bg-background p-2" value={source} maxLength={2000}
         onChange={e => { setSource(e.target.value); setChecked(false); }} disabled={readOnly} />
     </label>
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} disabled={readOnly} />
       {kind === "line_binding" ? "J’ai vérifié que ce lot correspond à cette ligne" : "J’ai vérifié le mode de ce lot dans la source"}</label>
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" disabled={pending || missing.length > 0} onClick={() => record("confirm")}>
+      <Button size="sm" className="h-auto min-h-11 whitespace-normal text-left" disabled={pending || missing.length > 0} onClick={() => record("confirm")}>
         {kind === "line_binding" ? "Lier ce lot à la ligne" : "Confirmer le mode terminal"}</Button>
-      {head?.action === "confirm" && <Button size="sm" variant="outline" disabled={pending || readOnly || source.trim().length < 3}
+      {head?.action === "confirm" && <Button size="sm" className="h-auto min-h-11 whitespace-normal text-left" variant="outline" disabled={pending || readOnly || source.trim().length < 3}
         onClick={() => record("revoke")}>Retirer cette confirmation</Button>}
     </div>
     {missing.length > 0 && !readOnly && <p className="text-xs text-muted-foreground">{missing.join(" ")}</p>}
@@ -108,19 +108,22 @@ function currentValue(kind: LotDecisionKind, head: LotDecision | undefined, line
   return `${valid ? "" : "ancienne valeur, non appliquée : "}${value} (source : ${head.source_reference})`;
 }
 
-function LotCard({ unit, state, onSaved }: { unit: LotUnit; state: State; onSaved: () => Promise<void> }) {
+function LotCard({ guided = false, unit, state, onSaved }: { guided?: boolean; unit: LotUnit; state: State; onSaved: () => Promise<void> }) {
   const { context, resolution } = state;
   const head = (kind: LotDecisionKind) => context.heads.find(h => h.unit_ref === unit.unit_ref && h.decision_kind === kind);
   const binding = resolution.bindings.find(b => b.unit_ref === unit.unit_ref);
   const terminal = resolution.terminals.find(t => t.unit_ref === unit.unit_ref);
   const issues = (kind: LotDecisionKind) => resolution.issues.filter((i: LotIssue) => i.unit_ref === unit.unit_ref && i.kind === kind);
-  return <article className="space-y-3 rounded-md border bg-card p-4" data-lot-ref={unit.unit_ref}>
+  return <article className="min-w-0 space-y-3 rounded-md border bg-card p-4 break-words" data-lot-ref={unit.unit_ref}>
     <div>
       <p className="text-xs font-medium uppercase text-muted-foreground">Lot {unit.unit_ref}</p>
       <h4 className="text-lg font-semibold">{unit.quantity ?? "?"} × {unit.equipment_code ?? unit.unit_kind}</h4>
       <p className="text-sm">{unit.scenario_basis}</p>
     </div>
-    <div className="grid gap-3 lg:grid-cols-2">
+    {guided && <p className="text-sm font-medium">{binding && terminal ? "Ligne client et mode terminal vérifiés" : binding ? "Mode terminal à vérifier" : "Ligne client à relier"}</p>}
+    <details open={!guided || !binding || !terminal || undefined} className={guided ? "rounded border p-3" : undefined}>
+      <summary className={guided ? "cursor-pointer text-sm font-medium" : "hidden"}>{binding && terminal ? "Revoir les choix et leurs sources" : "Vérifier la ligne client et le terminal"}</summary>
+    <div className={guided ? "mt-3 grid gap-5" : "grid gap-3 lg:grid-cols-2"}>
       <div className="space-y-2">
         <p className="text-sm"><span className="font-medium">Ligne : </span>{binding ? `${lineName(binding.line)} — confirmée` : currentValue("line_binding", head("line_binding"), context.lines, false)}</p>
         {issues("line_binding").map(i => <p key={i.code} className="text-sm text-amber-700">{say(i.code)}</p>)}
@@ -136,10 +139,11 @@ function LotCard({ unit, state, onSaved }: { unit: LotUnit; state: State; onSave
           : <p className="text-sm text-muted-foreground">Liez d’abord ce lot à sa ligne de demande.</p>}
       </div>
     </div>
+    </details>
   </article>;
 }
 
-export function LotConfirmationsPanel({ caseId, onChanged }: { caseId: string; onChanged: () => void }) {
+export function LotConfirmationsPanel({ guided = false, caseId, onChanged }: { guided?: boolean; caseId: string; onChanged: () => void }) {
   const queryClient = useQueryClient();
   const lineCount = useQuery({ queryKey: ["lot-confirmation-line-count", caseId], queryFn: async () => {
     const { count, error } = await supabase.from("quote_request_lines").select("id", { count: "exact", head: true }).eq("case_id", caseId);
@@ -164,11 +168,12 @@ export function LotConfirmationsPanel({ caseId, onChanged }: { caseId: string; o
   const unbound = state?.context.lines.filter(l => !state.resolution.bindings.some(b => b.line.id === l.id)) ?? [];
   return <section id="section-lot-confirmations" className="my-3 space-y-3" aria-label="Lots du dossier multi-demande">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h3 className="text-base font-semibold">Lots du devis : liaison aux lignes de demande et mode terminal</h3>
-      <Button size="sm" variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>Actualiser les lots</Button>
+      <h3 className="text-base font-semibold">{guided ? "Relier les lots aux demandes du client" : "Lots du devis : liaison aux lignes de demande et mode terminal"}</h3>
+      <Button size="sm" className="h-auto min-h-11 whitespace-normal text-left" variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>Actualiser les lots</Button>
     </div>
+    <details open={!guided || undefined}><summary className={guided ? "cursor-pointer text-sm" : "hidden"}>Pourquoi vérifier chaque lot ?</summary>
     <p className="text-sm text-muted-foreground">Chaque lot du scénario sélectionné doit être lié explicitement à sa ligne de demande, puis recevoir son mode terminal et sa catégorie PAD.
-      Ces décisions ne modifient aucun fait client. Toute réanalyse ou modification du dossier les rend périmées : les anciennes valeurs restent affichées mais doivent être reconfirmées. Le mode terminal global du dossier ne vaut jamais pour un lot.</p>
+      Ces décisions ne modifient aucun fait client. Toute réanalyse ou modification du dossier les rend périmées : les anciennes valeurs restent affichées mais doivent être reconfirmées. Le mode terminal global du dossier ne vaut jamais pour un lot.</p></details>
     {query.isLoading && <p>Chargement des lots…</p>}
     {query.isError && <p role="alert">Confirmations par lot indisponibles. Aucune liaison ni aucun mode ne doit être considéré comme confirmé.</p>}
     {state && <>
@@ -176,7 +181,7 @@ export function LotConfirmationsPanel({ caseId, onChanged }: { caseId: string; o
       {globalIssues.map(i => <p key={i.code} className="text-sm text-amber-700">{say(i.code)}</p>)}
       {lineIssues.length > 0 && <p className="text-sm text-amber-700">{say("LOT_LINE_AMBIGUOUS")}</p>}
       {unbound.length > 0 && !globalIssues.length && <p className="text-sm">Lignes encore sans lot : {unbound.map(lineName).join(" ; ")}.</p>}
-      {state.resolution.units.map(unit => <LotCard key={unit.unit_ref} unit={unit} state={state} onSaved={onSaved} />)}
+      {state.resolution.units.map(unit => <LotCard guided={guided} key={unit.unit_ref} unit={unit} state={state} onSaved={onSaved} />)}
     </>}
   </section>;
 }

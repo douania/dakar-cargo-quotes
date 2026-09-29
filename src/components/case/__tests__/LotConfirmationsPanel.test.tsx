@@ -85,3 +85,18 @@ it("service failure: no lot is presented as confirmed", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("Confirmations par lot indisponibles");
   expect(screen.queryByText(/— confirmé/)).not.toBeInTheDocument();
 });
+
+it("guided: completed lots collapse their forms while unresolved lots stay open", async () => {
+  io.count.mockResolvedValue({ count: 2, error: null });
+  const s = state();
+  s.resolution = { ...s.resolution, bindings: [{ unit_ref: "a", line: lineA }] as never[], terminals: [{ unit_ref: "a", mode: "LOLO" }] as never[] };
+  io.invoke.mockResolvedValue({ data: s, error: null });
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><LotConfirmationsPanel guided caseId="case" onChanged={vi.fn()} /></QueryClientProvider>);
+  const completed = (await screen.findByText("Lot a")).closest("article")!;
+  const unresolved = screen.getByText("Lot b").closest("article")!;
+  expect(within(completed).getByText("Revoir les choix et leurs sources").closest("details")).not.toHaveAttribute("open");
+  expect(within(unresolved).getByText("Vérifier la ligne client et le terminal").closest("details")).toHaveAttribute("open");
+  await userEvent.click(within(completed).getByText("Revoir les choix et leurs sources"));
+  expect(within(completed).getByText("Revoir les choix et leurs sources").closest("details")).toHaveAttribute("open");
+  expect(io.invoke).toHaveBeenCalledTimes(1);
+});

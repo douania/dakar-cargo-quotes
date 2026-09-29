@@ -2128,10 +2128,11 @@ export default function CaseView() {
         </details>
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
         {caseId && <details ref={scenarioPanel} open={guided || undefined} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
-          <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
+          <summary className="cursor-pointer font-medium">{guided ? "Bases de la marchandise" : "Marchandises et catégories portuaires"}{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
+          {guided && <p className="my-3 text-sm text-muted-foreground">Vérifiez les groupes à transporter, puis leur poids et leur catégorie portuaire. Pour plusieurs demandes, commencez par relier chaque lot à la bonne ligne client.</p>}
           {/* MULTI-LOT-TERMINAL-1: lots liés explicitement aux lignes, avant leurs confirmations PAD. */}
-          <LotConfirmationsPanel caseId={caseId} onChanged={handleRefresh} />
-          <PadGroupConfirmationsPanel caseId={caseId} onChanged={handleRefresh}
+          <LotConfirmationsPanel guided={guided} caseId={caseId} onChanged={handleRefresh} />
+          <PadGroupConfirmationsPanel guided={guided} caseId={caseId} onChanged={handleRefresh}
             dangerousGoodsFalse={facts.some((fact) => fact.fact_key === "cargo.dangerous_goods" && fact.is_current && (fact.value_text === "false" || fact.value_json === false))}
             extractedWeightConfidence={facts.find((fact) => fact.fact_key === "cargo.weight_kg" && fact.is_current)?.confidence ?? null}
             onSummaryChange={setPadGroupSummary}

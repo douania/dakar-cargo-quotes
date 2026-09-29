@@ -177,3 +177,79 @@ it("does not offer commercial override of an operator-confirmed contradictory fa
   await screen.findByRole("alert");
   expect(screen.queryByRole("button", { name: "Retenir la base révisable" })).not.toBeInTheDocument();
 });
+
+it("guided: required fields precede confirmation, preserve values across rollback and keep the request contract", async () => {
+  const s = state();
+  io.invoke.mockResolvedValue({ data: s, error: null });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (guided: boolean) => <QueryClientProvider client={client}><PadGroupConfirmationsPanel guided={guided} caseId="case" onChanged={vi.fn()} onEstimateReview={vi.fn()} /></QueryClientProvider>;
+  const rendered = render(view(true));
+  await screen.findByText("Compléter les bases de ce groupe");
+  expect(screen.getByText("Compléter les bases de ce groupe").closest("details")).not.toHaveAttribute("open");
+  await userEvent.click(screen.getByText("Compléter les bases de ce groupe"));
+  const source = screen.getByLabelText("Source du poids et de l’allocation du groupe");
+  expect(source.closest("details")).toHaveAttribute("open");
+  expect(screen.getByLabelText("Catégorie PAD").closest("details")).toHaveAttribute("open");
+  expect(source.compareDocumentPosition(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByText("Moyenne calculée par conteneur")).toBeInTheDocument();
+  const user = userEvent.setup();
+  await user.type(source, "Deux conteneurs de 18 tonnes — pièce synthétique");
+  rendered.rerender(view(false));
+  expect(screen.getByLabelText("Source du poids et de l’allocation du groupe")).toHaveValue("Deux conteneurs de 18 tonnes — pièce synthétique");
+  rendered.rerender(view(true));
+  if (!screen.getByText("Compléter les bases de ce groupe").closest("details")?.open) await userEvent.click(screen.getByText("Compléter les bases de ce groupe"));
+  expect(screen.getByLabelText("Source du poids et de l’allocation du groupe")).toHaveValue("Deux conteneurs de 18 tonnes — pièce synthétique");
+  await user.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
+  await user.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
+  await user.click(screen.getByRole("button", { name: "Confirmer T02 pour le devis" }));
+  await waitFor(() => expect(io.invoke).toHaveBeenCalledWith("manage-pad-group-confirmation", { body: {
+    case_id: "case", action: "record", decision: { unit_ref: "a", action: "confirm", category: "T02",
+      source_reference: "Proposition à vérifier (T02) : Équipements électriques", weight_source_reference: "Deux conteneurs de 18 tonnes — pièce synthétique",
+      weight_basis: "confirmed", weight_reservation: "", expected_context_hash: "b".repeat(64), expected_head_id: null, idempotency_key: expect.any(String) }
+  } }));
+});
+
+it("guided: provisional weight remains explicit, a refused save preserves input and shows the error outside details", async () => {
+  io.invoke.mockImplementation((_name, { body }) => Promise.resolve(body.action === "read" ? { data: state(), error: null } : { error: new Error("conflict") }));
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><PadGroupConfirmationsPanel guided caseId="case" onChanged={vi.fn()} onEstimateReview={vi.fn()} /></QueryClientProvider>);
+  await userEvent.click(await screen.findByText("Compléter les bases de ce groupe"));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("radio", { name: "Poids provisoire, avec réserve" }));
+  expect(screen.getByLabelText("Réserve à reproduire dans la cotation").closest("details")).toHaveAttribute("open");
+  await user.type(screen.getByLabelText("Source du poids et de l’allocation du groupe"), "Pièce synthétique à rapprocher");
+  await user.click(screen.getByRole("checkbox", { name: "Source vérifiée" }));
+  await user.click(screen.getByRole("checkbox", { name: "Je confirme cette catégorie pour le devis" }));
+  await user.click(screen.getByRole("button", { name: "Confirmer T02 pour le devis" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Enregistrement non confirmé");
+  expect(screen.getByRole("alert").closest("details")).toBeNull();
+  expect(screen.getByLabelText("Source du poids et de l’allocation du groupe")).toHaveValue("Pièce synthétique à rapprocher");
+  expect(io.invoke.mock.calls.find(([, args]) => args.body.action === "record")?.[1].body.decision).toMatchObject({ weight_basis: "provisional", weight_reservation: expect.stringContaining("révisables") });
+});
+
+it("guided: stale confirmations never become a confirmed summary, and read errors clear it", async () => {
+  const stale = { ...state(), heads: [{ id: "old", unit_ref: "a", action: "confirm", category: "T02", context_hash: "old", weight_basis: "confirmed" }], issues: [{ unit_ref: "a", code: "PAD_CONFIRMATION_STALE" }] };
+  const onSummaryChange = vi.fn();
+  io.invoke.mockResolvedValue({ data: stale, error: null });
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><PadGroupConfirmationsPanel guided caseId="case" onChanged={vi.fn()} onEstimateReview={vi.fn()} onSummaryChange={onSummaryChange} /></QueryClientProvider>);
+  expect(await screen.findByText("À revérifier")).toBeInTheDocument();
+  await userEvent.click(screen.getByText("Compléter les bases de ce groupe"));
+  expect(screen.getByRole("radio", { name: "Poids confirmé par une source" }).closest("details")).toHaveAttribute("open");
+  expect(onSummaryChange).toHaveBeenLastCalledWith("catégorie PAD à confirmer");
+  io.invoke.mockResolvedValue({ data: null, error: new Error("offline") });
+  await userEvent.click(screen.getByRole("button", { name: "Actualiser les confirmations" }));
+  await screen.findByRole("alert");
+  await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith(""));
+  expect(screen.queryByText("À revérifier")).not.toBeInTheDocument();
+});
+
+it("guided: locked groups stay read-only and missing weight never appears as zero", async () => {
+  const s = state(); s.read_only = true; s.context.groups[0].total_weight_kg = null as unknown as number;
+  io.invoke.mockResolvedValue({ data: s, error: null });
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><PadGroupConfirmationsPanel guided caseId="case" onChanged={vi.fn()} onEstimateReview={vi.fn()} /></QueryClientProvider>);
+  await userEvent.click(await screen.findByText("Compléter les bases de ce groupe"));
+  expect(screen.getByRole("radio", { name: "Poids confirmé par une source" })).toBeDisabled();
+  expect(screen.getByLabelText("Catégorie PAD")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Confirmer T02 pour le devis" })).toBeDisabled();
+  expect(screen.getByText("Poids total du groupe").parentElement).toHaveTextContent("À préciser");
+  expect(io.invoke).toHaveBeenCalledTimes(1);
+});
