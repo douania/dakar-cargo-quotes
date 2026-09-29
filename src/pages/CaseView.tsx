@@ -1124,12 +1124,15 @@ export default function CaseView() {
   const openClientQuestions = gaps.filter((gap) => gap.gap_key !== PAD_REVIEW_GAP_KEY);
   const openClientBlockingQuestions = openClientQuestions.filter((gap) => gap.is_blocking).length;
   const openCoordinationBlock = (id: string) => {
-    const target = document.getElementById(id);
-    if (!target) return;
-    for (let current: HTMLElement | null = target; current; current = current.parentElement) {
-      if (current instanceof HTMLDetailsElement) current.open = true;
-    }
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    revealTab(SECTION_TAB[id] ?? "echanges");
+    afterTabPaint(() => {
+      const target = document.getElementById(id);
+      if (!target) return;
+      for (let current: HTMLElement | null = target; current; current = current.parentElement) {
+        if (current instanceof HTMLDetailsElement) current.open = true;
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
   const confirmedQuoteSummary = cockpitState ? [
     cockpitState.selectedVersionNumber !== null ? `version ${cockpitState.selectedVersionNumber}` : null,
