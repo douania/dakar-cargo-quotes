@@ -118,11 +118,17 @@ export default function CaseView() {
   const scenarioPanel = React.useRef<HTMLDetailsElement>(null);
   const [activeTab, setActiveTab] = useState<string>("devis");
   // Chaque ancre historique reste atteignable : on active d'abord l'onglet hôte,
-  // puis on défile une fois le contenu peint.
+  // puis on agit sur la cible une fois l'onglet rendu.
   const revealTab = (tab: string) => setActiveTab((current) => (current === tab ? current : tab));
+  const [pendingReveals, setPendingReveals] = React.useState<Array<() => void>>([]);
   const afterTabPaint = (fn: () => void) => {
-    requestAnimationFrame(() => requestAnimationFrame(fn));
+    setPendingReveals((prev) => [...prev, fn]);
   };
+  React.useEffect(() => {
+    if (pendingReveals.length === 0) return;
+    pendingReveals.forEach((fn) => fn());
+    setPendingReveals([]);
+  }, [pendingReveals]);
   const openScenarioReview = () => {
     revealTab("marchandise");
     afterTabPaint(() => {
