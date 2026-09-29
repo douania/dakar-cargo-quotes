@@ -27,6 +27,7 @@
  */
 
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import { SpecialTransportGuidance } from "./SpecialTransportGuidance";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -1739,6 +1740,8 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
       </CardHeader>
 
       <CardContent className="py-2 px-4 space-y-2">
+        {formMode === "none" && !selectionsQuery.isLoading && !selectionsQuery.error && openSelection &&
+          <SpecialTransportGuidance snapshot={scenarioById.get(openSelection.scenario_id)?.scope_snapshot} />}
         {formMode === "none" && <ScenarioProposalPanel key={`${caseId}:${openSelection?.scenario_id ?? "none"}`} caseId={caseId} actionRef={proposalAction}
           onRevisePad={openSelection ? (proposal, choices) => {
             const selected = scenarios.find(s => s.id === openSelection.scenario_id && !s.superseded_by_scenario_id);

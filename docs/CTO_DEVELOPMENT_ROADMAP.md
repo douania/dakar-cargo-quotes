@@ -2600,3 +2600,17 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Recette GoTrans UI PASS : run #2 `6ecd87db-6966-4be8-a314-fbf23b1d5003`, version v1 `96a93162-bb78-4533-bf26-b6fe6dec3c60`, PDF exporté, brouillon `8638d237-4827-422a-9786-cafadc6c84ae` DRAFT ; total partiel 48 024 930 XOF, sept postes réservés. Hashes faits/ancien run/ancienne version inchangés.
 - Correction de rendu après recette : transport en prose, réserves avec périmètre, suppression des identifiants techniques dans l'affichage seul ; cinq tests ciblés PASS et contre-revue delta PASS. Rendu local depuis snapshot réel contrôlé ; les PDF Cloud déjà exportés restent immuables, ce correctif concerne les nouveaux exports.
 - Verdict fonctionnel PASS_WITH_BASELINE ; Auth/RLS/moteurs FROZEN inchangés. Verrous SQL globaux brefs, attente bornée à 5s. Aucun envoi ni marquage SENT ; tests live Deno NOT_RUN.
+
+
+#### Orientation opérateur transport lourd — 29 septembre 2026 — PASS local, non publié
+
+- GO utilisateur : orientation vers consultation spécialisée et examen du régime exceptionnel ; Codex seul écrivain.
+- Préflight work@f4e5d337 = GitHub ; seul .claude/ non suivi préexistant, préservé. HEAD inchangé.
+- Périmètre : SpecialTransportGuidance.tsx et son test, insertion QuoteScenariosPanel.tsx et test de sélection, présente note (5 fichiers).
+- Fiche visible pour les conteneurs lourds du scénario maritime import sélectionné : poids individuel explicite, seuil interne18t distingué du droit ; au-delà51t, examen article7 UEMOA pour acheminement au Sénégal, aucune conformité affirmée.
+- Consignes : photos/fiche technique, tare incluse ou non, configuration/capacités/répartition par essieu, danger retenu, terminal, itinéraire/autorisations, contenu/validité du prix transporteur. Offre spécialisée non injectée automatiquement.
+- Totaux de groupes non répartis arbitrairement ; poids inconnu/invalide ignoré ; changement de sélection/poids retire la fiche périmée. Photos mentionnées comme pièces à joindre, pas analysées par ce composant.
+- ROAD-LOAD-1 reste INFO_MANQUANTE : écarts tickets/dépliant non arbitrés. Aucun catalogue réglementaire raccordé et aucune tolérance déduite.
+- Vérifications : 30 tests UI ciblés PASS, typecheck PASS, ESLint4fichiers PASS, build PASS (avertissements dépendances/taille), diff-check PASS. Dernier ajustement textuel Sénégal contre-relu ; CI complète et recette Cloud NOT_RUN.
+- Contre-revue indépendante lecture seule PASS après3précisions de formulation (poids déclaré, classement retenu, portée Sénégal).
+- Aucun impact prix/DB/Auth/RLS/runtime, aucun composant FROZEN touché, aucun commit/push/déploiement/envoi. Rollback : retirer composant/import/insertion et tests associés. Publication sous GO distinct.

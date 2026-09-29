@@ -43,6 +43,25 @@ function submit() {
 }
 
 describe("scenario creation contract routing", () => {
+  it("shows heavy transport guidance only for the selected revision without invoking pricing", () => {
+    const base = buildScopeSnapshot(emptyScenarioDraftV2()).snapshot;
+    const heavy = { ...base, transport_mode: 'MARITIME', movement_direction: 'IMPORT', cargo_units: [{
+      unit_ref: 'heavy-unit', unit_kind: 'CONTAINER', quantity: 39, equipment_code: '20HQ',
+      gross_weight_kg: 55000, weight_basis: 'per_unit', dangerous_goods: true, un_number: 'UN3536',
+    }] };
+    mocks.queryRows['quote-scenarios'] = [
+      { id: 'heavy-revision', title: 'Heavy', scope_snapshot: heavy, status: 'draft', revision_no: 1 },
+      { id: 'ordinary-revision', title: 'Ordinary', scope_snapshot: base, status: 'draft', revision_no: 2 },
+    ];
+    mocks.queryRows['quote-scenario-selections'] = [{ scenario_id: 'heavy-revision', released_at: null }];
+    const { rerender } = render(<QuoteScenariosPanel caseId="synthetic-case" />);
+    expect(screen.getByRole('region', { name: 'Orientation transport des lots lourds' })).toBeVisible();
+    mocks.queryRows['quote-scenario-selections'] = [{ scenario_id: 'ordinary-revision', released_at: null }];
+    rerender(<QuoteScenariosPanel caseId="synthetic-case" />);
+    expect(screen.queryByRole('region', { name: 'Orientation transport des lots lourds' })).toBeNull();
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
   it("renders one row per revision, one selected detail, and never repeats reservations", () => {
     const original = [{ id: "scenario-r2", root_scenario_id: "root-a", case_id: "synthetic-case", title: "Révision deux", status: "draft",
       scope_hash: "b".repeat(64), scope_snapshot: buildScopeSnapshot(emptyScenarioDraftV2()).snapshot, open_points: [{ key: "cargo.weight" }],
