@@ -94,6 +94,23 @@ function formatPackageLabel(packageKey: string): string {
   return packageKey.trim().replace(/_/g, " ");
 }
 
+// Onglet hôte de chaque ancre historique du dossier.
+const SECTION_TAB: Record<string, string> = {
+  "section-pricing": "devis",
+  "section-version": "devis",
+  "section-data": "marchandise",
+  "section-scenarios": "marchandise",
+  "section-scenario-variants": "marchandise",
+  "section-stay-assumptions": "marchandise",
+  "section-closed-actions": "echanges",
+  "section-reply-analysis": "echanges",
+  "section-reply-drafts": "echanges",
+  "section-coordination": "echanges",
+  "section-partner-detail": "echanges",
+  "section-external-requests": "echanges",
+  "section-sources": "audit",
+};
+
 export default function CaseView() {
   const queryClient = useQueryClient();
   const { caseId } = useParams<{ caseId: string }>();
