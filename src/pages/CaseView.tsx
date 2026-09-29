@@ -99,14 +99,24 @@ export default function CaseView() {
   const { caseId } = useParams<{ caseId: string }>();
   const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
   const scenarioPanel = React.useRef<HTMLDetailsElement>(null);
+  const [activeTab, setActiveTab] = useState<string>("devis");
+  // Chaque ancre historique reste atteignable : on active d'abord l'onglet hôte,
+  // puis on défile une fois le contenu peint.
+  const revealTab = (tab: string) => setActiveTab((current) => (current === tab ? current : tab));
+  const afterTabPaint = (fn: () => void) => {
+    requestAnimationFrame(() => requestAnimationFrame(fn));
+  };
   const openScenarioReview = () => {
-    if (!scenarioPanel.current) return;
-    scenarioPanel.current.open = true;
-    scenarioPanel.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    const target = scenarioPanel.current.querySelector<HTMLElement>('[data-pad-needs-review="true"]');
-    const decision = target?.querySelector("details");
-    if (decision) decision.open = true;
-    target?.focus({ preventScroll: true });
+    revealTab("marchandise");
+    afterTabPaint(() => {
+      if (!scenarioPanel.current) return;
+      scenarioPanel.current.open = true;
+      scenarioPanel.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      const target = scenarioPanel.current.querySelector<HTMLElement>('[data-pad-needs-review="true"]');
+      const decision = target?.querySelector("details");
+      if (decision) decision.open = true;
+      target?.focus({ preventScroll: true });
+    });
   };
   const openEstimateReview = () => {
     openScenarioReview();
