@@ -1,6 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { CockpitState } from "@/hooks/useCockpitState";
-import { buildPilotageViewModel, guidedActionLabel, guidedSituation, readGuidedQuote, selectPilotageAction } from "../presentation";
+import { buildPilotageViewModel, guidedActionLabel, guidedSituation, presentGuidedGap, readGuidedQuote, selectPilotageAction } from "../presentation";
+import { PAD_REVIEW_GAP_KEY, PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
+
+describe("guided control wording", () => {
+  it("summarizes the danger scope without inferring safety and preserves the full diagnostic", () => {
+    const original = "Contrôle du périmètre IMO. NO_DIRECT_BINDING, UN_WITHOUT_PROVEN_GROUP. Lot 2 : source client à vérifier.";
+    const result = presentGuidedGap({ gap_key: "cargo.imo_goods_scope_confirmation", question_fr: original });
+    expect(result.label).not.toMatch(/NO_DIRECT_BINDING|UN_WITHOUT/);
+    expect(result.guidance).toContain("statut dangereux");
+    expect(result.guidance).toContain("contrôle reste à résoudre");
+    expect(result.detail).toBe(original);
+  });
+  it("distinguishes a weight reconciliation from a port category review", () => {
+    const weight = presentGuidedGap({ gap_key: PAD_REVIEW_GAP_KEY, question_fr: PAD_WEIGHT_REVIEW_FR });
+    const category = presentGuidedGap({ gap_key: PAD_REVIEW_GAP_KEY });
+    expect(weight.label).toContain("poids extrait");
+    expect(weight.guidance).toBe(PAD_WEIGHT_REVIEW_FR);
+    expect(category.label).toContain("catégories portuaires");
+    expect(category.label).not.toBe(weight.label);
+  });
+  it("never hides an unknown question or invents a meaning for an unknown key", () => {
+    const question = "Vérifier SPECIAL_UNRECOGNIZED pour le lot 3, seulement après réception du document.";
+    expect(presentGuidedGap({ gap_key: "custom.special", question_fr: question }).label).toBe(question);
+    const fallback = presentGuidedGap({ gap_key: "custom.special", question_fr: null });
+    expect(fallback.detail).toBe("custom.special");
+    expect(fallback.label).toContain("préciser");
+  });
+});
 
 function cockpit(overrides: Partial<CockpitState> = {}): CockpitState {
   return {

@@ -4,12 +4,12 @@ import {
   statusAtLeast,
   statusBelow,
 } from "@/lib/cockpitStatusConstants";
-import { PAD_REVIEW_TITLE, PAD_WEIGHT_REVIEW_TITLE } from "@/lib/padGapReview";
+import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, PAD_WEIGHT_REVIEW_FR, PAD_REVIEW_TITLE, PAD_WEIGHT_REVIEW_TITLE } from "@/lib/padGapReview";
 import {
   type SeaFreightPartnerActionKind,
   type SeaFreightPartnerActionSpec,
 } from "@/lib/seaFreightPartnerAction";
-import { STATUS_LABELS } from "./constants";
+import { FACT_LABELS, STATUS_LABELS } from "./constants";
 import { scenarioPricingCodeMessage } from "@/lib/scenarioPricing";
 
 export type PilotageActionKind =
@@ -235,6 +235,23 @@ export function buildPilotageViewModel(input: {
 
 export const CASE_PRESENTATION_KEY = "case-presentation-v1";
 
+// Display only. Keep the original control available; never infer its resolution
+// or replace an unknown business question with a generic, reassuring summary.
+export function presentGuidedGap(gap: { gap_key: string; question_fr?: string | null }) {
+  const original = gap.question_fr?.trim() || "";
+  if (gap.gap_key === "cargo.imo_goods_scope_confirmation") return {
+    label: "Vérifier les informations de danger et les conteneurs concernés",
+    guidance: "Pour chaque groupe, vérifiez le statut dangereux et son lien avec une source client actuelle. Un nombre de colis ne prouve pas le nombre de conteneurs. Le contrôle reste à résoudre avant le calcul du devis confirmé.",
+    detail: original || gap.gap_key,
+  };
+  if (gap.gap_key === PAD_REVIEW_GAP_KEY) return {
+    label: original === PAD_WEIGHT_REVIEW_FR ? "Rapprocher le poids extrait et le poids retenu pour le devis" : "Vérifier les catégories portuaires de la marchandise",
+    guidance: original === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR,
+    detail: original || PAD_REVIEW_FR,
+  };
+  return { label: original || FACT_LABELS[gap.gap_key] || "Information à préciser dans les contrôles", guidance: null, detail: original ? null : gap.gap_key };
+}
+
 // Navigation copy only: the existing action priority and mutation guards stay authoritative.
 export function guidedActionLabel(action: PilotageAction): string {
   const labels: Partial<Record<PilotageActionKind, string>> = {
@@ -260,6 +277,7 @@ export interface GuidedQuoteSummary {
   versionNumber: number;
   amount: PilotageAmount | null;
   qualification: string;
+  qualificationLevel: "partial" | "provisional" | "firm" | "unknown";
   reservations: string[];
   pendingItems: string[];
 }
@@ -302,13 +320,16 @@ export function readGuidedQuote(state: CockpitState): GuidedQuoteSummary | null 
   }
   const partial = pendingItems.length > 0 || qualification.level === "partial"
     || qualification.firmTotalPolicy === "excludes_reserved_items";
-  const label = partial ? "Total partiel — hors postes réservés"
-    : qualification.level === "provisional" || reservations.length > 0 ? "Montant provisoire — avec réserves"
-    : qualification.level === "firm" ? "Montant de la version — qualification ferme"
+  const qualificationLevel = partial ? "partial"
+    : qualification.level === "provisional" || reservations.length > 0 ? "provisional"
+    : qualification.level === "firm" ? "firm" : "unknown";
+  const label = qualificationLevel === "partial" ? "Total partiel — hors postes réservés"
+    : qualificationLevel === "provisional" ? "Montant provisoire — avec réserves"
+    : qualificationLevel === "firm" ? "Montant de la version — qualification ferme"
     : "Montant de la version — qualification à vérifier";
   return {
     versionNumber: state.selectedVersionNumber,
-    amount: readConfirmedQuote(state), qualification: label,
+    amount: readConfirmedQuote(state), qualification: label, qualificationLevel,
     reservations: [...new Set(reservations)], pendingItems,
   };
 }

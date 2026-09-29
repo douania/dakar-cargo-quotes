@@ -23,7 +23,8 @@ const run: NonNullable<SelectedScenarioEstimate['run']> = { id:'r', scenario_id:
   completed_at:'2026-09-15T12:00:00Z', currency:'XOF', indicative_total_ht:1000, indicative_total_ttc:1180,
   tariff_lines:[{id:'pad',category:'PAD_DROIT_PASSAGE',amount:null,notes:'Catégorie à choisir',source:{type:'TO_CONFIRM'}}],
   reservations:['SCENARIO_DG_UNKNOWN'],blockers:[] };
-const gaps = [{id:'g',gap_key:'cargo.pad_category',status:'open',is_blocking:true,question_fr:'Catégorie PAD à préciser'}];
+const initialGaps = [{id:'g',gap_key:'cargo.pad_category',status:'open',is_blocking:true,question_fr:'Catégorie PAD à préciser'}];
+let gaps = initialGaps;
 const facts = [{id:'f',fact_key:'service.package',value_text:'DAP',is_current:true}];
 vi.doMock('react-router-dom',()=>({useParams:()=>({caseId}),useNavigate:()=>vi.fn()}));
 vi.doMock('@/integrations/supabase/client',()=>({supabase:{functions:{invoke},from:vi.fn()}}));
@@ -61,10 +62,56 @@ for (const match of source.matchAll(/import (.+) from "(@\/components\/(?:case|p
 const CaseView = (await import('../../CaseView')).default;
 let client: QueryClient;
 beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPartnerRequests=0;closedPartnerRequests=0;invoke.mockReset();estimateAction.mockReset();
-  localStorage.setItem(CASE_PRESENTATION_KEY,'previous');cockpitOverrides={};cockpitError=null;cockpitFetching=false;versionMounts=0;preparationFixture=null;
+  localStorage.setItem(CASE_PRESENTATION_KEY,'previous');cockpitOverrides={};cockpitError=null;cockpitFetching=false;versionMounts=0;preparationFixture=null;gaps=initialGaps;
   client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{cleanup();client.clear();localStorage.clear();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+
+it('uses the same danger question on the home and control, with the original diagnostic available on demand',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='NEED_INFO';cockpitOverrides={blockingGapsCount:1};
+  const original='Contrôle du périmètre IMO. NO_DIRECT_BINDING. Lot 2 : vérifier la source client.';
+  gaps=[{id:'imo',gap_key:'cargo.imo_goods_scope_confirmation',status:'open',is_blocking:true,question_fr:original}];
+  const {container}=mount();
+  await userEvent.click(screen.getByRole('button',{name:'Vérifier les informations de danger et les conteneurs concernés'}));
+  const control=container.querySelector('#gap-review-imo');
+  expect(control).toHaveFocus();
+  expect(control).toHaveTextContent('statut dangereux');
+  expect(screen.getByText(original)).not.toBeVisible();
+  await userEvent.click(screen.getByText('Détail du contrôle d’origine'));
+  expect(screen.getByText(original)).toBeVisible();
+  expect(screen.getByText('Chiffres et suivi du dossier').closest('details')).not.toHaveAttribute('open');
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it('preserves the inline response through both presentations and a failed save, with the same payload',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='NEED_INFO';cockpitOverrides={blockingGapsCount:1};
+  gaps=[{id:'destination',gap_key:'routing.destination_city',status:'open',is_blocking:true,question_fr:'Quelle est la destination finale ?'}];
+  mount();await userEvent.click(screen.getByRole('button',{name:'Quelle est la destination finale ?'}));
+  const input=screen.getByRole('textbox',{name:'Quelle est la destination finale ?'});
+  expect(input).toHaveAccessibleDescription(/calcul du devis peut démarrer automatiquement/);
+  await userEvent.type(input,'Thiès');
+  await userEvent.click(screen.getByRole('button',{name:'Présentation précédente'}));
+  await userEvent.click(screen.getByRole('tab',{name:'Marchandise'}));
+  await userEvent.click(screen.getByText('Données du dossier et contrôles avant devis confirmé'));
+  expect(input).toHaveValue('Thiès');
+  await userEvent.click(screen.getByRole('button',{name:'Présentation guidée'}));
+  expect(screen.getByRole('textbox',{name:'Quelle est la destination finale ?'})).toBe(input);
+  invoke.mockResolvedValue({error:new Error('Refus de test')});
+  await userEvent.click(screen.getByRole('button',{name:'Enregistrer : Quelle est la destination finale ?'}));
+  expect(invoke).toHaveBeenCalledExactlyOnceWith('set-case-fact',{body:{case_id:'case-a',fact_key:'routing.destination_city',value_text:'Thiès',value_number:null}});
+  expect(input).toHaveValue('Thiès');
+});
+
+it('names automatic select saving and preserves the existing answer lock while pricing runs',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='NEED_INFO';cockpitOverrides={blockingGapsCount:1};
+  gaps=[{id:'mode',gap_key:'routing.transport_mode',status:'open',is_blocking:true,question_fr:'Quel mode de transport ?'}];
+  const {rerender}=mount();await userEvent.click(screen.getByRole('button',{name:'Quel mode de transport ?'}));
+  expect(screen.getByRole('combobox',{name:'Quel mode de transport ?'})).toHaveAccessibleDescription(/enregistré dès sa sélection/);
+  status='PRICING_RUNNING';rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+  expect(screen.queryByRole('combobox',{name:'Quel mode de transport ?'})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Enregistrer : Quel mode de transport ?'})).toBeNull();
+  expect(invoke).not.toHaveBeenCalled();
+});
 
 it('puts the current estimate first despite a PAD gap, with diagnostics and sources collapsed',()=>{
   const {container}=mount();
@@ -169,11 +216,43 @@ it('shows selected-version reservations beside its total, and replaces them when
   const {rerender}=mount();const clientQuote=screen.getByRole('region',{name:'Document destiné au client'});
   expect(clientQuote).toHaveTextContent('Total partiel');expect(clientQuote).toHaveTextContent('Livraison à Thiès — à confirmer');
   expect(clientQuote.textContent?.replace(/\s/g,'')).toContain('1200000');
-  expect(screen.getByRole('button',{name:'Relire les éléments et tracer l’envoi manuel'})).toBeVisible();
+  expect(screen.getByRole('button',{name:'Relire le devis et ses réserves'})).toBeVisible();
+  expect(screen.getByText('Version v1 · Total partiel — hors postes réservés')).toBeVisible();
   cockpitOverrides={...cockpitOverrides,selectedVersionNumber:2,selectedVersionSnapshot:{totals:{total_payable:1450000,currency:'XOF'},meta:{quoteQualification:{level:'firm'}}}};
   rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
   expect(clientQuote).toHaveTextContent('Version v2');expect(clientQuote).not.toHaveTextContent('Livraison à Thiès');
   expect(clientQuote).toHaveTextContent('qualification ferme');expect(invoke).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button',{name:'Relire le devis et ses réserves'})).toBeNull();
+  expect(screen.getByRole('button',{name:'Relire les éléments et tracer l’envoi manuel'})).toBeVisible();
+});
+
+it.each([
+  ['partial', 'Relire le devis et ses réserves', 'Des postes restent à confirmer'],
+  ['provisional', 'Relire le devis et ses réserves', 'Cette version comporte des réserves'],
+  ['unknown', 'Vérifier la qualification du devis', 'La qualification de cette version n’est pas disponible'],
+])('keeps %s caution visible with a prepared draft and opens the existing review without sending',async(level,label,caution)=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='QUOTED_VERSIONED';gaps=[];
+  cockpitOverrides={hasSelectedVersion:true,selectedVersionNumber:1,hasPdf:true,hasDraftEmail:true,
+    selectedVersionSnapshot:{totals:{total_payable:1200000,currency:'XOF'},meta:{quoteQualification:{level}}}};
+  const {container}=mount();
+  expect(screen.getByRole('region',{name:'Vérifications avant partage'})).toHaveTextContent(caution);
+  const action=screen.getByRole('button',{name:label});action.focus();await userEvent.keyboard('{Enter}');
+  expect(container.querySelector('#section-send')).toHaveFocus();
+  expect(invoke).not.toHaveBeenCalled();expect(estimateAction).not.toHaveBeenCalled();
+});
+
+it('does not replace a blocking task with quote review, or expose stale qualification during a refresh error',()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='QUOTED_VERSIONED';
+  cockpitOverrides={blockingGapsCount:1,hasSelectedVersion:true,selectedVersionNumber:1,hasPdf:true,hasDraftEmail:true,
+    selectedVersionSnapshot:{meta:{quoteQualification:{level:'partial'}}}};
+  const {rerender}=mount();
+  expect(screen.getByRole('button',{name:'Examiner les informations manquantes'})).toBeVisible();
+  expect(screen.queryByRole('button',{name:'Relire le devis et ses réserves'})).toBeNull();
+  cockpitError=new Error('Refresh failed');rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+  expect(screen.queryByText('Version v1 · Total partiel — hors postes réservés')).toBeNull();
+  expect(screen.queryByRole('region',{name:'Document destiné au client'})).toBeNull();
+  expect(screen.getByText('Le suivi du dossier n’a pas pu être actualisé.')).toBeVisible();
+  expect(invoke).not.toHaveBeenCalled();
 });
 
 it('preserves the same form instance and unsaved text through navigation and both presentations',async()=>{

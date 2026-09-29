@@ -88,7 +88,7 @@ import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDe
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
-import { buildPilotageViewModel, CASE_PRESENTATION_KEY, readGuidedQuote, type PilotageAction } from "./case-view/presentation";
+import { buildPilotageViewModel, CASE_PRESENTATION_KEY, presentGuidedGap, readGuidedQuote, type PilotageAction } from "./case-view/presentation";
 import { CaseTodoCard } from "@/components/case/CaseTodoCard";
 import { formatScenarioPricingAmount } from "@/lib/scenarioPricing";
 
@@ -1376,7 +1376,7 @@ export default function CaseView() {
             <CaseTodoCard status={caseData.status} action={pilotage?.action ?? null}
               quote={cockpitState ? readGuidedQuote(cockpitState) : null}
               loading={!!cockpitFetching || !cockpitState} error={!!cockpitError}
-              missingItems={blockingGaps.map(gap => ({ id: gap.id, label: gap.question_fr || FACT_LABELS[gap.gap_key] || "Information à préciser dans les contrôles" }))}
+              missingItems={blockingGaps.map(gap => ({ id: gap.id, label: presentGuidedGap(gap).label }))}
               missingLoading={!!gapsFetching} missingError={!!gapsError}
               preparation={preparation?.caseId === caseId && (preparation.error || preparation.loading || preparation.versionId === cockpitState?.selectedVersionId) ? preparation : null}
               onAction={focusPilotageAction} onOpen={openGuidedSection} />
@@ -1683,25 +1683,28 @@ export default function CaseView() {
           </TabsContent>
           <TabsContent value="marchandise" forceMount hidden={activeTab !== "marchandise"} aria-labelledby={guided ? "guided-nav-marchandise" : undefined} className="mt-4 print:block">
         <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-data">
-          <summary className="cursor-pointer font-medium">Données du dossier et contrôles avant devis confirmé</summary>
-          <p className="my-3 text-sm text-muted-foreground">Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus.</p>
+          <summary className="cursor-pointer font-medium">{guided ? "Informations à vérifier avant le devis confirmé" : "Données du dossier et contrôles avant devis confirmé"}</summary>
+          <p className="my-3 text-sm text-muted-foreground">{guided ? "Complétez les informations connues ou préparez une demande au client. Les estimations restent consultables dans « Devis »." : "Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus."}</p>
         {/* Info bar */}
+        <div className="mb-4 flex flex-wrap items-start gap-3">
+        <details open={guided ? undefined : true} className="min-w-0 flex-1" key={guided ? "guided-counts" : "previous-counts"}>
+          <summary hidden={!guided} className="cursor-pointer text-sm text-muted-foreground">Chiffres et suivi du dossier</summary>
         <Card className="mb-6">
-          <CardContent className="py-4 flex items-center justify-between">
-            <div className="flex items-center gap-6">
+          <CardContent className="py-4 flex flex-wrap gap-3 items-center justify-between">
+            <div className="flex flex-wrap items-center gap-6">
               <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Complétude</span>
+                <span className="text-xs text-muted-foreground">{guided ? "Informations réunies" : "Complétude"}</span>
                 <div className="flex items-center gap-2">
                   <Progress value={completeness} className="w-32 h-2" />
                   <span className="text-sm font-semibold">{completeness}%</span>
                 </div>
               </div>
               <div>
-                <span className="text-xs text-muted-foreground">Faits</span>
+                <span className="text-xs text-muted-foreground">{guided ? "Informations enregistrées" : "Faits"}</span>
                 <p className="text-sm font-semibold">{caseData.facts_count ?? facts.length}</p>
               </div>
               <div>
-                <span className="text-xs text-muted-foreground">Gaps</span>
+                <span className="text-xs text-muted-foreground">{guided ? "Questions ouvertes" : "Gaps"}</span>
                 <div className="flex items-center gap-1.5">
                   <p className="text-sm font-semibold">{displayedGapsCount}</p>
                   {blockingGaps.length > 0 && (
@@ -1718,12 +1721,14 @@ export default function CaseView() {
                 </div>
               )}
             </div>
-            <Button variant="outline" size="sm" onClick={handleRefresh}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Rafraîchir
-            </Button>
           </CardContent>
         </Card>
+        </details>
+        <Button variant="outline" size="sm" onClick={handleRefresh}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          {guided ? "Actualiser les informations" : "Rafraîchir"}
+        </Button>
+        </div>
 
         <div className="mb-4 hidden flex-wrap items-center gap-2 rounded-md border p-3 has-[button]:flex" aria-label="Actions des outils avancés">
           <span className="mr-1 text-xs font-medium text-muted-foreground">Actions cargo canonique</span>
@@ -1836,7 +1841,7 @@ export default function CaseView() {
               }
               const { error } = await supabase.functions.invoke("set-case-fact", { body: payload });
               if (error) throw error;
-              toast.success(`${g.gap_key} enregistré`);
+              toast.success(guided ? "Réponse enregistrée" : `${g.gap_key} enregistré`);
               setGapInputs((prev) => { const n = { ...prev }; delete n[g.gap_key]; return n; });
               // Relancer build-case-puzzle et attendre la fin avant refresh
               if (caseId) {
@@ -1894,7 +1899,7 @@ export default function CaseView() {
                       .maybeSingle();
 
                     if (recentRun?.status !== "running" && recentRun?.status !== "success") {
-                      toast.info("Tous les gaps résolus — lancement automatique du pricing…");
+                      toast.info(guided ? "Informations complétées — calcul du devis en cours…" : "Tous les gaps résolus — lancement automatique du pricing…");
                       const { data: pricingResult, error: pricingError } = await supabase.functions.invoke("run-pricing", {
                         body: { case_id: caseId },
                       });
@@ -1925,15 +1930,25 @@ export default function CaseView() {
             const isNumeric = NUMERIC_FACT_KEYS.has(g.gap_key);
             const isSaving = savingGapKey === g.gap_key;
             const selectOptions = SELECT_FACT_OPTIONS[g.gap_key];
+            const question = presentGuidedGap(g);
+            const labelId = `gap-label-${g.id}`;
+            const helpId = `gap-help-${g.id}`;
 
             return (
-              <li key={g.id} id={`gap-review-${g.id}`} className={`flex flex-wrap items-center gap-2 text-sm ${textColorClass}`}>
-                <span className="flex-1">{g.gap_key === PAD_REVIEW_GAP_KEY ? g.question_fr === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR : g.question_fr || g.gap_key}</span>
+              <li key={g.id} id={`gap-review-${g.id}`} className={`flex flex-wrap items-center gap-2 text-sm ${guided ? "rounded-md border border-current/20 p-3 text-foreground [overflow-wrap:anywhere]" : textColorClass}`}>
+                <div className={guided ? "w-full min-w-0 space-y-2" : "flex-1"}>
+                  <span id={labelId} className={guided ? "font-medium" : undefined}>{guided ? question.label : g.gap_key === PAD_REVIEW_GAP_KEY ? g.question_fr === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR : g.question_fr || g.gap_key}</span>
+                  {guided && question.guidance && <p className="text-muted-foreground">{question.guidance}</p>}
+                  {guided && question.detail && <details className="text-muted-foreground">
+                    <summary className="cursor-pointer text-xs">Détail du contrôle d’origine</summary>
+                    <p className="mt-2 whitespace-pre-wrap text-sm">{question.detail}</p>
+                  </details>}
+                </div>
                 {g.gap_key === PAD_REVIEW_GAP_KEY && (
                   <Button size="sm" variant="outline" onClick={openScenarioReview}>Examiner les groupes et sources</Button>
                 )}
                 {isEditable && !isLocked && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {selectOptions ? (
                       <Select
                         value={gapInputs[g.gap_key] || ""}
@@ -1943,7 +1958,7 @@ export default function CaseView() {
                         }}
                         disabled={isSaving}
                       >
-                        <SelectTrigger className="h-8 w-40 text-foreground bg-background">
+                        <SelectTrigger aria-labelledby={labelId} aria-describedby={guided ? helpId : undefined} className="h-9 w-40 max-w-full text-foreground bg-background">
                           <SelectValue placeholder="Choisir…" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1954,6 +1969,8 @@ export default function CaseView() {
                       </Select>
                     ) : (
                       <Input
+                        aria-labelledby={labelId}
+                        aria-describedby={guided ? helpId : undefined}
                         type={isNumeric ? "number" : "text"}
                         placeholder={isNumeric ? "ex: 12" : "Saisir…"}
                         className="h-8 w-32 text-foreground bg-background"
@@ -1967,12 +1984,15 @@ export default function CaseView() {
                     <Button
                       size="sm"
                       variant="secondary"
-                      className="h-8 px-2"
+                      className="h-9 px-2"
+                      aria-label={`Enregistrer : ${question.label}`}
                       onClick={() => saveGapAnswer(g, allowAutoPricing)}
                       disabled={isSaving || !(gapInputs[g.gap_key] || "").trim()}
                     >
                       {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                      {guided && <span className="ml-1">Enregistrer</span>}
                     </Button>
+                    {guided && <p id={helpId} className="w-full text-xs text-muted-foreground">{selectOptions ? "Le choix est enregistré dès sa sélection." : "Enregistrer ajoute cette réponse aux informations du dossier."} {allowAutoPricing && "Après vérification des autres contrôles, le calcul du devis peut démarrer automatiquement."}</p>}
                   </div>
                 )}
               </li>
@@ -2013,21 +2033,22 @@ export default function CaseView() {
                       {blockingGaps.map((g: any) => renderGapRow(g, true, "text-red-800"))}
                     </ul>
                     {!isLocked && blockingGaps.some((g: any) => CLIENT_RESOLVABLE_GAP_KEYS.has(g.gap_key)) && (
-                      <div className="mt-3 pt-3 border-t border-destructive/20 flex justify-end">
+                      <div className="mt-3 pt-3 border-t border-destructive/20 flex flex-col items-start gap-2">
+                        {guided && <p className="text-xs text-muted-foreground">Le brouillon rassemble les questions pouvant être adressées au client. Aucun envoi automatique.</p>}
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-8 text-xs"
+                          className="h-auto min-h-9 whitespace-normal text-xs"
                           onClick={() => askClientForGaps()}
                           disabled={askingClientForGaps}
-                          title="Génère un brouillon pour tous les gaps client-résolvables ouverts du dossier"
+                          title="Prépare un brouillon pour les questions ouvertes pouvant être adressées au client. Aucun envoi automatique."
                         >
                           {askingClientForGaps ? (
                             <Loader2 className="mr-1 h-3 w-3 animate-spin" />
                           ) : (
                             <Mail className="mr-1 h-3 w-3" />
                           )}
-                          Préparer une demande client (tous les gaps ouverts)
+                          {guided ? "Préparer les questions au client" : "Préparer une demande client (tous les gaps ouverts)"}
                         </Button>
                       </div>
                     )}

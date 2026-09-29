@@ -2614,3 +2614,46 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Vérifications : 30 tests UI ciblés PASS, typecheck PASS, ESLint4fichiers PASS, build PASS (avertissements dépendances/taille), diff-check PASS. Dernier ajustement textuel Sénégal contre-relu ; CI complète et recette Cloud NOT_RUN.
 - Contre-revue indépendante lecture seule PASS après3précisions de formulation (poids déclaré, classement retenu, portée Sénégal).
 - Aucun impact prix/DB/Auth/RLS/runtime, aucun composant FROZEN touché, aucun commit/push/déploiement/envoi. Rollback : retirer composant/import/insertion et tests associés. Publication sous GO distinct.
+
+
+#### Dossier guidé et retour à la présentation précédente — 29 septembre 2026 — PASS_WITH_BASELINE, aperçu privé recetté
+
+- GO utilisateur sur le plan corrigé puis réalisation UI avec rollback ; Codex seul écrivain, auto-revue ciblée (présentation seule).
+- GO publication privé reçu : work `a305c74` → `e5b262b94416b0feba0b8303b8288e3b68ea1473`, commit/push 8 fichiers (+620/-101), GitHub/Lovable alignés ; note transport lourd et `.claude/` préservés.
+- Diff applicatif : CaseView, case-view/presentation et leurs deux tests ; nouveau CaseTodoCard ; SendQuotationPanel et QuotationSelectionSync sous GO de correction Premium. Plan Lovable existant actualisé ; pas de nouveau document.
+- Accueil « À faire », quatre accès quotidiens, action principale de navigation vers le panneau concerné ; documents et informations accessibles sans mode expert.
+- Totaux de la seule version sélectionnée, qualification inconnue explicitée, postes non chiffrés et réserves opérateur visibles avec le montant ; envoi manuel hors application rappelé.
+- Bascule « Présentation précédente » mémorisée localement, mêmes instances de formulaires, saisies conservées ; aucune modification des payloads, contrôles ou priorités métier.
+- Revue Premium et GO correctif : manques nommés avec accès au contrôle, impression dossier distincte du PDF client, préparation enregistrée (PDF/destinataire/objet/message) et saisie non enregistrée signalées ; projection du panneau existant, sans requête ni mutation ajoutée ; focus Documents corrigé.
+- Tests ciblés 61/61 dans la suite, typecheck, build, diff-check PASS ; dernier CI : 613 Vitest PASS/1 FAIL baseline LocalTransportEstimateFields (archive origin/work : 592/1). Audit Premium strict : 120 constats identiques à la baseline, sans aggravation, conformité globale non revendiquée.
+- Contrôles CI restants exécutés séparément : types Deno 49, lint 732/16 sans aggravation ; Deno 1745 PASS/1 FAIL/6 ignorés, échec set_intake_facts_batch reproduit sur archive origin/work.
+- Navigateur synthétique local : trois accueils 1280/375/320 px, Devis 375/320 px sans débordement ; focus manque/documents/PDF, maintien saisie/bascule et sections imprimées PASS. Appréciation utilisateur NOT_RUN ; libellés techniques des contrôles métier encore présents.
+- Rollback rééprouvé sur sept fichiers : patch appliqué puis inversé dans une archive isolée de a305c74 ; contenus initiaux retrouvés (CRLF/LF normalisés), composant ajouté retiré ; build de base restaurée PASS au lot initial.
+- Retour immédiat par bascule ; rollback publié : revert ciblé `e5b262b` puis reconstruction de l’aperçu Lovable sous GO rollback. Aucun retour de données, calculs, versions ou historiques.
+- CI GitHub 36575100190 : config/bundles/types PASS, Vitest 613 PASS/1 FAIL baseline ; étapes suivantes NOT_RUN en CI (preuves locales ci-dessus). Build privé Lovable déclaré PASS22s ; décalage initial de checkout résorbé, nouvelle UI observée dans l’aperçu authentifié.
+- Recette Cloud UI PASS : 8a06251d… incomplet, aa01530d… réserves/total partiel 1 687 932 FCFA, 450cb321… PDF+brouillon préparés ; focus contrôle/document/version, résumé enregistré et avertissement de saisie, conservation du formulaire après bascule PASS. Accueils des trois dossiers à320px, incomplet à375px et Devis aa01530d… à320px sans débordement global.
+- Seules écritures de recette : deux sauvegardes du brouillon synthétique 327fc4f9… (destinataire fictif recette-ui@example.invalid puis retour à []). Marquage disponible après sauvegarde, jamais cliqué ; statut draft, destinataires et hashes objet/corps identiques avant/après. Aucun envoi, calcul, version ou PDF créé.
+- Aucun changement de schéma/Auth/RLS/migration/fonction serveur/FROZEN ; frontend privé seul actualisé, visibilité workspace_edit et is_published=false conservés. Captures lovable-guided-published.png / lovable-incomplete-375.png hors dépôt ; clôture roadmap locale, pas de commit docs-only.
+
+#### Contrôles détaillés du dossier guidé — 29 septembre 2026 — PASS_WITH_BASELINE local, non publié
+
+- GO utilisateur sur le lot suivant de simplification ; Codex seul écrivain, auto-revue proportionnée. Base work/local/GitHub e5b262b94416b0feba0b8303b8288e3b68ea1473 inchangée ; notes antérieures et .claude/ préservées.
+- Périmètre : CaseView.tsx, case-view/presentation.ts et leurs deux tests (+141/-29), présente clôture. Aucune extension aux règles métier, au pricing, à la relance des dossiers vides ni aux autres panneaux ; anciens arbitrages de la queue non rouverts.
+- Vue guidée : questions danger/conteneurs et catégories/poids PAD harmonisées entre accueil et contrôle ; diagnostic original intégral consultable à la demande, question inconnue conservée sans interprétation. Compteurs secondaires repliés, actualisation toujours accessible.
+- Saisies nommées, bouton Enregistrer explicite, avertissement de sélection immédiatement enregistrée et de calcul automatique existant ; demande client qualifiée comme brouillon sans envoi. Handlers, payloads, verrous et priorités métier conservés.
+- Tests ciblés 43/43 PASS ; CI locale : configuration/bundles/typecheck PASS, Vitest619 PASS/1FAIL baseline LocalTransportEstimateFields:35. Build PASS, lint732/16 et types Deno49/5 sans aggravation ; Deno1745 PASS/1FAIL/6ignorés baseline set_intake_facts_batch:193. Aucun test Deno live.
+- Audit Premium strict : 120 constats exactement identiques à la preuve précédente (hors lignes), zéro nouveau ; conformité globale non revendiquée. Contrats Markdown non créés conformément à AGENTS ; tokens et primitives partagés conservés.
+- Navigateur local sur véritable CaseView avec E/S et panneaux voisins simulés : contrôle danger et détail original, saisie conservée à travers les deux présentations, liste transport au clavier/Escape, 320/375px sans débordement global PASS. Tests couvrent refus de sauvegarde/payload et verrou PRICING_RUNNING. Recette Lovable et appréciation utilisateur NOT_RUN pour ce lot.
+- Rollback PASS : patch controls-rollback.patch appliqué puis inversé sur une copie isolée de quatre fichiers à e5b262b ; empreintes originales retrouvées. Bascule de présentation conservée ; aperçu/capture controls-guided-local.png hors dépôt, données synthétiques seulement.
+- Aucun commit/push, DB/Auth/RLS/migration/fonction serveur/FROZEN/runtime ou envoi modifié. Publication privée du lot (commit/push work, synchronisation Lovable et recette synthétique) sous GO distinct selon §2.1.
+
+#### Intégration de la présentation Figma — 29 septembre 2026 — PASS_WITH_BASELINE local, non publié
+
+- GO utilisateur : mettre en place la présentation puis ajuster à l’usage ; Codex seul écrivain, Frontend Design Premium appliqué. work/local/GitHub e5b262b inchangés.
+- Référence visuelle synthétique : https://www.figma.com/design/NTXtxf2NUhhi9FAdY6WByv ; trois accueils, aucune donnée client réelle.
+- Complément aux contrôles détaillés : CaseTodoCard, case-view/presentation et cockpit-layout.test ; action en tête, informations et document client côte à côte sur grand écran, empilés sur mobile, qualification de version visible dès l’accueil.
+- Qualification lue dans le seul snapshot sélectionné ; réserves et postes exclus restent près du montant. Un PDF/brouillon préparé ne masque plus leur avertissement dans l’action conseillée ; priorité métier et destination de navigation conservées. Qualification inconnue jamais assimilée à ferme.
+- Tests ciblés 47/47 PASS ; config/bundles/typecheck/build PASS. Suite Vitest623 PASS/1FAIL baseline LocalTransportEstimateFields:35 ; Deno1745 PASS/1FAIL/6ignorés baseline set_intake_facts_batch:193. Types Deno49/5, lint732/16 sans aggravation ; audit Premium120 constats identiques hors numéros de ligne.
+- Navigateur local synthétique : trois situations à320px sans débordement global, deux colonnes desktop, accès clavier contrôle/envoi et conservation saisie entre présentations PASS. Panneaux voisins et E/S simulés ; recette Cloud et appréciation métier NOT_RUN.
+- Rollback global des cinq fichiers applicatifs PASS : patch appliqué puis inversé dans une copie de e5b262b, empreintes originales retrouvées avec core.autocrlf=false. Patch dossier-ui-complete-rollback.patch et capture dossier-figma-integre.png hors dépôt ; retour immédiat par Présentation précédente conservé.
+- Audit JSON généré à la racine au tour précédent identifié et déplacé hors dépôt ; .claude/ et notes antérieures préservés. Aucun commit/push, modification DB/Auth/RLS/FROZEN/runtime ni envoi. Publication privée du lot complet sous GO distinct §2.1.
