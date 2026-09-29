@@ -1269,6 +1269,14 @@ export default function CaseView() {
           </div>
         </section>}
 
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 print:hidden">
+            <TabsTrigger value="devis">Devis &amp; offre</TabsTrigger>
+            <TabsTrigger value="marchandise">Marchandise</TabsTrigger>
+            <TabsTrigger value="echanges">Partenaires</TabsTrigger>
+            <TabsTrigger value="audit">Données &amp; audit</TabsTrigger>
+          </TabsList>
+          <TabsContent value="devis" forceMount className="mt-4 print:block">
         {/* Pricing Launch Panel — visible for pricing-eligible statuses
             Lot 4.1: also visible upstream when canProvisionalDdp === true,
             so the amber CTA can appear even in NEED_INFO/FACTS_PARTIAL. */}
@@ -1393,7 +1401,182 @@ export default function CaseView() {
             </div>
           );
         })()}
+        <details className="mb-4 min-w-0 rounded-lg border p-4">
+          <summary className="cursor-pointer font-medium">Devis confirmé, versions et envoi{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
+        {/* M9b: Output pipeline stepper — read-only progression indicator */}
+        {isPipelineVisible && (() => {
+          const steps = [
+            { label: "Pricing", done: true },
+            { label: "Version", done: pipelineStepperData?.hasVersion ?? false },
+            { label: "PDF", done: pipelineStepperData?.hasPdf ?? false },
+            { label: "Brouillon", done: pipelineStepperData?.hasDraft ?? false },
+            { label: "Envoyé", done: ['SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) },
+          ];
+          return (
+            <div className="mb-4 flex items-center gap-1 px-1">
+              {steps.map((step, i) => (
+                <React.Fragment key={step.label}>
+                  <div className="flex items-center gap-1.5">
+                    {step.done ? (
+                      <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                    ) : (
+                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />
+                    )}
+                    <span className={`text-xs font-medium whitespace-nowrap ${step.done ? 'text-green-700' : 'text-muted-foreground'}`}>
+                      {step.label}
+                    </span>
+                  </div>
+                  {i < steps.length - 1 && (
+                    <div className={`flex-1 h-px min-w-4 ${step.done ? 'bg-green-400' : 'bg-muted-foreground/20'}`} />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          );
+        })()}
 
+        {/* PAD Reference Card — from current dossier facts */}
+        {(() => {
+          const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
+          const padRateFact = facts.find((f: any) => f.fact_key === 'cargo.pad_rate_fcfa_per_ton' && f.is_current);
+          const padCategory = padCatFact?.value_text ?? null;
+          const padRate = padRateFact?.value_number ?? null;
+
+          if (!padCategory) return null;
+
+          return (
+            <div className="mb-4 flex items-start gap-3 p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <Anchor className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Référence PAD dossier</p>
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  Catégorie {padCategory}
+                  {padRate != null ? ` · ${new Intl.NumberFormat('fr-FR').format(padRate)} FCFA/t` : ' · Montant non résolu'}
+                </p>
+                <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-0.5">Source officielle</p>
+              </div>
+            </div>
+          );
+        })()}
+
+        {needsPadReview(gaps) && <div className="mb-4 rounded border p-3">
+          <p className="text-sm">{PAD_REVIEW_FR}</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
+        </div>}
+        {/* Pricing Result Panel — visible after pricing */}
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
+          <details className="mb-6 rounded border p-3">
+            <summary className="cursor-pointer">Résultat du devis — vérifier les bases retenues et la date</summary>
+            <PricingResultPanel
+              caseId={caseId!}
+              latestEstimateAt={selectedEstimate?.caseId === caseId && selectedEstimate.run?.status === 'success' ? selectedEstimate.run.completed_at : null}
+              isLocked={!!isPostSentLocked}
+              refreshToken={pricingRefreshToken}
+              isProvisional={pricingIsProvisional}
+              onVersionCreated={() => setVersionRefreshToken(t => t + 1)}
+            />
+          </details>
+        )}
+
+        {/* Phase 12: Quotation versions */}
+        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
+          <div className="mb-6" id="section-version">
+            <QuotationVersionCard caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
+          </div>
+        )}
+
+        {/* Phase 19A: Send quotation */}
+        {['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
+          <div className="mb-6">
+            <SendQuotationPanel caseId={caseId!} />
+          </div>
+        )}
+
+        <details className="mb-6 rounded border border-dashed p-3">
+          <summary className="cursor-pointer font-medium">Propositions maritimes à confirmer</summary>
+          <p className="my-2 text-xs text-muted-foreground">Décisions auditées à consulter avant leur intégration par un nouveau calcul.</p>
+          <MaritimeFeeProposalsPanel caseId={caseId!} />
+        </details>
+
+        {/* A1: Commercial outcome banner */}
+        {isTerminalOutcome && (
+          <Alert className={`mb-6 ${caseData.status === 'ACCEPTED' ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-red-500 bg-red-50 dark:bg-red-950/20'}`}>
+            <AlertDescription className="flex items-center gap-2">
+              {caseData.status === 'ACCEPTED' ? (
+                <>
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="font-medium text-green-700 dark:text-green-400">Devis accepté par le client</span>
+                </>
+              ) : (
+                <>
+                  <X className="h-5 w-5 text-red-600" />
+                  <span className="font-medium text-red-700 dark:text-red-400">Devis refusé par le client</span>
+                </>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* A1: Commercial outcome buttons — only when SENT */}
+        {caseData.status === 'SENT' && (
+          <div className="mb-6 flex gap-3">
+            <Button
+              variant="outline"
+              className="border-green-500 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20"
+              onClick={async () => {
+                try {
+                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
+                    body: { case_id: caseId, outcome: 'ACCEPTED' },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
+                  if (data.data?.idempotent) {
+                    toast.info('Devis déjà marqué comme accepté');
+                  } else {
+                    toast.success('Devis marqué comme accepté');
+                  }
+                  // Refresh case data
+                  window.location.reload();
+                } catch (err) {
+                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
+                }
+              }}
+            >
+              <Check className="h-4 w-4 mr-2" />
+              Client a accepté
+            </Button>
+            <Button
+              variant="outline"
+              className="border-red-500 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20"
+              onClick={async () => {
+                try {
+                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
+                    body: { case_id: caseId, outcome: 'REJECTED' },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
+                  if (data.data?.idempotent) {
+                    toast.info('Devis déjà marqué comme refusé');
+                  } else {
+                    toast.success('Devis marqué comme refusé');
+                  }
+                  window.location.reload();
+                } catch (err) {
+                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
+                }
+              }}
+            >
+              <X className="h-4 w-4 mr-2" />
+              Client a refusé
+            </Button>
+          </div>
+        )}
+
+
+
+        </details>
+          </TabsContent>
+          <TabsContent value="marchandise" forceMount className="mt-4 print:block">
         <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-data">
           <summary className="cursor-pointer font-medium">Données du dossier et contrôles avant devis confirmé</summary>
           <p className="my-3 text-sm text-muted-foreground">Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus.</p>
@@ -1521,297 +1704,6 @@ export default function CaseView() {
           );
         })()}
         </details>
-
-        {/* ── Open Actions (C2/P0.3) — hidden for active dossiers (ORCH-SYNC-2) ── */}
-        {['SENT', 'ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(caseData.status) && (
-        <Card className="mb-6">
-          <CardHeader className="py-3 px-4">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <CheckCircle className="h-4 w-4" />
-              Actions
-              {openActions.length > 0 && (
-                <Badge variant="secondary" className="text-[10px] ml-1">{openActions.length}</Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="py-2 px-4">
-            {openActions.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Aucune action ouverte</p>
-            ) : (
-              <div className="space-y-3">
-                {openActions.map((action: any) => {
-                  const ed = action.event_data as Record<string, unknown> | null;
-                   const dedupeKey = ed?.["dedupe_key"] as string;
-                   const actionCode = ed?.["action_code"] as string | undefined;
-                  const isPrepareReply = actionCode === "PREPARE_CLIENT_REPLY_DRAFT" || actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS";
-                  const existingDraft = draftsByActionKey.get(dedupeKey);
-
-                  return (
-                    <div key={dedupeKey} className="border rounded p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {(ed?.["title_fr"] as string) ?? actionCode ?? "Action"}
-                          </p>
-                          {ed?.["description_fr"] && (
-                            <p className="text-xs text-muted-foreground truncate">{ed["description_fr"] as string}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 ml-2 shrink-0">
-                          {isPrepareReply && !existingDraft && (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={generatingDraftKey === dedupeKey}
-                              onClick={() => generateDraft(dedupeKey)}
-                            >
-                              {generatingDraftKey === dedupeKey ? (
-                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                              ) : (
-                                <Mail className="mr-1 h-3 w-3" />
-                              )}
-                              Générer brouillon
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={closingActionKey === dedupeKey}
-                            onClick={() => closeAction(dedupeKey)}
-                          >
-                            {closingActionKey === dedupeKey ? (
-                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                            ) : (
-                              <Check className="mr-1 h-3 w-3" />
-                            )}
-                            Marquer comme fait
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Draft display */}
-                      {existingDraft && (
-                        <div className="bg-muted rounded p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold text-muted-foreground">Brouillon généré</p>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-2"
-                                onClick={() => copyDraftToClipboard(existingDraft)}
-                              >
-                                <Copy className="mr-1 h-3 w-3" />
-                                Copier
-                              </Button>
-                              {/* CL1: Mark as sent — scoped to this draft's gap_keys only */}
-                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && existingDraft?.requestedGapKeys?.length > 0 && (() => {
-                                const draftGapKeys = existingDraft.requestedGapKeys;
-                                const hasDraftedForTheseGaps = (clientGapRequests as any[]).some(
-                                  (r: any) => r.status === "drafted" && draftGapKeys.includes(r.gap_key)
-                                );
-                                return hasDraftedForTheseGaps ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 px-2"
-                                    onClick={() => markClientGapRequestsSent(draftGapKeys)}
-                                    disabled={isMarkingSent}
-                                  >
-                                    {isMarkingSent ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
-                                    Envoyé
-                                  </Button>
-                                ) : null;
-                              })()}
-                            </div>
-                          </div>
-                          <p className="text-sm font-medium">{existingDraft.subject}</p>
-                          <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{existingDraft.body}</pre>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        )}
-
-        {/* ── Actions clôturées ── */}
-        {doneActions.length > 0 && (
-          <details id="section-closed-actions" className="mb-4 rounded-lg border p-3">
-            <summary className="cursor-pointer text-sm font-medium">Actions clôturées ({doneActions.length})</summary>
-          <Card className="mt-3 border-0 shadow-none">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-                <CardTitle className="text-lg">Actions clôturées</CardTitle>
-                <Badge variant="secondary">{doneActions.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-1">
-              {doneActions.slice(0, 10).map((action: any) => {
-                const ed = action.event_data as Record<string, unknown>;
-                const label = (ed["title_fr"] as string) ?? (ed["action_code"] as string) ?? "Action";
-                const createdAt = action.created_at ? new Date(action.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
-                return (
-                  <div key={action.id} className="flex items-center gap-2 py-1">
-                    <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
-                    <span className="text-sm">{label}</span>
-                    {createdAt && <span className="text-xs text-muted-foreground ml-auto">{createdAt}</span>}
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-          </details>
-        )}
-
-        {/* M27b: CL1 tracking moved — single instance near gaps (line ~2147) */}
-
-        {/* ── Analyse dernière réponse client (C3/P0) ── */}
-        <div id="section-reply-analysis">
-        {(() => {
-          const replyAnalysisEvent = events.find((e: any) => {
-            if (e.event_type !== "output_generated") return false;
-            const ed = e.event_data as Record<string, unknown> | null;
-            return ed?.["kind"] === "reply_analysis_v1";
-          }) ?? null;
-
-          if (!replyAnalysisEvent) return null;
-
-          const ed = replyAnalysisEvent.event_data as Record<string, unknown> | null;
-          const analysis = (ed?.["analysis"] ?? null) as Record<string, unknown> | null;
-          if (!analysis) return null;
-
-          const proposedFacts = Array.isArray(analysis["proposed_facts"]) ? analysis["proposed_facts"] as Record<string, unknown>[] : [];
-          const openQuestions = Array.isArray(analysis["open_questions"]) ? analysis["open_questions"] as string[] : [];
-          const readyToPrice = Boolean(analysis["ready_to_price"]);
-          const replyRecommended = Boolean(analysis["reply_recommended"]);
-
-          const displayValue = (f: Record<string, unknown>) => {
-            if (typeof f["value_text"] === "string" && f["value_text"]) return f["value_text"];
-            if (typeof f["value_num"] === "number") return String(f["value_num"]);
-            if (f["value_json"] != null) return JSON.stringify(f["value_json"]).slice(0, 200);
-            return "—";
-          };
-
-          return (
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-accent" />
-                  <CardTitle className="text-lg">Analyse dernière réponse client</CardTitle>
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <Badge variant={readyToPrice ? "default" : "secondary"}>
-                    {readyToPrice ? "Prêt à chiffrer" : "Infos incomplètes"}
-                  </Badge>
-                  {replyRecommended && (
-                    <Badge variant="outline">Réponse recommandée</Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {proposedFacts.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">Faits proposés ({proposedFacts.length})</p>
-                    <div className="space-y-1">
-                    {proposedFacts.slice(0, 10).map((f, i) => {
-                        const alreadyApplied = isFactAlreadyApplied(f);
-                        const factKey = String(f["fact_key"] ?? "").trim();
-                        const isApplying = applyingFactKey === factKey;
-                        return (
-                          <div key={i} className="flex items-center gap-2 text-sm">
-                            <Badge variant="outline" className="text-[10px] shrink-0">
-                              {factKey}
-                            </Badge>
-                            <span className="truncate">{displayValue(f)}</span>
-                            {typeof f["confidence"] === "number" && (
-                              <span className="text-xs text-muted-foreground shrink-0">
-                                {Math.round((f["confidence"] as number) * 100)}%
-                              </span>
-                            )}
-                            <span className="ml-auto shrink-0">
-                              {alreadyApplied ? (
-                                <Badge variant="secondary" className="text-[10px]">✓ Appliqué</Badge>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 px-2 text-xs"
-                                  disabled={isApplying}
-                                  onClick={() => applyProposedFact(f)}
-                                >
-                                  {isApplying ? <Loader2 className="h-3 w-3 animate-spin" /> : "Insérer"}
-                                </Button>
-                              )}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {openQuestions.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">Questions ouvertes</p>
-                    <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
-                      {openQuestions.map((q, i) => (
-                        <li key={i}>{q}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })()}
-        </div>
-
-        {allDrafts.length > 0 && (
-          <details id="section-reply-drafts" className="mb-4 rounded-lg border p-3">
-            <summary className="cursor-pointer text-sm font-medium">Brouillons de réponse ({allDrafts.length})</summary>
-          <Card className="mt-3 border-0 shadow-none">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-accent" />
-                <CardTitle className="text-lg">Brouillons de réponse</CardTitle>
-                <Badge variant="secondary">{allDrafts.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {allDrafts.map(d => (
-                <div key={d.id} className="bg-muted rounded-lg p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold">{d.draft.subject}</p>
-                      <Badge variant="outline" className={`text-[10px] shrink-0 ${d.sourceLabel === "Client" ? "bg-blue-100 text-blue-800 border-blue-300" : "bg-accent/20 text-accent-foreground border-accent/30"}`}>
-                        {d.sourceLabel}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{new Date(d.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2"
-                        onClick={() => copyDraftToClipboard(d.draft)}
-                      >
-                        <Copy className="mr-1 h-3 w-3" />
-                        Copier
-                      </Button>
-                    </div>
-                  </div>
-                  <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{d.draft.body}</pre>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          </details>
-        )}
-
         {/* Shared gap save handler — extracted to avoid duplication */}
         {(() => {
           // P0: Extracted saveGapAnswer with allowAutoPricing flag
@@ -2108,7 +2000,6 @@ export default function CaseView() {
         {caseId && <FinalRequestStatePanel caseId={caseId} />}
 
         </details>
-
         {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
         {caseId && <details ref={scenarioPanel} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
           <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
@@ -2142,7 +2033,297 @@ export default function CaseView() {
           <QuoteScenariosPanel key={caseId} caseId={caseId} isLocked={!!isLocked} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} />
           </details>
         </details>}
+          </TabsContent>
+          <TabsContent value="echanges" forceMount className="mt-4 print:block">
+        {/* ── Open Actions (C2/P0.3) — hidden for active dossiers (ORCH-SYNC-2) ── */}
+        {['SENT', 'ACCEPTED', 'REJECTED', 'ARCHIVED'].includes(caseData.status) && (
+        <Card className="mb-6">
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <CheckCircle className="h-4 w-4" />
+              Actions
+              {openActions.length > 0 && (
+                <Badge variant="secondary" className="text-[10px] ml-1">{openActions.length}</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="py-2 px-4">
+            {openActions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Aucune action ouverte</p>
+            ) : (
+              <div className="space-y-3">
+                {openActions.map((action: any) => {
+                  const ed = action.event_data as Record<string, unknown> | null;
+                   const dedupeKey = ed?.["dedupe_key"] as string;
+                   const actionCode = ed?.["action_code"] as string | undefined;
+                  const isPrepareReply = actionCode === "PREPARE_CLIENT_REPLY_DRAFT" || actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS";
+                  const existingDraft = draftsByActionKey.get(dedupeKey);
 
+                  return (
+                    <div key={dedupeKey} className="border rounded p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {(ed?.["title_fr"] as string) ?? actionCode ?? "Action"}
+                          </p>
+                          {ed?.["description_fr"] && (
+                            <p className="text-xs text-muted-foreground truncate">{ed["description_fr"] as string}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 ml-2 shrink-0">
+                          {isPrepareReply && !existingDraft && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={generatingDraftKey === dedupeKey}
+                              onClick={() => generateDraft(dedupeKey)}
+                            >
+                              {generatingDraftKey === dedupeKey ? (
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                              ) : (
+                                <Mail className="mr-1 h-3 w-3" />
+                              )}
+                              Générer brouillon
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={closingActionKey === dedupeKey}
+                            onClick={() => closeAction(dedupeKey)}
+                          >
+                            {closingActionKey === dedupeKey ? (
+                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            ) : (
+                              <Check className="mr-1 h-3 w-3" />
+                            )}
+                            Marquer comme fait
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Draft display */}
+                      {existingDraft && (
+                        <div className="bg-muted rounded p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-muted-foreground">Brouillon généré</p>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2"
+                                onClick={() => copyDraftToClipboard(existingDraft)}
+                              >
+                                <Copy className="mr-1 h-3 w-3" />
+                                Copier
+                              </Button>
+                              {/* CL1: Mark as sent — scoped to this draft's gap_keys only */}
+                              {actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" && existingDraft?.requestedGapKeys?.length > 0 && (() => {
+                                const draftGapKeys = existingDraft.requestedGapKeys;
+                                const hasDraftedForTheseGaps = (clientGapRequests as any[]).some(
+                                  (r: any) => r.status === "drafted" && draftGapKeys.includes(r.gap_key)
+                                );
+                                return hasDraftedForTheseGaps ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2"
+                                    onClick={() => markClientGapRequestsSent(draftGapKeys)}
+                                    disabled={isMarkingSent}
+                                  >
+                                    {isMarkingSent ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                                    Envoyé
+                                  </Button>
+                                ) : null;
+                              })()}
+                            </div>
+                          </div>
+                          <p className="text-sm font-medium">{existingDraft.subject}</p>
+                          <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{existingDraft.body}</pre>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        )}
+
+        {/* ── Actions clôturées ── */}
+        {doneActions.length > 0 && (
+          <details id="section-closed-actions" className="mb-4 rounded-lg border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Actions clôturées ({doneActions.length})</summary>
+          <Card className="mt-3 border-0 shadow-none">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-500" />
+                <CardTitle className="text-lg">Actions clôturées</CardTitle>
+                <Badge variant="secondary">{doneActions.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {doneActions.slice(0, 10).map((action: any) => {
+                const ed = action.event_data as Record<string, unknown>;
+                const label = (ed["title_fr"] as string) ?? (ed["action_code"] as string) ?? "Action";
+                const createdAt = action.created_at ? new Date(action.created_at).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
+                return (
+                  <div key={action.id} className="flex items-center gap-2 py-1">
+                    <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+                    <span className="text-sm">{label}</span>
+                    {createdAt && <span className="text-xs text-muted-foreground ml-auto">{createdAt}</span>}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+          </details>
+        )}
+
+        {/* M27b: CL1 tracking moved — single instance near gaps (line ~2147) */}
+
+        {/* ── Analyse dernière réponse client (C3/P0) ── */}
+        <div id="section-reply-analysis">
+        {(() => {
+          const replyAnalysisEvent = events.find((e: any) => {
+            if (e.event_type !== "output_generated") return false;
+            const ed = e.event_data as Record<string, unknown> | null;
+            return ed?.["kind"] === "reply_analysis_v1";
+          }) ?? null;
+
+          if (!replyAnalysisEvent) return null;
+
+          const ed = replyAnalysisEvent.event_data as Record<string, unknown> | null;
+          const analysis = (ed?.["analysis"] ?? null) as Record<string, unknown> | null;
+          if (!analysis) return null;
+
+          const proposedFacts = Array.isArray(analysis["proposed_facts"]) ? analysis["proposed_facts"] as Record<string, unknown>[] : [];
+          const openQuestions = Array.isArray(analysis["open_questions"]) ? analysis["open_questions"] as string[] : [];
+          const readyToPrice = Boolean(analysis["ready_to_price"]);
+          const replyRecommended = Boolean(analysis["reply_recommended"]);
+
+          const displayValue = (f: Record<string, unknown>) => {
+            if (typeof f["value_text"] === "string" && f["value_text"]) return f["value_text"];
+            if (typeof f["value_num"] === "number") return String(f["value_num"]);
+            if (f["value_json"] != null) return JSON.stringify(f["value_json"]).slice(0, 200);
+            return "—";
+          };
+
+          return (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-accent" />
+                  <CardTitle className="text-lg">Analyse dernière réponse client</CardTitle>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant={readyToPrice ? "default" : "secondary"}>
+                    {readyToPrice ? "Prêt à chiffrer" : "Infos incomplètes"}
+                  </Badge>
+                  {replyRecommended && (
+                    <Badge variant="outline">Réponse recommandée</Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {proposedFacts.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">Faits proposés ({proposedFacts.length})</p>
+                    <div className="space-y-1">
+                    {proposedFacts.slice(0, 10).map((f, i) => {
+                        const alreadyApplied = isFactAlreadyApplied(f);
+                        const factKey = String(f["fact_key"] ?? "").trim();
+                        const isApplying = applyingFactKey === factKey;
+                        return (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <Badge variant="outline" className="text-[10px] shrink-0">
+                              {factKey}
+                            </Badge>
+                            <span className="truncate">{displayValue(f)}</span>
+                            {typeof f["confidence"] === "number" && (
+                              <span className="text-xs text-muted-foreground shrink-0">
+                                {Math.round((f["confidence"] as number) * 100)}%
+                              </span>
+                            )}
+                            <span className="ml-auto shrink-0">
+                              {alreadyApplied ? (
+                                <Badge variant="secondary" className="text-[10px]">✓ Appliqué</Badge>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  disabled={isApplying}
+                                  onClick={() => applyProposedFact(f)}
+                                >
+                                  {isApplying ? <Loader2 className="h-3 w-3 animate-spin" /> : "Insérer"}
+                                </Button>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {openQuestions.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">Questions ouvertes</p>
+                    <ul className="list-disc list-inside text-sm text-muted-foreground space-y-0.5">
+                      {openQuestions.map((q, i) => (
+                        <li key={i}>{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
+        </div>
+
+        {allDrafts.length > 0 && (
+          <details id="section-reply-drafts" className="mb-4 rounded-lg border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Brouillons de réponse ({allDrafts.length})</summary>
+          <Card className="mt-3 border-0 shadow-none">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-accent" />
+                <CardTitle className="text-lg">Brouillons de réponse</CardTitle>
+                <Badge variant="secondary">{allDrafts.length}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {allDrafts.map(d => (
+                <div key={d.id} className="bg-muted rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold">{d.draft.subject}</p>
+                      <Badge variant="outline" className={`text-[10px] shrink-0 ${d.sourceLabel === "Client" ? "bg-blue-100 text-blue-800 border-blue-300" : "bg-accent/20 text-accent-foreground border-accent/30"}`}>
+                        {d.sourceLabel}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{new Date(d.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2"
+                        onClick={() => copyDraftToClipboard(d.draft)}
+                      >
+                        <Copy className="mr-1 h-3 w-3" />
+                        Copier
+                      </Button>
+                    </div>
+                  </div>
+                  <pre className="text-sm whitespace-pre-wrap font-sans text-muted-foreground">{d.draft.body}</pre>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          </details>
+        )}
         <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-coordination">
           <summary className="cursor-pointer font-medium">Partenaires et coordination{coordinationSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {coordinationSummary}</span>}</summary>
           <p className="my-3 text-sm text-muted-foreground">Les blocages ci-dessous concernent le parcours du dossier confirmé ; l’estimation conserve ses propres réserves.</p>
@@ -2309,180 +2490,8 @@ export default function CaseView() {
 
 
         </details>
-        <details className="mb-4 min-w-0 rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Devis confirmé, versions et envoi{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
-        {/* M9b: Output pipeline stepper — read-only progression indicator */}
-        {isPipelineVisible && (() => {
-          const steps = [
-            { label: "Pricing", done: true },
-            { label: "Version", done: pipelineStepperData?.hasVersion ?? false },
-            { label: "PDF", done: pipelineStepperData?.hasPdf ?? false },
-            { label: "Brouillon", done: pipelineStepperData?.hasDraft ?? false },
-            { label: "Envoyé", done: ['SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) },
-          ];
-          return (
-            <div className="mb-4 flex items-center gap-1 px-1">
-              {steps.map((step, i) => (
-                <React.Fragment key={step.label}>
-                  <div className="flex items-center gap-1.5">
-                    {step.done ? (
-                      <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
-                    ) : (
-                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />
-                    )}
-                    <span className={`text-xs font-medium whitespace-nowrap ${step.done ? 'text-green-700' : 'text-muted-foreground'}`}>
-                      {step.label}
-                    </span>
-                  </div>
-                  {i < steps.length - 1 && (
-                    <div className={`flex-1 h-px min-w-4 ${step.done ? 'bg-green-400' : 'bg-muted-foreground/20'}`} />
-                  )}
-                </React.Fragment>
-              ))}
-            </div>
-          );
-        })()}
-
-        {/* PAD Reference Card — from current dossier facts */}
-        {(() => {
-          const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
-          const padRateFact = facts.find((f: any) => f.fact_key === 'cargo.pad_rate_fcfa_per_ton' && f.is_current);
-          const padCategory = padCatFact?.value_text ?? null;
-          const padRate = padRateFact?.value_number ?? null;
-
-          if (!padCategory) return null;
-
-          return (
-            <div className="mb-4 flex items-start gap-3 p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <Anchor className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Référence PAD dossier</p>
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  Catégorie {padCategory}
-                  {padRate != null ? ` · ${new Intl.NumberFormat('fr-FR').format(padRate)} FCFA/t` : ' · Montant non résolu'}
-                </p>
-                <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-0.5">Source officielle</p>
-              </div>
-            </div>
-          );
-        })()}
-
-        {needsPadReview(gaps) && <div className="mb-4 rounded border p-3">
-          <p className="text-sm">{PAD_REVIEW_FR}</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
-        </div>}
-        {/* Pricing Result Panel — visible after pricing */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <details className="mb-6 rounded border p-3">
-            <summary className="cursor-pointer">Résultat du devis — vérifier les bases retenues et la date</summary>
-            <PricingResultPanel
-              caseId={caseId!}
-              latestEstimateAt={selectedEstimate?.caseId === caseId && selectedEstimate.run?.status === 'success' ? selectedEstimate.run.completed_at : null}
-              isLocked={!!isPostSentLocked}
-              refreshToken={pricingRefreshToken}
-              isProvisional={pricingIsProvisional}
-              onVersionCreated={() => setVersionRefreshToken(t => t + 1)}
-            />
-          </details>
-        )}
-
-        {/* Phase 12: Quotation versions */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <div className="mb-6" id="section-version">
-            <QuotationVersionCard caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
-          </div>
-        )}
-
-        {/* Phase 19A: Send quotation */}
-        {['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <div className="mb-6">
-            <SendQuotationPanel caseId={caseId!} />
-          </div>
-        )}
-
-        <details className="mb-6 rounded border border-dashed p-3">
-          <summary className="cursor-pointer font-medium">Propositions maritimes à confirmer</summary>
-          <p className="my-2 text-xs text-muted-foreground">Décisions auditées à consulter avant leur intégration par un nouveau calcul.</p>
-          <MaritimeFeeProposalsPanel caseId={caseId!} />
-        </details>
-
-        {/* A1: Commercial outcome banner */}
-        {isTerminalOutcome && (
-          <Alert className={`mb-6 ${caseData.status === 'ACCEPTED' ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-red-500 bg-red-50 dark:bg-red-950/20'}`}>
-            <AlertDescription className="flex items-center gap-2">
-              {caseData.status === 'ACCEPTED' ? (
-                <>
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                  <span className="font-medium text-green-700 dark:text-green-400">Devis accepté par le client</span>
-                </>
-              ) : (
-                <>
-                  <X className="h-5 w-5 text-red-600" />
-                  <span className="font-medium text-red-700 dark:text-red-400">Devis refusé par le client</span>
-                </>
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* A1: Commercial outcome buttons — only when SENT */}
-        {caseData.status === 'SENT' && (
-          <div className="mb-6 flex gap-3">
-            <Button
-              variant="outline"
-              className="border-green-500 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20"
-              onClick={async () => {
-                try {
-                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
-                    body: { case_id: caseId, outcome: 'ACCEPTED' },
-                  });
-                  if (error) throw error;
-                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
-                  if (data.data?.idempotent) {
-                    toast.info('Devis déjà marqué comme accepté');
-                  } else {
-                    toast.success('Devis marqué comme accepté');
-                  }
-                  // Refresh case data
-                  window.location.reload();
-                } catch (err) {
-                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
-                }
-              }}
-            >
-              <Check className="h-4 w-4 mr-2" />
-              Client a accepté
-            </Button>
-            <Button
-              variant="outline"
-              className="border-red-500 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20"
-              onClick={async () => {
-                try {
-                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
-                    body: { case_id: caseId, outcome: 'REJECTED' },
-                  });
-                  if (error) throw error;
-                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
-                  if (data.data?.idempotent) {
-                    toast.info('Devis déjà marqué comme refusé');
-                  } else {
-                    toast.success('Devis marqué comme refusé');
-                  }
-                  window.location.reload();
-                } catch (err) {
-                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
-                }
-              }}
-            >
-              <X className="h-4 w-4 mr-2" />
-              Client a refusé
-            </Button>
-          </div>
-        )}
-
-
-
-        </details>
+          </TabsContent>
+          <TabsContent value="audit" forceMount className="mt-4 print:block">
         <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-sources">
           <summary className="cursor-pointer font-medium">Sources, faits et historique<span className="ml-2 text-sm font-normal text-muted-foreground">— {facts.length} fait{facts.length > 1 ? "s" : ""} · {events.length} événement{events.length > 1 ? "s" : ""}{typeof documentsCount === "number" ? ` · ${documentsCount} document${documentsCount > 1 ? "s" : ""}` : ""}</span></summary>
         {/* Tabs */}
@@ -2656,6 +2665,8 @@ export default function CaseView() {
           </TabsContent>
         </Tabs>
         </details>
+          </TabsContent>
+        </Tabs>
       </div>
     </MainLayout>
   );
