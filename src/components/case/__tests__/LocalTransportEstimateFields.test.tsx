@@ -32,7 +32,7 @@ it("saisie guidée sans qualification automatique, payload hypothèse existant e
   fill("Distance routière depuis Dakar Port (km)", "300");
   fill("Source de la distance et itinéraire vérifié", "Carte routière test");
   fill("Date de vérification", "2026-09-16");
-  fireEvent.click(screen.getByText("Ajouter un lot admissible"));
+  fireEvent.click(screen.getByRole("button", { name: "Ajouter un lot" }));
   expect(screen.getAllByRole("checkbox").every(c => c.getAttribute("aria-checked") === "false")).toBe(true);
   fill("Référence du lot dans le scénario", "lot-1");
   fill("Code équipement exact (ex. 20GP)", "20GP");

@@ -189,7 +189,7 @@ Deno.test("SIFB SQL: transaction, Auth, accès avant replay, verrou et grants pr
 });
 
 Deno.test("SIFB frontend: ancien chemin non atomique retiré de Intake", async () => {
-  const source = await Deno.readTextFile("src/pages/Intake.tsx");
+  const source = (await Deno.readTextFile("src/pages/Intake.tsx")).replace(/\r\n/g, "\n");
   assert(
     source.includes(
       'supabase.functions.invoke(\n          "set-intake-facts-batch"',

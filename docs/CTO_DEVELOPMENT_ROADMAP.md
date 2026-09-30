@@ -2743,3 +2743,15 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Limites : recette navigateur/Cloud NOT_RUN ; interactions testées localement avec E/S simulées. Reprise stockage conservée pendant la session seulement ; relecture/mutation non transactionnelles. Garde générale de navigation/saisies et révision après SENT restent L4/L2, hors L1.
 - Aucun commit/push/déploiement, aucune écriture Cloud, génération de devis/PDF/brouillon ni envoi. Suite : GO de publication distinct §2.1, puis recette privée ciblée ; rollback futur par revert ciblé du seul lot.
 - GO publication reçu le 30 septembre : commit/push du seul lot L1 sur work, synchronisation de l’aperçu privé Lovable et recette ciblée sans envoi client ni publication générale.
+
+#### CI — libellé transport et portabilité CRLF — 30 septembre 2026 — PASS local / PASS_WITH_BASELINE
+
+- GO utilisateur sur deux tests et clôture roadmap ; Codex exécutant unique, auto-revue proportionnée (§2.1). Base/HEAD/origin/work : 1baedfac5f25f12bc627520143db0c14dea2ccd1.
+- LocalTransportEstimateFields.test.tsx : bouton recherché par rôle et nom exact « Ajouter un lot » ; toutes les assertions métier conservées. Renommage introducteur : 445a795 (21/09).
+- set_intake_facts_batch.test.ts : normalisation CRLF vers LF de la source Intake avant les trois assertions existantes ; aucun code applicatif modifié.
+- Tests ciblés : Vitest 5/5 et Deno 10/10 PASS. Après correction d’une option de sélecteur refusée par TypeScript, npm run ci intégral : sortie 0.
+- Configuration 99 fonctions, isolation bundles, typecheck frontend, Vitest 655/655, Deno 1746/1746 (6 ignorés préexistants) et build PASS.
+- Types Deno 49 erreurs/5 groupes ; lint 727 erreurs/16 avertissements : PASS_WITH_BASELINE, aucun seuil relevé ni test nouvellement ignoré. Deno live NOT_RUN.
+- Auto-revue du diff et diff-check PASS ; deux lignes de tests remplacées. Notes locales antérieures et .claude/ préservés ; aucune DB/Auth/RLS/migration/FROZEN/runtime modifiée.
+- Aucun commit/push/déploiement ; CI GitHub du correctif NOT_RUN. Preuve hors dépôt : visualizations/2026/09/30/01a0f26d-7d5c-72c3-8005-3cc9a0e715f6/ci-tests-fix-final.log.
+- GO publication reçu le 30 septembre : commit des deux tests et de cette seule section, push work et contrôle CI GitHub ; aucun déploiement. Rollback : revert ciblé du commit du lot.
