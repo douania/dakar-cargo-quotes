@@ -86,6 +86,43 @@ const estimate = (): SelectedScenarioEstimate => ({ caseId:"test", title:"Scenar
     blockers:[],reservations:[],assumptions_snapshot:[],firm_total_ht:0,firm_total_ttc:0,indicative_total_ht:1000,indicative_total_ttc:1000,currency:"XOF",
     tariff_lines:[{ id:"pad-a",description:"PAD groupe a",amount:1000,source:{type:"official",reference:"Catalogue synthétique"}},
       { id:"transport",description:"Transport groupe b",amount:null,notes:"Destination à préciser",source:{type:"TO_CONFIRM"}}] } });
+it("hides machine references in saved estimate bases, notes and reservations while preserving warnings and originals", async () => {
+  const id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const hash = "a".repeat(64);
+  const original = `Hypothèses à vérifier; e-mail ${id}; SHA256 ${hash}; 1 unité/conteneur.`;
+  const readable = "Hypothèses à vérifier; e-mail de référence; 1 unité/conteneur.";
+  const e = estimate();
+  e.run!.tariff_lines = [
+    { id: "priced", description: "Manutention", amount: 1000, source: { type: "CALCULATED", reference: original } },
+    { id: "demurrage_estimate_test", category: "Surestaries", description: "Surestaries du lot", amount: null,
+      notes: original, source: { type: "TO_CONFIRM" } },
+  ];
+  const before = JSON.stringify(e);
+  render(<ScenarioEstimateResult estimate={e} />);
+  const table = screen.getByRole("table", { name: "Prestations de cette estimation" });
+  for (const name of ["Manutention", "Surestaries du lot"]) {
+    const row = within(table).getByText(name).closest("tr")!;
+    const base = within(row).getAllByRole("cell")[2];
+    expect(base.textContent).toBe(readable);
+    expect(base).toBeVisible();
+  }
+  for (const name of ["Réserves à traiter", "Franchises et tranches de séjour"]) {
+    const region = screen.getByRole("region", { name });
+    expect(within(region).getByText(readable)).toBeVisible();
+    expect(within(region).getByText(original)).not.toBeVisible();
+  }
+  for (const element of screen.getAllByText(new RegExp(`${id}|${hash}`))) {
+    expect(element).not.toBeVisible();
+    expect(element.closest("details")).not.toHaveAttribute("open");
+  }
+  const reservations = screen.getByRole("region", { name: "Réserves à traiter" });
+  await userEvent.click(within(reservations).getByText("Détails techniques de la source"));
+  expect(within(reservations).getByText(original)).toBeVisible();
+  expect(screen.getByText(/Sous-total indicatif/)).toHaveTextContent(/1\s*000/);
+  expect(screen.getByText(/Estimation non ferme/)).toBeVisible();
+  expect(JSON.stringify(e)).toBe(before);
+});
+
 it("displays current detailed partial result without pricing unknown posts as zero",()=>{
   render(<ScenarioEstimateResult estimate={estimate()} />);
   expect(screen.getByText(/Sous-total indicatif/)).toBeInTheDocument();

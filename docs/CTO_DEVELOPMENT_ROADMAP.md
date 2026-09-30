@@ -2712,3 +2712,14 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Aucun commit/push/publication, DB/Auth/RLS/migration, calcul, PDF, brouillon ou envoi exécuté. Deno/live et recette Cloud NOT_RUN ; validation de chaque écran avec des données réelles NOT_RUN.
 - Suite : publication dans l’aperçu privé (commit/push work, synchronisation Lovable et recette synthétique) sous GO distinct §2.1. Rollback futur par revert du commit de ce lot ; la bascule de présentation n’annule pas ces changements de vocabulaire.
 - GO de publication reçu le 30 septembre : commit/push du lot sur work, synchronisation de l’aperçu privé Lovable et recette synthétique, sans envoi client ni production générale.
+
+
+#### Textes simples — correction des estimations du 30 septembre 2026 — PASS_WITH_BASELINE local
+
+- Retour utilisateur : aucun changement visible dans Lovable. Diagnostic vérifié : version6aac42b chargée, mais bases/notes/réserves des estimations contournaient le composant de présentation ; recette précédente trop limitée.
+- Correction sous les GO réalisation/publication du même lot §2.1 : Codex seul écrivain ; ScenarioEstimateResult et son test uniquement, plus cette clôture. UUID/empreintes masqués dans Base, sources intégrales accessibles dans Détail ; notes, réserves et informations de séjour utilisent le même affichage lisible.
+- Aucun montant, calcul, classement de réserves, donnée persistée, handler ou appel serveur modifié. Test synthétique : bases chiffrées/non chiffrées, réserves et séjour lisibles, ouverture de l’original exact, avertissement non ferme/total conservés, entrée inchangée.
+- Contrôles : 64 tests ciblés PASS ; complet637 PASS/1FAIL baseline LocalTransportEstimateFields:35 ; typecheck/build PASS ; lint732/16 sans aggravation après relance (fichier temporaire Vite disparu pendant la première exécution parallèle).
+- Auto-revue et audit Frontend Design Premium :115 constats stricts identiques, aucune nouvelle violation ; conformité globale non revendiquée. Rollback : patch inverse vérifié sans modification, futur revert du commit correctif unique.
+- Base locale/GitHub6aac42b alignée ; notes antérieures roadmap et .claude/ préservées hors commit. Publication privée autorisée ; recette du devis réellement concerné à effectuer après synchronisation.
+- Aucun changement DB/Auth/RLS/migration/fonction serveur/FROZEN, aucune sauvegarde métier ni envoi. Deno/live NOT_RUN (présentation seule). Les longues explications métier et le contenu des brouillons enregistrés ne sont pas réécrits par cette correction.

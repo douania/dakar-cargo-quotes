@@ -1,4 +1,5 @@
 import { SourceText } from "@/components/SourceText";
+import { sourcePresentation } from "@/lib/sourcePresentation";
 import { OperatorBasisAdoption } from "./OperatorBasisAdoption";
 import { Button } from "@/components/ui/button";
 import { formatScenarioPricingAmount, type ScenarioPricingRunSummary } from "@/lib/scenarioPricing";
@@ -66,12 +67,12 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
             return <tr className="border-t align-top" data-estimate-status={isPricedEstimateLine(line) || isExcludedEstimateLine(line) ? "settled" : "pending"} key={`${String(line.id ?? "line")}-${i}`}>
               <td className="p-2">{String(line.description ?? line.category ?? "Prestation")}</td>
               <td className="text-right p-2 whitespace-nowrap">{isExcludedEstimateLine(line) ? "Exclu sous hypothèse" : isPricedEstimateLine(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
-              <td className="p-2 max-w-sm">{estimateLineBase(line)}</td>
+              <td className="p-2 max-w-sm [overflow-wrap:anywhere]">{sourcePresentation(estimateLineBase(line)).text}</td>
               <td className="p-2 whitespace-nowrap">{estimateLineStatus(line)}</td>
               <td className="p-2">{hasDetails ? <details>
                 <summary className="cursor-pointer whitespace-nowrap">Détail</summary>
                 <div className="mt-2 min-w-64 space-y-1 whitespace-pre-wrap break-words">
-                  {note && <p>{note}</p>}
+                  {note && <SourceText text={note} />}
                   {reference && <SourceText text={reference} label="Source" className="text-xs text-muted-foreground" />}
                   {isStayLine(line) && <p className="text-xs text-muted-foreground">Voir aussi « Franchises, tranches et calculs de séjour » ci-dessous.</p>}
                 </div>
@@ -98,7 +99,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
               </div>
               {info ? <div className="mt-2 space-y-2 text-sm">
                 <p className="font-medium">Franchise : {info.free_days === null ? "à confirmer" : `${info.free_days} jours`}</p>
-                <p>{info.franchise_note}</p>
+                <SourceText text={info.franchise_note} />
                 {info.carrier_comparison && <DemurrageReferenceComparison comparison={info.carrier_comparison} />}
                 {info.tiers.length > 0 && <div className="overflow-x-auto"><table className="w-full text-sm">
                   <caption className="text-left font-medium mb-1">Tranches de séjour — information non ferme</caption>
@@ -113,10 +114,10 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
                   <p>{info.example.formula} = {formatStayAmount(info.example.amount, info.example.currency)}</p>
                   <p>Illustration non ajoutée au total ; ce n’est pas la durée retenue.</p>
                 </div> : !info.carrier_comparison && <p>Exemple à compléter : conditions du lot, taux ou quantité/poids insuffisamment renseignés.</p>}
-                {info.reservations.map((reservation, i) => <p key={i} className="whitespace-pre-wrap">{reservation}</p>)}
+                {info.reservations.map((reservation, i) => <SourceText key={i} text={reservation} className="whitespace-pre-wrap" />)}
                 {info.sources.map((source, i) => <SourceText key={i} text={source} label="Source" className="text-xs text-muted-foreground" />)}
               </div> : <>
-                <p className="mt-1 text-sm whitespace-pre-wrap">{note}</p>
+                <SourceText text={note} className="mt-1 text-sm whitespace-pre-wrap" />
                 {typeof source.reference === "string" && <SourceText text={source.reference} label="Source" className="mt-1 text-xs text-muted-foreground" />}
               </>}
             </article>;
@@ -137,14 +138,14 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
       </> : <p role="alert">{run.status === "blocked" ? "Calcul bloqué : aucun montant retenu." : "Calcul non abouti : aucun montant retenu."}</p>}
       {reservationGroups.actionable.length > 0 && <section aria-label="Réserves à traiter" className="rounded border p-3">
         <h4 className="text-sm font-medium">Réserves à traiter ({reservationGroups.actionable.length})</h4>
-        <ul className="list-disc pl-5 text-sm space-y-2 mt-2">{reservationGroups.actionable.map(item => <li key={item.id}>{item.message}</li>)}</ul>
+        <ul className="list-disc pl-5 text-sm space-y-2 mt-2">{reservationGroups.actionable.map(item => <li key={item.id}><SourceText text={item.message} /></li>)}</ul>
         {reservationGroups.actionable.some(item => item.technicalCode) && <details className="mt-3"><summary className="cursor-pointer text-xs text-muted-foreground">Codes techniques pour le support</summary>
           <pre className="whitespace-pre-wrap break-words text-xs">{reservationGroups.actionable.map(item => item.technicalCode).filter(Boolean).join("\n")}</pre>
         </details>}
       </section>}
       {reservationGroups.standard.length > 0 && <details className="rounded border p-3">
         <summary className="cursor-pointer text-sm font-medium">Mentions standard ({reservationGroups.standard.length})</summary>
-        <ul className="list-disc pl-5 text-sm space-y-2 mt-2">{reservationGroups.standard.map(item => <li key={item.id}>{item.message}</li>)}</ul>
+        <ul className="list-disc pl-5 text-sm space-y-2 mt-2">{reservationGroups.standard.map(item => <li key={item.id}><SourceText text={item.message} /></li>)}</ul>
         {reservationGroups.standard.some(item => item.technicalCode) && <details className="mt-3"><summary className="cursor-pointer text-xs text-muted-foreground">Codes techniques pour le support</summary>
           <pre className="whitespace-pre-wrap break-words text-xs">{reservationGroups.standard.map(item => item.technicalCode).filter(Boolean).join("\n")}</pre>
         </details>}
