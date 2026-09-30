@@ -64,7 +64,7 @@ describe('PricingResultPanel — incomplete multi-lot run', () => {
     expect(screen.getAllByText('partiel', { exact: false })).toHaveLength(1);
 
     // The unknown service stays visible "À confirmer" with its reserve; the genuine zero shows 0.
-    fireEvent.click(screen.getByText('Lot B'));
+    fireEvent.click(screen.getByRole('button', { name: /Lot B/ }));
     const table = screen.getAllByRole('table').at(-1)!;
     const rows = within(table).getAllByRole('row');
     const surveyRow = rows.find(r => r.textContent?.includes('SURVEY'))!;

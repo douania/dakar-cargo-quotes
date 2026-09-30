@@ -34,6 +34,7 @@ export interface PricingRun {
   tariff_lines: any[] | null;
   tariff_sources: any[] | null;
   outputs_json: { duty_breakdown?: DutyBreakdownItem[]; [key: string]: any } | null;
+  inputs_json?: unknown;
   facts_snapshot: any[] | null;
   created_at: string | null;
   completed_at: string | null;
@@ -82,7 +83,7 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
     try {
       const { data, error: fetchError } = await supabase
         .from('pricing_runs')
-        .select('id, run_number, status, total_ht, total_ttc, currency, tariff_lines, tariff_sources, outputs_json, facts_snapshot, created_at, completed_at')
+        .select('id, run_number, status, total_ht, total_ttc, currency, tariff_lines, tariff_sources, outputs_json, inputs_json, facts_snapshot, created_at, completed_at')
         .eq('case_id', caseId)
         .eq('status', 'success')
         .order('run_number', { ascending: false })
@@ -98,6 +99,7 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
           outputs_json: (typeof data.outputs_json === 'object' && data.outputs_json !== null && !Array.isArray(data.outputs_json))
             ? data.outputs_json as PricingRun['outputs_json']
             : null,
+          inputs_json: data.inputs_json,
           facts_snapshot: Array.isArray(data.facts_snapshot) ? data.facts_snapshot : null,
         });
       } else {

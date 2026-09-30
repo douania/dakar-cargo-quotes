@@ -173,7 +173,7 @@ const SELECTION_COLUMNS =
 
 const SCENARIO_PRICING_COLUMNS =
   "id, scenario_id, run_seq, status, qualification, blockers, reservations, " +
-  "assumptions_snapshot, firm_total_ht, firm_total_ttc, indicative_total_ht, " +
+  "facts_snapshot, assumptions_snapshot, firm_total_ht, firm_total_ttc, indicative_total_ht, " +
   "indicative_total_ttc, currency, completed_at, tariff_lines";
 
 const SCENARIO_OUTPUT_COLUMNS =

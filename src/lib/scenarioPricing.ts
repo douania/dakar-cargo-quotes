@@ -13,6 +13,7 @@ export interface ScenarioPricingRunSummary {
   blockers: unknown;
   reservations: unknown;
   assumptions_snapshot: unknown;
+  facts_snapshot?: unknown;
   firm_total_ht: number | null;
   firm_total_ttc: number | null;
   indicative_total_ht: number | null;

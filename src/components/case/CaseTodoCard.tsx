@@ -103,13 +103,9 @@ export function CaseTodoCard({ status, action, quote, loading, error, missingIte
           </div>
         </section>
       </> : <p className="text-sm text-muted-foreground">Les estimations et calculs éventuels sont consultables dans « Devis ». Ils ne constituent pas une version client sélectionnée.</p>}
-      <Button variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={() => onOpen("devis")}>Consulter le devis</Button>
+
     </section>
     </div>}
-    <div className="flex flex-wrap gap-2" aria-label="Autres actions indépendantes">
-      <Button variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={() => onOpen("marchandise")}>Consulter la marchandise</Button>
-      <Button variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={() => onOpen("echanges")}>Consulter les échanges</Button>
-      <Button variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={() => onOpen("documents")}>Consulter les documents</Button>
-    </div>
+
   </section>;
 }

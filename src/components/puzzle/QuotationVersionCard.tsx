@@ -1,3 +1,4 @@
+import { QuotationBasis } from "@/components/case/QuotationBasis";
 /**
  * Phase 12 + Lot 3A: QuotationVersionCard
  * Displays existing quotation versions with selection, PDF export,
@@ -20,7 +21,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Check, FileDown, Loader2, Clock, FileText, ExternalLink, AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -143,6 +143,7 @@ interface QuotationVersionCardProps {
   caseId: string;
   isLocked?: boolean;
   refreshToken?: number;
+  onReviewBasis?: () => void;
 }
 
 export function QuotationVersionCard(props: QuotationVersionCardProps) {
@@ -150,7 +151,7 @@ export function QuotationVersionCard(props: QuotationVersionCardProps) {
   return <QuotationVersionCardInner key={props.caseId} {...props} />;
 }
 
-function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: QuotationVersionCardProps) {
+function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onReviewBasis }: QuotationVersionCardProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
@@ -351,10 +352,10 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
       </CardHeader>
 
       <CardContent>
-        <ScrollArea className="max-h-[300px]">
+        <div>
           <div className="space-y-3">
             {versions.map((version, index) => {
-              const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[]; meta?: Record<string, unknown> } | null;
+              const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[]; meta?: Record<string, unknown>; inputs?: unknown; lots?: unknown } | null;
               const totalHt = Number(snapshot?.totals?.total_ht);
               const currency = String(snapshot?.totals?.currency || 'XOF');
               const linesCount = snapshot?.lines?.length || 0;
@@ -379,7 +380,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                       : 'border-border bg-muted/30 hover:bg-muted/50'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="font-semibold">Version v{version.version_number}</span>
@@ -400,6 +401,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                         )}
                       </div>
 
+                      <QuotationBasis context={`Version v${version.version_number}${version.is_selected ? " sélectionnée" : ""}`} inputs={snapshot?.inputs} lots={snapshot?.lots} onReview={onReviewBasis} />
                       {Number.isFinite(displayedTotal) && (
                         <p className="mt-2 text-lg font-bold">
                           {formatAmount(displayedTotal)} {currency}
@@ -474,7 +476,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
               );
             })}
           </div>
-        </ScrollArea>
+        </div>
       </CardContent>
     </Card>
   );

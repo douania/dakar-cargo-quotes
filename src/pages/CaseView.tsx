@@ -121,12 +121,16 @@ const SECTION_TAB: Record<string, string> = {
 // Only their layout slots move; business components, handlers and local drafts stay mounted.
 const MERCHANDISE_PARTS = ["information", "advanced", "understanding", "questions", "clarifications", "assumptions", "groups", "variants"] as const;
 type MerchandisePart = typeof MERCHANDISE_PARTS[number];
-function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel, parts }: {
+function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel, variantsTarget, parts }: {
   guided: boolean; hasQuestions: boolean; summary: string;
   scenarioPanel: React.RefObject<HTMLDetailsElement>;
+  variantsTarget: HTMLDivElement | null;
   parts: Record<MerchandisePart, React.ReactNode>;
 }) {
   const [hosts] = useState(() => Object.fromEntries(MERCHANDISE_PARTS.map(name => [name, document.createElement("div")])) as Record<MerchandisePart, HTMLDivElement>);
+  React.useLayoutEffect(() => {
+    if (guided && variantsTarget) variantsTarget.appendChild(hosts.variants);
+  }, [guided, variantsTarget, hosts]);
   const slot = (name: MerchandisePart) => <div key={name} className="min-w-0" ref={node => {
     if (node && hosts[name].parentElement !== node) node.appendChild(hosts[name]);
   }} />;
@@ -135,6 +139,10 @@ function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel,
   return <>
     {guided ? <>
       <p aria-label="Résumé de la marchandise" className="mb-4 text-sm text-muted-foreground [overflow-wrap:anywhere]">{summary}</p>
+      <section id="section-request" className={sectionClass} aria-label="Demande et prestations">
+        <h2 className="mb-3 font-medium">Demande et prestations</h2>
+        {slot("understanding")}
+      </section>
       {!hasQuestions && <p id="section-data" tabIndex={-1} className="mb-4 text-sm">Rien à compléter</p>}
       <details id={hasQuestions ? "section-data" : undefined} hidden={!hasQuestions} open={hasQuestions || undefined} className={sectionClass}>
         <summary className={summaryClass}>1. Ce qu’il faut compléter</summary>
@@ -146,13 +154,9 @@ function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel,
         <p className="my-3 text-sm text-muted-foreground">Reliez les lots aux demandes du client, puis vérifiez chaque groupe.</p>
         {slot("groups")}
       </details>
-      <details id="section-scenario-variants" className={sectionClass}>
-        <summary className={summaryClass}>3. Estimation et variantes</summary>
-        {slot("variants")}
-      </details>
       <details id="section-merchandise-tools" className={sectionClass}>
         <summary className={summaryClass}>Détails et outils</summary>
-        <div className="mt-3">{slot("information")}{slot("understanding")}{slot("assumptions")}{slot("advanced")}</div>
+        <div className="mt-3">{slot("information")}{slot("assumptions")}{slot("advanced")}</div>
       </details>
     </> : <>
       <details id="section-data" className={sectionClass}>
@@ -182,6 +186,7 @@ export default function CaseView() {
   const outcomeBusy = React.useRef(false);
   const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
   const scenarioPanel = React.useRef<HTMLDetailsElement>(null);
+  const [variantsTarget, setVariantsTarget] = useState<HTMLDivElement | null>(null);
   const [guided, setGuided] = useState(() => {
     try { return localStorage.getItem(CASE_PRESENTATION_KEY) !== "previous"; }
     catch { return true; }
@@ -221,7 +226,7 @@ export default function CaseView() {
     });
   };
   const openEstimateReview = () => {
-    openScenarioReview();
+    if (guided) revealTab("devis"); else openScenarioReview();
     afterTabPaint(() => {
       const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
       if (variants) {
@@ -1243,7 +1248,7 @@ export default function CaseView() {
   const openClientQuestions = gaps.filter((gap) => gap.gap_key !== PAD_REVIEW_GAP_KEY);
   const openClientBlockingQuestions = openClientQuestions.filter((gap) => gap.is_blocking).length;
   const openCoordinationBlock = (id: string, tab?: string) => {
-    revealTab(tab ?? SECTION_TAB[id] ?? "echanges");
+    revealTab(tab ?? (guided && id === "section-scenario-variants" ? "devis" : SECTION_TAB[id]) ?? "echanges");
     afterTabPaint(() => {
       const target = document.getElementById(id);
       if (!target) return;
@@ -1264,7 +1269,7 @@ export default function CaseView() {
   const focusPilotageAction = (action: PilotageAction) => {
     const targetId = guided && action.kind === "create_version" ? "section-pricing-result"
       : guided && (action.kind === "prepare_email" || action.kind === "mark_sent") ? "section-send" : action.targetId;
-    revealTab(SECTION_TAB[targetId] ?? "devis");
+    revealTab(guided && targetId === "section-scenario-variants" ? "devis" : SECTION_TAB[targetId] ?? "devis");
     afterTabPaint(() => {
       const target = document.getElementById(targetId);
       if (!target) return;
@@ -1585,6 +1590,10 @@ export default function CaseView() {
             </div>
           );
         })()}
+        {guided && <section id="section-scenario-variants" tabIndex={-1} aria-label="Estimation et variantes" className="mb-4 min-w-0 rounded-lg border p-4">
+          <h2 className="font-medium">Estimation et variantes</h2>
+          <div ref={setVariantsTarget} />
+        </section>}
         <details open={guided || undefined} className="mb-4 min-w-0 rounded-lg border p-4">
           <summary className="cursor-pointer font-medium">Devis confirmé, versions et envoi{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
         {/* M9b: Output pipeline stepper — read-only progression indicator */}
@@ -1619,44 +1628,22 @@ export default function CaseView() {
           );
         })()}
 
-        {/* PAD Reference Card — from current dossier facts */}
-        {(() => {
-          const padCatFact = facts.find((f: any) => f.fact_key === 'cargo.pad_category' && f.is_current);
-          const padRateFact = facts.find((f: any) => f.fact_key === 'cargo.pad_rate_fcfa_per_ton' && f.is_current);
-          const padCategory = padCatFact?.value_text ?? null;
-          const padRate = padRateFact?.value_number ?? null;
-
-          if (!padCategory) return null;
-
-          return (
-            <div className="mb-4 flex items-start gap-3 p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <Anchor className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Référence PAD dossier</p>
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  Catégorie {padCategory}
-                  {padRate != null ? ` · ${new Intl.NumberFormat('fr-FR').format(padRate)} FCFA/t` : ' · Montant non résolu'}
-                </p>
-                <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-0.5">Source officielle</p>
-              </div>
-            </div>
-          );
-        })()}
-
         {needsPadReview(gaps) && <div className="mb-4 rounded border p-3">
           <p className="text-sm">{PAD_REVIEW_FR}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
         </div>}
         {/* Pricing Result Panel — visible after pricing */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <details id="section-pricing-result" className="mb-6 rounded border p-3">
+          <details id="section-pricing-result" open={guided || undefined} className="mb-6 rounded border p-3">
             <summary className="cursor-pointer">Résultat du devis — vérifier les bases retenues et la date</summary>
             <PricingResultPanel
+              key={caseId}
               caseId={caseId!}
               latestEstimateAt={selectedEstimate?.caseId === caseId && selectedEstimate.run?.status === 'success' ? selectedEstimate.run.completed_at : null}
               isLocked={!!isPostSentLocked}
               refreshToken={pricingRefreshToken}
               isProvisional={pricingIsProvisional}
+              onReviewBasis={() => openCoordinationBlock(guided ? "section-request" : "section-data", "marchandise")}
               onVersionCreated={() => setVersionRefreshToken(t => t + 1)}
             />
           </details>
@@ -1665,7 +1652,7 @@ export default function CaseView() {
         {/* Phase 12: Quotation versions */}
         {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6" id="section-version">
-            <QuotationVersionCard caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
+            <QuotationVersionCard onReviewBasis={() => openCoordinationBlock(guided ? "section-request" : "section-data", "marchandise")} caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
           </div>
         )}
 
@@ -1743,7 +1730,7 @@ export default function CaseView() {
         </details>
           </TabsContent>
           <TabsContent value="marchandise" forceMount hidden={activeTab !== "marchandise"} aria-labelledby={guided ? "guided-nav-marchandise" : undefined} className="mt-4 print:block">
-        <MerchandisePresentation guided={guided} hasQuestions={blockingGaps.length + nonBlockingOpenGaps.length > 0}
+        <MerchandisePresentation variantsTarget={variantsTarget} guided={guided} hasQuestions={blockingGaps.length + nonBlockingOpenGaps.length > 0}
           scenarioPanel={scenarioPanel} summary={guided ? guidedMerchandiseSummary : merchandiseSummary}
           parts={{
           information: <>
@@ -2205,10 +2192,7 @@ export default function CaseView() {
             extractedWeightConfidence={facts.find((fact) => fact.fact_key === "cargo.weight_kg" && fact.is_current)?.confidence ?? null}
             onSummaryChange={setPadGroupSummary}
             onConflictFactKeysChange={setConflictFactKeys}
-            onEstimateReview={() => {
-            const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
-            if (variants) { variants.open = true; variants.scrollIntoView({ behavior: "smooth", block: "start" }); }
-          }} />
+            onEstimateReview={openEstimateReview} />
           <details className="mt-3 rounded-md border p-3">
             <summary className="cursor-pointer text-sm font-medium">Aide à la classification</summary>
             <p className="my-3 text-sm text-muted-foreground">Prévisualisations et recherches pour préparer la décision opérateur.</p>

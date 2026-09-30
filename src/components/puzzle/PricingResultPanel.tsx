@@ -1,3 +1,4 @@
+import { QuotationBasis } from "@/components/case/QuotationBasis";
 /**
  * Phase 12 + P3b.1: PricingResultPanel
  * Displays the latest successful pricing run and allows version creation.
@@ -144,9 +145,10 @@ interface PricingResultPanelProps {
   refreshToken?: number;
   isProvisional?: boolean;
   onVersionCreated?: () => void;
+  onReviewBasis?: () => void;
 }
 
-export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false, refreshToken, isProvisional = false, onVersionCreated }: PricingResultPanelProps) {
+export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false, refreshToken, isProvisional = false, onVersionCreated, onReviewBasis }: PricingResultPanelProps) {
   const { pricingRun, versions, isLoading, refetchVersions } = usePricingResultData(caseId, refreshToken);
   const queryClient = useQueryClient();
   // Creation also changes the server-selected version: share the selection lock
@@ -301,6 +303,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <QuotationBasis context={`Calcul n° ${pricingRun.run_number}`} inputs={pricingRun.inputs_json} facts={pricingRun.facts_snapshot} lots={lots} onReview={onReviewBasis} />
         {/* Regime Blocker Alert */}
         {(() => {
           const outputs = pricingRun.outputs_json as any;

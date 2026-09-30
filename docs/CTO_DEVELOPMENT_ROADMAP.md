@@ -2768,3 +2768,16 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Suite : GO distinct commit/push work, synchronisation aperçu privé Lovable puis recette ciblée PDF/statut ; conserver les acquis. Rollback code : retirer uniquement le diff de ces3 fichiers ; préserver les notes et fixtures antérieures.
 
 - GO de publication reçu : commit/push work, synchronisation aperçu privé et recette ciblée PDF/statut autorisés ; résultat à consigner après vérification.
+
+### 2026-09-30 — L3 local : parcours et bases de cotation visibles — PASS local, publication NOT_RUN
+- GO utilisateur : réalisation locale du parcours guidé, complétée par les bases retenues clairement affichées ; work, HEAD/origin 769aab6 → 769aab6, aucun commit/push.
+- Marchandise : demande/périmètre en tête ; variantes déplacées dans Devis près de l’estimation, mêmes instances et saisies conservées ; outils secondaires. À faire : retrait des boutons de navigation redondants.
+- Nouveau QuotationBasis partagé : ouvert avant montant du calcul, estimation et versions ; entrées et snapshots de leur propre enregistrement seulement, origines enregistrées, hypothèses du scénario, tous les lots accessibles. Aucun remplacement par faits actuels.
+- Limites explicites : caractéristiques/provenance absentes et unités historiques inconnues non inventées ; faits du snapshot = contexte, pas preuve d’utilisation par chaque poste/lot. Aucune détection exhaustive des différences avec les faits actuels ni reconstruction historique.
+- Retrait de la carte PAD actuelle au milieu des résultats historiques ; résultat ouvert en présentation guidée ; retour vers Marchandise ou variantes et réinitialisation au changement de dossier.
+- Diff : 8 fichiers applicatifs modifiés, nouveau composant, 2 tests modifiés et 1 test ajouté (12 fichiers code/tests au total) ; documentation antérieure et .claude/ préservées.
+- npm run ci PASS : 662 Vitest, 1746 Deno/6 ignorés, configuration/bundles/types/build PASS ; Deno types 49 erreurs/5 groupes baseline, lint 725/16 sans aggravation (origin 727/16). Après ajustements d’affichage et clé dossier : types + 47 tests ciblés PASS.
+- Contre-revue indépendante lecture seule PASS, reprise limitée scénarios incluse. Tests couvrent snapshots distincts, absence d’historique, zéro, six lots/rattachement index, navigation/focus, saisie variante conservée entre onglets et présentations.
+- Recette visuelle locale du composant réel sur données fictives : bases, historique absent et six lots, mobile 375 px sans débordement horizontal. Parcours complet contrôlé en tests de composition ; recette Cloud NOT_RUN.
+- Aucune DB/Auth/RLS, migration, fonction serveur, tarification, donnée client ou règle de recalcul/envoi modifiée ; questions sans liaison de lot fiable restent dans les contrôles du dossier.
+- Publication privée et recette intégrée à soumettre sous GO distinct §2.1. Rollback : retirer le seul diff L3 en conservant les notes antérieures ; aucun rollback runtime nécessaire.

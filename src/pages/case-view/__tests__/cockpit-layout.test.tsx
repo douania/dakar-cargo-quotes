@@ -50,7 +50,8 @@ for (const match of source.matchAll(/import (.+) from "(@\/components\/(?:case|p
       const {caseId:fixtureCaseId,onSelectedEstimateChange,actionRef}=props;
       useEffect(()=>{onSelectedEstimateChange(hasSelection ? {caseId:fixtureCaseId,title:'Scénario test',run,pending:false,error:null}:null);},[fixtureCaseId,onSelectedEstimateChange]);
       useImperativeHandle(actionRef,()=>({estimateSelected:estimateAction}));
-      return <p>Groupes de test à vérifier</p>;
+      const [draft, setDraft] = useState('');
+      return <><p>Groupes de test à vérifier</p><label>Note variante non enregistrée<input value={draft} onChange={e => setDraft(e.target.value)} /></label></>;
     } : path.endsWith('/QuotationVersionCard') ? function VersionDouble() {
       const [draft,setDraft]=useState('');useEffect(()=>{versionMounts++;},[]);
       return <label>Brouillon de test<input value={draft} onChange={e=>setDraft(e.target.value)} /></label>;
@@ -97,15 +98,16 @@ it('confirms commercial outcomes, blocks repeated clicks and retains server erro
   expect(screen.getByRole('button',{name:'Confirmer la décision'})).toBeEnabled();
 });
 
-it('orders guided questions before groups and keeps tools and independent variants collapsed',async()=>{
+it('puts demand before questions and groups, with variants in Devis and tools collapsed',async()=>{
   localStorage.removeItem(CASE_PRESENTATION_KEY);status='NEED_INFO';
   gaps=[{id:'optional',gap_key:'cargo.description',status:'open',is_blocking:false,question_fr:'Description complémentaire ?'},
     {id:'destination',gap_key:'routing.destination_city',status:'open',is_blocking:true,question_fr:'Destination à préciser ?'}];
   const {container}=mount();await userEvent.click(screen.getByRole('button',{name:'Marchandise'}));
-  const steps=Array.from(container.querySelectorAll('[id^="section-"]')).filter(e=>['section-data','section-scenarios','section-scenario-variants','section-merchandise-tools'].includes(e.id));
-  expect(steps.map(e=>e.id)).toEqual(['section-data','section-scenarios','section-scenario-variants','section-merchandise-tools']);
-  expect(steps[0]).toHaveAttribute('open');expect(steps[1]).toHaveAttribute('open');
-  expect(steps[2]).not.toHaveAttribute('open');expect(steps[3]).not.toHaveAttribute('open');
+  const steps=Array.from(container.querySelectorAll('[id^="section-"]')).filter(e=>['section-request','section-data','section-scenarios','section-merchandise-tools'].includes(e.id));
+  expect(steps.map(e=>e.id)).toEqual(['section-request','section-data','section-scenarios','section-merchandise-tools']);
+  expect(steps[0]).toBeVisible();expect(steps[1]).toHaveAttribute('open');
+  expect(steps[2]).toHaveAttribute('open');expect(steps[3]).not.toHaveAttribute('open');
+  expect(container.querySelector('#section-scenario-variants')).not.toBeVisible();
   const blocker=container.querySelector('#gap-review-destination')!,optional=container.querySelector('#gap-review-optional')!;
   expect(blocker).toBeVisible();expect(optional).toBeVisible();
   expect(blocker.compareDocumentPosition(optional)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -159,7 +161,8 @@ it('opens the separate variants step from PAD without changing forms or pricing'
   localStorage.removeItem(CASE_PRESENTATION_KEY);const {container}=mount();
   await userEvent.click(screen.getByRole('button',{name:'Marchandise'}));
   await userEvent.click(screen.getByRole('button',{name:'Modifier les groupes pour l’estimation'}));
-  expect(container.querySelector('#section-scenario-variants')).toHaveAttribute('open');
+  expect(container.querySelector('#section-scenario-variants')).toBeVisible();
+  expect(container.querySelector('#section-scenario-variants')).toHaveFocus();
   expect(screen.getByText('Groupes de test à vérifier')).toBeVisible();
   expect(invoke).not.toHaveBeenCalled();expect(estimateAction).not.toHaveBeenCalled();
 });
@@ -408,7 +411,7 @@ it.each(['fetching','error'])('does not advise an action from stale cockpit data
   mount();const todo=screen.getByRole('region',{name:'À faire dans le dossier'});
   expect(within(todo).queryByRole('button',{name:'Relire le calcul avant de créer une version'})).toBeNull();
   expect(within(todo).queryByRole('region',{name:'Document destiné au client'})).toBeNull();
-  expect(within(todo).getByRole('button',{name:'Consulter les documents'})).toBeEnabled();
+  expect(screen.getByRole('button',{name:'Échanges et documents'})).toBeEnabled();
 });
 
 it('does not describe a dossier with no proposed action as complete',()=>{
@@ -462,7 +465,8 @@ it('moves keyboard focus to documents and distinguishes dossier printing from th
   localStorage.removeItem(CASE_PRESENTATION_KEY);const {container}=mount();
   expect(screen.getByRole('button',{name:'Imprimer le dossier'})).toBeVisible();
   expect(screen.queryByRole('button',{name:'Imprimer PDF'})).toBeNull();
-  screen.getByRole('button',{name:'Consulter les documents'}).focus();
+  await userEvent.click(screen.getByRole('button',{name:'Échanges et documents'}));
+  screen.getByRole('button',{name:'Documents et pièces jointes'}).focus();
   await userEvent.keyboard('{Enter}');
   expect(container.querySelector('#section-sources')).toHaveFocus();
   expect(screen.getByRole('tab',{name:'Documents (0)'})).toHaveAttribute('data-state','active');
@@ -491,4 +495,24 @@ it('shows saved client preparation with an unsaved warning, and hides it during 
   preparationFixture={...preparationFixture,error:false};cockpitOverrides={...cockpitOverrides,selectedVersionId:'v2',selectedVersionNumber:2};
   rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
   expect(summary).not.toHaveTextContent('client@example.com');expect(invoke).not.toHaveBeenCalled();
+});
+
+
+it('preserves the same scenario draft through tab navigation and both presentation modes', async () => {
+  localStorage.removeItem(CASE_PRESENTATION_KEY); mount();
+  await userEvent.click(screen.getByRole('button', { name: 'Devis' }));
+  const input = screen.getByRole('textbox', { name: 'Note variante non enregistrée' });
+  await userEvent.type(input, 'Variante à revoir');
+  await userEvent.click(screen.getByRole('button', { name: 'Marchandise' }));
+  expect(input).not.toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'Présentation précédente' }));
+  fireEvent.click(screen.getByText('Marchandises et catégories portuaires', { exact: false }));
+  fireEvent.click(screen.getByText('Variantes, choix de l’estimation et historique'));
+  expect(screen.getByRole('textbox', { name: 'Note variante non enregistrée' })).toBe(input);
+  expect(input).toHaveValue('Variante à revoir');
+  await userEvent.click(screen.getByRole('button', { name: 'Présentation guidée' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Devis' }));
+  expect(screen.getByRole('textbox', { name: 'Note variante non enregistrée' })).toBe(input);
+  expect(input).toHaveValue('Variante à revoir');
+  expect(invoke).not.toHaveBeenCalled(); expect(estimateAction).not.toHaveBeenCalled();
 });

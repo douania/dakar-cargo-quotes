@@ -1,3 +1,4 @@
+import { QuotationBasis } from "./QuotationBasis";
 import { SourceText } from "@/components/SourceText";
 import { sourcePresentation } from "@/lib/sourcePresentation";
 import { OperatorBasisAdoption } from "./OperatorBasisAdoption";
@@ -52,6 +53,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
     {!run && !error && !pending && <p>Aucune estimation pour ce scénario. Lancez le calcul après vérification des hypothèses.</p>}
     {run && <>
       <p className="text-xs text-muted-foreground">{pending || error ? "Dernier résultat enregistré" : "Résultat enregistré"} · exécution {run.run_seq} · {new Date(run.completed_at).toLocaleString("fr-FR")}</p>
+      <QuotationBasis context={`Estimation n° ${run.run_seq}`} facts={run.facts_snapshot} assumptions={run.assumptions_snapshot} onReview={onReview} reviewLabel="Revoir les variantes et hypothèses" />
       {run.status === "success" ? <>
         <p className="font-semibold text-lg">{run.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"} : HT {formatScenarioPricingAmount(run.indicative_total_ht, run.currency)} · TTC {formatScenarioPricingAmount(run.indicative_total_ttc, run.currency)}</p>
         <p className="text-sm text-muted-foreground">Estimation non ferme, distincte du devis confirmé. Les postes à confirmer ne sont pas gratuits.</p>
