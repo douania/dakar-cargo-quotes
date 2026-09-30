@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
 import { LotConfirmationsPanel } from "@/components/case/LotConfirmationsPanel";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
@@ -115,6 +116,62 @@ const SECTION_TAB: Record<string, string> = {
   "section-sources": "audit",
 };
 
+// Stable portal containers keep the same panel instances when the presentation changes.
+// Only their layout slots move; business components, handlers and local drafts stay mounted.
+const MERCHANDISE_PARTS = ["information", "advanced", "understanding", "questions", "clarifications", "assumptions", "groups", "variants"] as const;
+type MerchandisePart = typeof MERCHANDISE_PARTS[number];
+function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel, parts }: {
+  guided: boolean; hasQuestions: boolean; summary: string;
+  scenarioPanel: React.RefObject<HTMLDetailsElement>;
+  parts: Record<MerchandisePart, React.ReactNode>;
+}) {
+  const [hosts] = useState(() => Object.fromEntries(MERCHANDISE_PARTS.map(name => [name, document.createElement("div")])) as Record<MerchandisePart, HTMLDivElement>);
+  const slot = (name: MerchandisePart) => <div key={name} className="min-w-0" ref={node => {
+    if (node && hosts[name].parentElement !== node) node.appendChild(hosts[name]);
+  }} />;
+  const sectionClass = "mb-4 min-w-0 rounded-lg border p-4";
+  const summaryClass = "cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm";
+  return <>
+    {guided ? <>
+      <p aria-label="Résumé de la marchandise" className="mb-4 text-sm text-muted-foreground [overflow-wrap:anywhere]">{summary}</p>
+      {!hasQuestions && <p id="section-data" tabIndex={-1} className="mb-4 text-sm">Rien à compléter</p>}
+      <details id={hasQuestions ? "section-data" : undefined} hidden={!hasQuestions} open={hasQuestions || undefined} className={sectionClass}>
+        <summary className={summaryClass}>1. Ce qu’il faut compléter</summary>
+        <p className="my-3 text-sm text-muted-foreground">Renseignez les réponses connues ; préparez les questions restantes pour le client.</p>
+        {slot("questions")}{slot("clarifications")}
+      </details>
+      <details ref={scenarioPanel} id="section-scenarios" open className={sectionClass}>
+        <summary className={summaryClass}>2. Lots et catégories portuaires</summary>
+        <p className="my-3 text-sm text-muted-foreground">Reliez les lots aux demandes du client, puis vérifiez chaque groupe.</p>
+        {slot("groups")}
+      </details>
+      <details id="section-scenario-variants" className={sectionClass}>
+        <summary className={summaryClass}>3. Estimation et variantes</summary>
+        {slot("variants")}
+      </details>
+      <details id="section-merchandise-tools" className={sectionClass}>
+        <summary className={summaryClass}>Détails et outils</summary>
+        <div className="mt-3">{slot("information")}{slot("understanding")}{slot("assumptions")}{slot("advanced")}</div>
+      </details>
+    </> : <>
+      <details id="section-data" className={sectionClass}>
+        <summary className="cursor-pointer font-medium">Données du dossier et contrôles avant devis confirmé</summary>
+        <p className="my-3 text-sm text-muted-foreground">Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus.</p>
+        {slot("information")}{slot("advanced")}{slot("understanding")}{slot("questions")}{slot("clarifications")}{slot("assumptions")}
+      </details>
+      <details ref={scenarioPanel} id="section-scenarios" className={sectionClass}>
+        <summary className="cursor-pointer font-medium">Marchandises et catégories portuaires{summary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {summary}</span>}</summary>
+        {slot("groups")}
+        <details id="section-scenario-variants" className="mt-3">
+          <summary className="cursor-pointer text-sm">Variantes, choix de l’estimation et historique</summary>
+          {slot("variants")}
+        </details>
+      </details>
+    </>}
+    {MERCHANDISE_PARTS.map(name => createPortal(parts[name], hosts[name], name))}
+  </>;
+}
+
 export default function CaseView() {
   const queryClient = useQueryClient();
   const { caseId } = useParams<{ caseId: string }>();
@@ -162,7 +219,16 @@ export default function CaseView() {
     openScenarioReview();
     afterTabPaint(() => {
       const variants = document.getElementById("section-scenario-variants") as HTMLDetailsElement | null;
-      if (variants) variants.open = true;
+      if (variants) {
+        for (let parent: HTMLElement | null = variants; parent; parent = parent.parentElement) {
+          if (parent instanceof HTMLDetailsElement) parent.open = true;
+        }
+        if (guided) {
+          variants.scrollIntoView({ behavior: "smooth", block: "start" });
+          variants.setAttribute("tabindex", "-1");
+          variants.focus({ preventScroll: true });
+        }
+      }
     });
   };
   const openStayReview = () => {
@@ -1150,6 +1216,14 @@ export default function CaseView() {
     multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} marchandise` : null,
     padGroupSummary || (currentPadCategory ? `PAD ${currentPadCategory}` : "catégorie PAD à confirmer"),
   ].filter(Boolean).join(" · ");
+  const declaredWeight = facts.find(fact => fact.fact_key === "cargo.weight_kg" && fact.is_current);
+  const declaredWeightKg = Number(declaredWeight?.value_number ?? declaredWeight?.value_text);
+  const guidedMerchandiseSummary = [
+    multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} client` : "Lots détaillés ci-dessous",
+    declaredWeight && Number.isFinite(declaredWeightKg) && declaredWeightKg > 0 ? `Poids déclaré : ${declaredWeightKg.toLocaleString("fr-FR")} kg` : "Poids déclaré à renseigner",
+    [...new Set(padGroupSummary.split(" · ").filter(Boolean))].join(" · ") || (currentPadCategory ? `PAD ${currentPadCategory}` : "Catégories à confirmer"),
+    `${blockingGaps.length + nonBlockingOpenGaps.length} question${blockingGaps.length + nonBlockingOpenGaps.length > 1 ? "s" : ""} ouverte${blockingGaps.length + nonBlockingOpenGaps.length > 1 ? "s" : ""}`,
+  ].join(" · ");
   const coordinationSummary = cockpitState ? [
     cockpitState.totalPartnerRequests > 0 ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}` : null,
     pilotage?.action?.label ? `étape restante : ${pilotage.action.label}` : null,
@@ -1682,9 +1756,10 @@ export default function CaseView() {
         </details>
           </TabsContent>
           <TabsContent value="marchandise" forceMount hidden={activeTab !== "marchandise"} aria-labelledby={guided ? "guided-nav-marchandise" : undefined} className="mt-4 print:block">
-        <details className="mb-4 min-w-0 rounded-lg border p-4" id="section-data">
-          <summary className="cursor-pointer font-medium">{guided ? "Informations à vérifier avant le devis confirmé" : "Données du dossier et contrôles avant devis confirmé"}</summary>
-          <p className="my-3 text-sm text-muted-foreground">{guided ? "Complétez les informations connues ou préparez une demande au client. Les estimations restent consultables dans « Devis »." : "Ces contrôles portent sur les données confirmées. Ils ne décrivent pas le résultat de l’estimation ci-dessus."}</p>
+        <MerchandisePresentation guided={guided} hasQuestions={blockingGaps.length + nonBlockingOpenGaps.length > 0}
+          scenarioPanel={scenarioPanel} summary={guided ? guidedMerchandiseSummary : merchandiseSummary}
+          parts={{
+          information: <>
         {/* Info bar */}
         <div className="mb-4 flex flex-wrap items-start gap-3">
         <details open={guided ? undefined : true} className="min-w-0 flex-1" key={guided ? "guided-counts" : "previous-counts"}>
@@ -1730,6 +1805,8 @@ export default function CaseView() {
         </Button>
         </div>
 
+          </>,
+          advanced: <>
         <div className="mb-4 hidden flex-wrap items-center gap-2 rounded-md border p-3 has-[button]:flex" aria-label="Actions des outils avancés">
           <span className="mr-1 text-xs font-medium text-muted-foreground">Actions cargo canonique</span>
           <div id="cargo-canonical-action" />
@@ -1814,6 +1891,30 @@ export default function CaseView() {
           );
         })()}
         </details>
+          </>,
+          understanding: <>
+              <div className="mb-3 flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAnalyzeServiceScope}
+                  disabled={isServiceScopeAnalyzing || !caseId || !caseData?.thread_id}
+                >
+                  {isServiceScopeAnalyzing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Comprendre le périmètre
+                </Button>
+              </div>
+
+              {/* Phase 1: Service scope understanding panel */}
+              <CaseUnderstandingPanel
+                events={events as any}
+                openGapKeys={Array.from(openGapKeySet)}
+                currentFacts={facts}
+              />
+          </>,
+          questions: <>
         {/* Shared gap save handler — extracted to avoid duplication */}
         {(() => {
           // P0: Extracted saveGapAnswer with allowAutoPricing flag
@@ -2001,29 +2102,9 @@ export default function CaseView() {
 
           return (
             <>
-              <div className="mb-3 flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAnalyzeServiceScope}
-                  disabled={isServiceScopeAnalyzing || !caseId || !caseData?.thread_id}
-                >
-                  {isServiceScopeAnalyzing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Comprendre le périmètre
-                </Button>
-              </div>
-
-              {/* Phase 1: Service scope understanding panel */}
-              <CaseUnderstandingPanel
-                events={events as any}
-                openGapKeys={Array.from(openGapKeySet)}
-                currentFacts={facts}
-              />
               {/* Blocking gaps alert */}
               {blockingGaps.length > 0 && (
-                <Alert variant="destructive" className="mb-6">
+                <Alert variant={guided ? "default" : "destructive"} className={guided ? "mb-4 border-destructive/40" : "mb-6"}>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
                     <p className="font-semibold mb-2">
@@ -2034,7 +2115,6 @@ export default function CaseView() {
                     </ul>
                     {!isLocked && blockingGaps.some((g: any) => CLIENT_RESOLVABLE_GAP_KEYS.has(g.gap_key)) && (
                       <div className="mt-3 pt-3 border-t border-destructive/20 flex flex-col items-start gap-2">
-                        {guided && <p className="text-xs text-muted-foreground">Le brouillon rassemble les questions pouvant être adressées au client. Aucun envoi automatique.</p>}
                         <Button
                           size="sm"
                           variant="outline"
@@ -2056,12 +2136,12 @@ export default function CaseView() {
                 </Alert>
               )}
 
-              {/* P0: Non-blocking open gaps — visible only when all blocking gaps are resolved */}
-              {nonBlockingOpenGaps.length > 0 && blockingGaps.length === 0 && (
-                <Alert className="mb-6 border-blue-200 bg-blue-50">
-                  <HelpCircle className="h-4 w-4 text-blue-600" />
+              {/* Guided: show non-blocking questions after blockers; keep the previous presentation gating. */}
+              {nonBlockingOpenGaps.length > 0 && (guided || blockingGaps.length === 0) && (
+                <Alert className={guided ? "mb-4 border-border bg-muted/20" : "mb-6 border-blue-200 bg-blue-50"}>
+                  <HelpCircle className={guided ? "h-4 w-4" : "h-4 w-4 text-blue-600"} />
                   <AlertDescription>
-                    <p className="font-semibold mb-2 text-blue-800">
+                    <p className={guided ? "font-semibold mb-2" : "font-semibold mb-2 text-blue-800"}>
                       {nonBlockingOpenGaps.length} question{nonBlockingOpenGaps.length > 1 ? 's' : ''} ouverte{nonBlockingOpenGaps.length > 1 ? 's' : ''} (non bloquante{nonBlockingOpenGaps.length > 1 ? 's' : ''})
                     </p>
                     <ul className="space-y-3">
@@ -2074,12 +2154,14 @@ export default function CaseView() {
           );
         })()}
 
+          </>,
+          clarifications: <>
         {/* Phase CL1: Client clarifications tracking — positioned right after gaps for visual continuity */}
         {caseId && (() => {
           const activeClientGapReqs = (clientGapRequests as any[]).filter((r: any) => openGapKeySet.has(r.gap_key) && r.gap_key !== PAD_REVIEW_GAP_KEY);
           if (activeClientGapReqs.length === 0) return null;
           return (
-          <Card className="mb-6 border-blue-200 bg-blue-50/30">
+          <Card className={guided ? "mb-4 border-0 shadow-none" : "mb-6 border-blue-200 bg-blue-50/30"}>
             <CardHeader className="py-3 px-4">
               <CardTitle className="text-sm flex items-center gap-2">
                 <Mail className="h-4 w-4 text-blue-600" />
@@ -2104,9 +2186,9 @@ export default function CaseView() {
                   const questionLabel = gap?.question_fr || req.gap_key;
 
                   return (
-                    <div key={req.id} className="flex items-center gap-2 text-sm py-1">
+                    <div key={req.id} className={guided ? "flex flex-wrap items-start gap-2 text-sm py-1" : "flex items-center gap-2 text-sm py-1"}>
                       <span>{cfg.icon}</span>
-                      <span className="flex-1 truncate">{questionLabel}</span>
+                      <span className={guided ? "min-w-0 flex-1 [overflow-wrap:anywhere]" : "flex-1 truncate"}>{questionLabel}</span>
                       <Badge variant="outline" className={`text-[10px] shrink-0 ${cfg.className}`}>
                         {cfg.label}
                       </Badge>
@@ -2119,17 +2201,16 @@ export default function CaseView() {
           );
         })()}
 
+          </>,
+          assumptions: <>
         {/* Phase PROVISIONAL-SCENARIO-QUOTES-UI-1A: read-only operator assumptions ledger */}
         {caseId && <div id="section-stay-assumptions" tabIndex={-1}><QuoteScenarioAssumptionsPanel caseId={caseId} /></div>}
 
         {/* P1-C2-B: revue de la demande consolidée, sans projection ni pricing. */}
         {caseId && <FinalRequestStatePanel caseId={caseId} />}
 
-        </details>
-        {/* Phase P1-A2: scope scenarios — list, create, revise, select, compare. No pricing. */}
-        {caseId && <details ref={scenarioPanel} open={guided || undefined} className="mb-4 min-w-0 rounded-lg border p-4" id="section-scenarios">
-          <summary className="cursor-pointer font-medium">{guided ? "Bases de la marchandise" : "Marchandises et catégories portuaires"}{merchandiseSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {merchandiseSummary}</span>}</summary>
-          {guided && <p className="my-3 text-sm text-muted-foreground">Vérifiez les groupes à transporter, puis leur poids et leur catégorie portuaire. Pour plusieurs demandes, commencez par relier chaque lot à la bonne ligne client.</p>}
+          </>,
+          groups: <>
           {/* MULTI-LOT-TERMINAL-1: lots liés explicitement aux lignes, avant leurs confirmations PAD. */}
           <LotConfirmationsPanel guided={guided} caseId={caseId} onChanged={handleRefresh} />
           <PadGroupConfirmationsPanel guided={guided} caseId={caseId} onChanged={handleRefresh}
@@ -2154,12 +2235,12 @@ export default function CaseView() {
               <CommodityClassificationCandidatesPanel caseId={caseId} />
             </div>
           </details>
-          <details id="section-scenario-variants" className="mt-3">
-          <summary className="cursor-pointer text-sm">Variantes, choix de l’estimation et historique</summary>
+          </>,
+          variants: <>
           <p className="my-3 text-sm text-muted-foreground">Retenir une catégorie pour l’estimation ne la confirme pas pour le devis. Aucun fait client n’est modifié automatiquement.</p>
           <QuoteScenariosPanel key={caseId} caseId={caseId} isLocked={!!isLocked} actionRef={scenarioPricingAction} onPricingPendingChange={setIsScenarioEstimating} onSelectedEstimateChange={setSelectedEstimate} />
-          </details>
-        </details>}
+          </>,
+          }} />
           </TabsContent>
           <TabsContent value="echanges" forceMount hidden={activeTab !== "echanges"} aria-labelledby={guided ? "guided-nav-echanges" : undefined} className="mt-4 print:block">
         {/* ── Open Actions (C2/P0.3) — hidden for active dossiers (ORCH-SYNC-2) ── */}

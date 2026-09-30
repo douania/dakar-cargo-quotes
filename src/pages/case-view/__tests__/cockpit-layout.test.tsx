@@ -1,4 +1,5 @@
 import React, { useEffect, useImperativeHandle, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -13,10 +14,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // Exercise the actual CaseView composition + pricing/result components.
 // Unrelated panels and I/O are test doubles; no network or customer data.
 const empty: never[] = [];
-const invoke = vi.fn(), estimateAction = vi.fn();
+const invoke = vi.fn(), estimateAction = vi.fn(), cargoAction = vi.fn();
 let caseId = 'case-a', status = 'PRICED_DRAFT', hasSelection = true, totalPartnerRequests = 0, closedPartnerRequests = 0;
 let cockpitOverrides: Partial<CockpitState> = {}, cockpitError: Error | null = null, cockpitFetching = false;
 let versionMounts = 0;
+let panelMounts: Record<string, number> = {};
 let preparationFixture: QuotationPreparationSummary | null = null;
 const run: NonNullable<SelectedScenarioEstimate['run']> = { id:'r', scenario_id:'s', run_seq:1, status:'success', qualification:'partial',
   firm_total_ht:0,firm_total_ttc:0,assumptions_snapshot:[],
@@ -56,16 +58,104 @@ for (const match of source.matchAll(/import (.+) from "(@\/components\/(?:case|p
       const fixture=preparationFixture;
       useEffect(()=>{if(fixture) onPreparationChange(fixture);},[onPreparationChange,fixture]);
       return <p>Panneau envoi de test</p>;
-    } : path.endsWith('/PadGroupConfirmationsPanel') ? ({onChanged}:{onChanged:()=>void}) => <button onClick={onChanged}>Simuler actualisation du dossier</button>
+    } : path.endsWith('/PadGroupConfirmationsPanel') ? function PadDouble({onChanged,onEstimateReview}:{onChanged:()=>void;onEstimateReview:()=>void}) {
+      const [value,setValue]=useState('');useEffect(()=>{panelMounts.pad=(panelMounts.pad??0)+1;},[]);
+      return <><button onClick={onChanged}>Simuler actualisation du dossier</button><button onClick={onEstimateReview}>Modifier les groupes pour l’estimation</button><label>Source PAD de test<input value={value} onChange={e=>setValue(e.target.value)}/></label></>;
+    } : path.endsWith('/CargoCanonicalPreviewPanel') ? function CargoDouble({actionPortalId}:{actionPortalId:string}) {
+      const [value,setValue]=useState('');const [target,setTarget]=useState<HTMLElement|null>(null);
+      useEffect(()=>{panelMounts.cargo=(panelMounts.cargo??0)+1;setTarget(document.getElementById(actionPortalId));},[actionPortalId]);
+      return <><label>Source cargo de test<input value={value} onChange={e=>setValue(e.target.value)}/></label>{target&&createPortal(<button onClick={cargoAction}>Action cargo de test</button>,target)}</>;
+    }
       : ()=> <p>{path.split('/').pop()}</p>])));
 }
 const CaseView = (await import('../../CaseView')).default;
 let client: QueryClient;
 beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPartnerRequests=0;closedPartnerRequests=0;invoke.mockReset();estimateAction.mockReset();
   localStorage.setItem(CASE_PRESENTATION_KEY,'previous');cockpitOverrides={};cockpitError=null;cockpitFetching=false;versionMounts=0;preparationFixture=null;gaps=initialGaps;
-  client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
+  panelMounts={};client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{cleanup();client.clear();localStorage.clear();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+
+it('orders guided questions before groups and keeps tools and independent variants collapsed',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='NEED_INFO';
+  gaps=[{id:'optional',gap_key:'cargo.description',status:'open',is_blocking:false,question_fr:'Description complémentaire ?'},
+    {id:'destination',gap_key:'routing.destination_city',status:'open',is_blocking:true,question_fr:'Destination à préciser ?'}];
+  const {container}=mount();await userEvent.click(screen.getByRole('button',{name:'Marchandise'}));
+  const steps=Array.from(container.querySelectorAll('[id^="section-"]')).filter(e=>['section-data','section-scenarios','section-scenario-variants','section-merchandise-tools'].includes(e.id));
+  expect(steps.map(e=>e.id)).toEqual(['section-data','section-scenarios','section-scenario-variants','section-merchandise-tools']);
+  expect(steps[0]).toHaveAttribute('open');expect(steps[1]).toHaveAttribute('open');
+  expect(steps[2]).not.toHaveAttribute('open');expect(steps[3]).not.toHaveAttribute('open');
+  const blocker=container.querySelector('#gap-review-destination')!,optional=container.querySelector('#gap-review-optional')!;
+  expect(blocker).toBeVisible();expect(optional).toBeVisible();
+  expect(blocker.compareDocumentPosition(optional)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getAllByRole('button',{name:'Préparer les questions au client'})).toHaveLength(1);
+  expect(screen.getByLabelText('Résumé de la marchandise')).toHaveTextContent('2 questions ouvertes');
+  expect(screen.getByLabelText('Résumé de la marchandise')).toHaveTextContent('Poids déclaré à renseigner');
+  expect(screen.getByRole('button',{name:'Action cargo de test',hidden:true})).not.toBeVisible();
+  expect(steps[3]).toContainElement(container.querySelector('#cargo-canonical-action'));
+  expect(steps[3]).toContainElement(container.querySelector('#cargo-legacy-sync-action'));
+  await userEvent.click(screen.getByRole('button',{name:'Présentation précédente'}));
+  await userEvent.click(screen.getByText('Données du dossier et contrôles avant devis confirmé'));
+  expect(container.querySelector('#gap-review-optional')).toBeNull();
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it('preserves PAD and cargo instances, portal actions and drafts when the layout changes twice',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);const {container}=mount();
+  await userEvent.click(screen.getByRole('button',{name:'Marchandise'}));
+  const pad=screen.getByRole('textbox',{name:'Source PAD de test'});await userEvent.type(pad,'PAD non enregistré');
+  await userEvent.click(screen.getByText('Détails et outils'));await userEvent.click(screen.getByText('Outils avancés'));
+  const cargo=screen.getByRole('textbox',{name:'Source cargo de test'});await userEvent.type(cargo,'Cargo non enregistré');
+  const action=screen.getByRole('button',{name:'Action cargo de test'});
+  await userEvent.click(screen.getByRole('button',{name:'Présentation précédente'}));
+  await userEvent.click(screen.getByText('Données du dossier et contrôles avant devis confirmé'));
+  expect(screen.getByRole('textbox',{name:'Source cargo de test'})).toBe(cargo);
+  expect(cargo).toHaveValue('Cargo non enregistré');expect(pad).toHaveValue('PAD non enregistré');
+  expect(screen.getByRole('button',{name:'Action cargo de test'})).toBe(action);
+  await userEvent.click(screen.getByRole('button',{name:'Présentation guidée'}));
+  expect(screen.getByRole('textbox',{name:'Source PAD de test'})).toBe(pad);
+  expect(panelMounts).toEqual({pad:1,cargo:1});
+  expect(container.querySelectorAll('#cargo-canonical-action')).toHaveLength(1);
+  expect(action.closest('#section-merchandise-tools')).not.toHaveAttribute('open');
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it('shows an honest empty step, then opens arriving questions without hiding the groups',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);gaps=[];const {container,rerender}=mount();
+  await userEvent.click(screen.getByRole('button',{name:'Marchandise'}));
+  expect(screen.getByText('Rien à compléter')).toBeVisible();
+  expect(screen.getByText('1. Ce qu’il faut compléter')).not.toBeVisible();
+  expect(container.querySelector('#section-scenarios')).toHaveAttribute('open');
+  expect(screen.getByLabelText('Résumé de la marchandise')).toHaveTextContent('0 question ouverte');
+  gaps=initialGaps;rerender(<QueryClientProvider client={client}><CaseView/></QueryClientProvider>);
+  expect(screen.queryByText('Rien à compléter')).toBeNull();
+  expect(container.querySelector('#gap-review-g')).toBeVisible();
+  expect(container.querySelectorAll('#section-data')).toHaveLength(1);
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it('opens the separate variants step from PAD without changing forms or pricing',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);const {container}=mount();
+  await userEvent.click(screen.getByRole('button',{name:'Marchandise'}));
+  await userEvent.click(screen.getByRole('button',{name:'Modifier les groupes pour l’estimation'}));
+  expect(container.querySelector('#section-scenario-variants')).toHaveAttribute('open');
+  expect(screen.getByText('Groupes de test à vérifier')).toBeVisible();
+  expect(invoke).not.toHaveBeenCalled();expect(estimateAction).not.toHaveBeenCalled();
+});
+
+it('opens the tools parent and focuses stay assumptions from the existing estimate action',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);
+  const previousLines=run.tariff_lines;
+  run.tariff_lines=[{id:'warehouse_franchise',category:'Magasinage',amount:null,source:{type:'TO_CONFIRM'}}];
+  try {
+    const {container}=mount();await userEvent.click(within(screen.getByRole('navigation',{name:'Navigation du dossier'})).getByRole('button',{name:'Devis'}));
+    await userEvent.click(screen.getByRole('button',{name:'Renseigner les hypothèses de séjour'}));
+    expect(container.querySelector('#section-merchandise-tools')).toHaveAttribute('open');
+    expect(container.querySelector('#section-stay-assumptions')).toBeVisible();
+    expect(container.querySelector('#section-stay-assumptions')).toHaveFocus();
+    expect(invoke).not.toHaveBeenCalled();expect(estimateAction).not.toHaveBeenCalled();
+  } finally {run.tariff_lines=previousLines;}
+});
 
 it('uses the same danger question on the home and control, with the original diagnostic available on demand',async()=>{
   localStorage.removeItem(CASE_PRESENTATION_KEY);status='NEED_INFO';cockpitOverrides={blockingGapsCount:1};
