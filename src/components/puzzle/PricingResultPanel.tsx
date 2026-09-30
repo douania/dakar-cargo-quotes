@@ -225,7 +225,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
         }
       });
       if (error) throw error;
-      toast.success(`Version v${data.version_number} créée depuis Pricing Run #${pricingRun.run_number}`, {
+      toast.success(`Version v${data.version_number} créée à partir du calcul n° ${pricingRun.run_number}`, {
         description: `${data.lines_count} lignes • ${new Intl.NumberFormat('fr-FR').format(data.total_ht)} ${data.currency}`,
       });
       setConfirmOpen(false);
@@ -254,7 +254,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-            <CardTitle className="text-lg">Résultat Pricing Run #{pricingRun.run_number}</CardTitle>
+            <CardTitle className="text-lg">Résultat du calcul n° {pricingRun.run_number}</CardTitle>
             {isMultiLot && (
               <Badge variant="outline" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-xs">
                 Multi-lot ({lots.length})
@@ -290,7 +290,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
             </Badge>
           )}
           {isProvisional && (
-            <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="Pricing calculé alors que des communications partenaires/clients sont encore en cours.">
+            <Badge variant="outline" className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="Calcul effectué alors que des échanges avec le client ou les partenaires sont encore en cours.">
               Communication en cours
             </Badge>
           )}
@@ -349,7 +349,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
             <div className="flex items-start gap-2 p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
               <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
               <div className="text-sm text-blue-800 dark:text-blue-200">
-                <span className="font-medium">Référence PAD capturée au moment du pricing :</span>{' '}
+                <span className="font-medium">Référence portuaire utilisée pour ce calcul :</span>{' '}
                 {padRate != null ? (
                   <span>{formatAmount(padRate)} FCFA/t · Catégorie {padCategory}</span>
                 ) : (
@@ -364,7 +364,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
         })()}
 
         {/* Operator summary — values are read from the saved pricing run only. */}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Synthèse du pricing confirmé">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Synthèse du calcul du devis">
           <div className="border p-4">
             <p className="text-xs font-medium uppercase text-muted-foreground">{toConfirmCount > 0 ? 'Total à payer provisoire' : 'Total à payer'}</p>
             <p className="mt-1 text-2xl font-bold">{formatAmount(totalPayable)} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
@@ -665,7 +665,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
           <Alert variant="default" className="border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
             <Lock className="h-4 w-4 text-amber-600" />
             <AlertDescription className="text-amber-800 dark:text-amber-200">
-              <span className="font-medium">Création de version :</span> Cette action fige les données du pricing et crée une version immuable du devis (non modifiable).
+              <span className="font-medium">Création de version :</span> Cette action crée une version du devis qui ne pourra plus être modifiée. Les données du calcul seront figées.
             </AlertDescription>
           </Alert>
         )}
@@ -675,7 +675,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
           <AlertDialogTrigger asChild>
             <Button
               className="w-full gap-2"
-              title={currentRunAlreadyVersioned ? `Le Pricing Run #${pricingRun.run_number} est déjà versionné` : undefined}
+              title={currentRunAlreadyVersioned ? `Le calcul n° ${pricingRun.run_number} est déjà versionné` : undefined}
               disabled={isCreating || isLocked || currentRunAlreadyVersioned}
             >
               {isCreating ? (
@@ -702,7 +702,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
                   Vous êtes sur le point de créer la <strong>version v{nextVersionNumber}</strong> du devis.
                 </p>
                 <p className="text-amber-600 dark:text-amber-400 font-medium">
-                  Cette action est irréversible. Les données du pricing seront figées et ne pourront plus être modifiées.
+                  Cette action est irréversible. Les données du calcul seront figées et ne pourront plus être modifiées.
                 </p>
                 <div className="bg-muted p-3 rounded-lg mt-3">
                   <p className="text-sm font-medium">Résumé :</p>

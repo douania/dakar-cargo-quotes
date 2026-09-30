@@ -278,7 +278,7 @@ export function TenderDetailView({ tenderId, onBack }: TenderDetailViewProps) {
               {/* Visual Pipeline */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Pipeline Multi-Segments</CardTitle>
+                  <CardTitle className="text-base">Étapes du transport</CardTitle>
                   <CardDescription>
                     Visualisation des legs du transport avec statut des tarifs
                   </CardDescription>

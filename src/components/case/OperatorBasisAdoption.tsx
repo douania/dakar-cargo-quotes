@@ -34,7 +34,7 @@ export function OperatorBasisAdoption({ estimate, onAdopted, onReview }: {
       }
       const result = data?.data ?? data;
       if (!result?.pricing_run_id || !Number.isInteger(result.run_number)) throw new Error("Réponse de création invalide");
-      setMessage({ runId: run.id, text: `Pricing Run #${result.run_number} ${result.idempotent_replay ? "déjà disponible" : "créé"}. Vous pouvez créer sa version, son PDF et son brouillon.`, error: false });
+      setMessage({ runId: run.id, text: `Calcul n° ${result.run_number} ${result.idempotent_replay ? "déjà disponible" : "créé"}. Vous pouvez créer sa version, son PDF et son brouillon.`, error: false });
       onAdopted?.();
     } catch (error) {
       setMessage({ runId: run.id, text: error instanceof Error ? error.message : "Création refusée", error: true });

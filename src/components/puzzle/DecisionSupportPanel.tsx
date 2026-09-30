@@ -176,7 +176,7 @@ export function DecisionSupportPanel({ caseId }: Props) {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       
-      toast.success('Pricing débloqué - prêt pour le calcul');
+      toast.success("Le devis peut maintenant être calculé");
       queryClient.invalidateQueries({ queryKey: ['quote-case-status'] });
       queryClient.invalidateQueries({ queryKey: ['quote-case'] });
       // P1-A: unified cockpit state
@@ -480,7 +480,7 @@ export function DecisionSupportPanel({ caseId }: Props) {
                   
                   {isOverride && (
                     <>
-                      <span className="text-muted-foreground">Override :</span>
+                      <span className="text-muted-foreground">Choix manuel :</span>
                       <span className="text-amber-700">Oui</span>
                     </>
                   )}
@@ -629,7 +629,7 @@ export function DecisionSupportPanel({ caseId }: Props) {
                 ) : (
                   <Unlock className="h-4 w-4" />
                 )}
-                Débloquer le pricing
+                Autoriser le calcul du devis
               </Button>
             </div>
           </CardContent>

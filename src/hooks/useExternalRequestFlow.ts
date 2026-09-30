@@ -48,11 +48,11 @@ export function useExternalRequestFlow(caseId: string | undefined) {
       return data;
     },
     onSuccess: () => {
-      toast.success("Pricing relancé avec les nouveaux faits");
+      toast.success("Calcul relancé avec les nouvelles informations");
       queryClient.invalidateQueries({ queryKey: ["pricing-runs", caseId] });
     },
     onError: (err: Error) => {
-      toast.error("Erreur pricing: " + err.message);
+      toast.error("Échec du calcul : " + err.message);
     },
   });
 
@@ -72,7 +72,7 @@ export function useExternalRequestFlow(caseId: string | undefined) {
 
       // Auto-trigger pricing if fact is pricing-critical
       if (data.factKey && PRICING_CRITICAL_KEYS.has(data.factKey)) {
-        toast.info("Fait pricing critique détecté — relance du pricing…");
+        toast.info("Une information utile au devis a changé. Le calcul redémarre…");
         rerunPricing.mutate();
       }
     },

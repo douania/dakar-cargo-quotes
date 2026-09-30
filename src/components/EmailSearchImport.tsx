@@ -275,7 +275,7 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
         if (result.warning) {
           toast.warning(result.warning);
         }
-        toast.success(`Dossier ${result.caseId.slice(0, 8)}… créé via pipeline case/puzzle`);
+        toast.success(`Dossier ${result.caseId.slice(0, 8)}… créé`);
         setSelectedThreads(new Set());
         onImportComplete();
         // Navigate to case view

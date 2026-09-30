@@ -1,3 +1,4 @@
+import { SourceText } from "@/components/SourceText";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -118,7 +119,7 @@ function LotCard({ guided = false, unit, state, onSaved }: { guided?: boolean; u
     <div>
       <p className="text-xs font-medium uppercase text-muted-foreground">Lot {unit.unit_ref}</p>
       <h4 className="text-lg font-semibold">{unit.quantity ?? "?"} × {unit.equipment_code ?? unit.unit_kind}</h4>
-      <p className="text-sm">{unit.scenario_basis}</p>
+      <SourceText text={unit.scenario_basis ?? ""} />
     </div>
     {guided && <p className="text-sm font-medium">{binding && terminal ? "Ligne client et mode terminal vérifiés" : binding ? "Mode terminal à vérifier" : "Ligne client à relier"}</p>}
     <details open={!guided || !binding || !terminal || undefined} className={guided ? "rounded border p-3" : undefined}>

@@ -223,7 +223,7 @@ const PROPAGATE_ERROR_TOASTS: Record<string, { title: string; description?: stri
   CANDIDATE_NOT_FOUND:    { title: "Candidat introuvable", description: "Rafraîchissement nécessaire.", variant: "destructive", refetch: true },
   CANDIDATE_NOT_ACCEPTED: { title: "Candidat non accepté", description: "Le candidat n'est plus à l'état accepté.", refetch: true },
   CANDIDATE_NOT_CURRENT:  { title: "Candidat non courant", description: "Le candidat n'est plus is_current.", refetch: true },
-  IDEMPOTENCY_CONFLICT:   { title: "Conflit d'idempotence", description: "Une autre opération a utilisé la même clé.", variant: "destructive", refetch: true, keepKey: true },
+  IDEMPOTENCY_CONFLICT:   { title: "Opération déjà utilisée", description: "Cette tentative correspond à une autre opération. Actualisez les informations avant de réessayer.", variant: "destructive", refetch: true, keepKey: true },
   PAD_LABEL_FORBIDDEN:    { title: "pad_label non propageable", description: "Type interdit pour la propagation.", variant: "destructive" },
   KIND_NOT_WHITELISTED:   { title: "Type non propageable", description: "candidate_kind non autorisé.", variant: "destructive" },
   INTERNAL_ERROR:         { title: "Erreur serveur", description: "Réessayer ultérieurement.", variant: "destructive", keepKey: true },
@@ -757,7 +757,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
       idempotencyKeysRef.current.delete(candidate.id);
       toast({
         title: action === "accept" ? "Candidat accepté" : "Candidat rejeté",
-        description: payload.idempotent ? "Aucun changement (idempotent)." : undefined,
+        description: payload.idempotent ? "Déjà enregistré. Aucun changement." : undefined,
       });
       await fetchCandidates();
     } catch (err: unknown) {
@@ -776,7 +776,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
           "Ce candidat provient du PAD V5 shadow.",
           "Il ne constitue pas une vérité tarifaire.",
           "port_tariffs / PAD / DROIT_PASSAGE reste l'unique source tarifaire.",
-          "L'acceptation valide seulement le CCC et ne doit déclencher aucun pricing.",
+          "Cette validation concerne uniquement la catégorie de marchandise. Aucun devis n’est calculé.",
         ].join("\n")
       : `Accepter ce candidat (${candidate.candidate_kind} / ${candidate.candidate_value ?? "—"}) ?`;
     if (!window.confirm(message)) {
@@ -958,7 +958,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
       if (created > 0) {
         toast({ title: "Candidat PAD créé à valider" });
       } else if (payload.idempotent || payload.reason === "already_present") {
-        toast({ title: "Candidat PAD déjà présent", description: "Aucun changement (idempotent)." });
+        toast({ title: "Candidat PAD déjà présent", description: "Déjà enregistré. Aucun changement." });
       } else if (payload.reason === "no_validated_alias_match") {
         toast({ title: "Aucun alias PAD validé ne correspond à la description actuelle." });
       } else if (payload.reason === "alias_collision") {
@@ -1017,7 +1017,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
       if (created > 0) {
         toast({
           title: "Proposition d'alias PAD créée",
-          description: "Review uniquement. Aucun alias validé, aucun pricing.",
+          description: "Proposition à examiner. Aucune correspondance validée ni aucun devis calculé.",
         });
       } else if (payload.reason === "proposal_already_exists") {
         toast({ title: "Proposition d'alias PAD déjà existante" });
@@ -1074,7 +1074,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
       idempotencyKeysRef.current.delete(idemKey);
       toast({
         title: "Candidat propagé au dossier",
-        description: payload.idempotent ? "Aucun changement (idempotent)." : "Aucun run-pricing automatique. Rollback manuel.",
+        description: payload.idempotent ? "Déjà enregistré. Aucun changement." : "Aucun calcul automatique. Le retour arrière reste manuel.",
       });
       await fetchCandidates();
     } catch (err: unknown) {
@@ -1128,7 +1128,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
             </CollapsibleTrigger>
           </div>
           <CardDescription className="text-xs">
-            Validation opérateur des candidats. Aucun déclenchement de pricing automatique.
+            Vérifiez les catégories proposées avant de les valider. Aucun calcul automatique.
           </CardDescription>
         </CardHeader>
 
@@ -1222,9 +1222,7 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Cherche un alias PAD validé correspondant exactement à cargo.description et crée un
-                candidat à valider. Aucun montant calculé, aucune propagation, aucun pricing.
-                {" "}Si aucun alias ne correspond, « Proposer enrichissement alias PAD » capture la
+                Recherche une catégorie portuaire déjà associée à cette description. La proposition reste à valider ; aucun montant n’est calculé.{" "}Si aucun alias ne correspond, « Proposer enrichissement alias PAD » capture la
                  description comme proposition à relire, sans alias validé ni calcul du devis.
               </p>
             </div>
@@ -1300,8 +1298,8 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 <Alert>
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Lecture seule — non utilisé pour le pricing sans validation opérateur.
-                    {" "}Cette action crée seulement un candidat à valider. Elle ne modifie pas le dossier et ne lance aucun pricing.
+                    À vérifier et valider avant utilisation dans le calcul.
+                    {" "}Cette action prépare une proposition à valider. Elle ne modifie pas le dossier et ne calcule aucun devis.
                   </AlertDescription>
                 </Alert>
 
@@ -1627,11 +1625,9 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
       <Dialog open={propagateTarget !== null} onOpenChange={(o) => { if (!o) closePropagateDialog(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Propager ce candidat au dossier ?</DialogTitle>
+            <DialogTitle>Enregistrer cette catégorie dans le dossier ?</DialogTitle>
             <DialogDescription>
-              Cette action va écrire un fait dans le dossier. Aucun run-pricing ne sera lancé
-              automatiquement. Le rollback est manuel.
-            </DialogDescription>
+              Cette catégorie sera enregistrée dans le dossier. Le devis ne sera pas recalculé automatiquement. Toute correction devra être faite manuellement.</DialogDescription>
           </DialogHeader>
           {propagateTarget ? (
             <div className="text-xs space-y-1">
@@ -1653,17 +1649,14 @@ export default function CommodityClassificationCandidatesPanel({ caseId }: Props
                 <Alert>
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Candidat V5 shadow. La propagation écrit cargo.pad_category uniquement via le workflow MAP-6 existant.
-                    Aucun run-pricing automatique. Aucun tarif ne doit être inféré depuis V5 ; port_tariffs reste la source pricing.
-                  </AlertDescription>
+                    Cette proposition en cours d’évaluation renseigne uniquement la catégorie portuaire. Elle ne fournit aucun tarif et ne lance aucun calcul.</AlertDescription>
                 </Alert>
               ) : null}
               {isPadExportSafePropagationCandidate(propagateTarget) ? (
                 <Alert>
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Propagation export-safe : écrit uniquement cargo.pad_category. Aucun cargo.pad_rate_fcfa_per_ton ne sera créé.
-                  </AlertDescription>
+                    Seule la catégorie portuaire sera enregistrée. Aucun tarif par tonne ne sera ajouté.</AlertDescription>
                 </Alert>
               ) : null}
             </div>

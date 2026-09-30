@@ -14,7 +14,7 @@ it("requires an explicit click, submits identifiers only, refreshes canonical re
   const done = vi.fn(); render(<OperatorBasisAdoption estimate={estimate} onAdopted={done} />);
   expect(invoke).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText("Préparer le devis sur ces bases"));
-  await screen.findByText(/Pricing Run #2 créé/);
+  await screen.findByText(/Calcul n° 2 créé/);
   expect(done).toHaveBeenCalledOnce();
   expect(invoke).toHaveBeenCalledWith("adopt-operator-quotation-basis", { body: {
     case_id: "case-test", scenario_id: "scenario-test", scenario_pricing_run_id: "run-test", expected_scope_hash: "a".repeat(64), idempotency_key: "operator-basis:run-test",

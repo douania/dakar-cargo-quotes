@@ -105,7 +105,7 @@ export function usePricingResultData(caseId: string | undefined, refreshToken?: 
       }
     } catch (err) {
       console.error('Error loading pricing run:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load pricing run');
+      setError(err instanceof Error ? err.message : 'Impossible de charger le calcul du devis');
     }
   }, [caseId]);
 

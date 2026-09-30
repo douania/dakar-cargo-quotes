@@ -112,7 +112,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             (data && typeof data === 'object' && 'details' in data && typeof data.details === 'string' ? data.details : '') ||
             (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : '') ||
             fnError.message ||
-            'Erreur lors du lancement du pricing';
+            "Impossible de lancer le calcul du devis";
         }
         throw new Error(details);
       }
@@ -126,7 +126,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             setMissingCurrency(currency);
             setShowRateModal(true);
           } else {
-            setError(data.message || 'Un taux de change valide est requis avant de lancer le pricing.');
+            setError(data.message || "Renseignez un taux de change valide avant de calculer le devis.");
           }
           setConfirmOpen(false);
           setProvisionalConfirmOpen(false);
@@ -134,7 +134,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
           return;
         }
 
-        const blockerMsg = data.message || 'Données manquantes pour le pricing';
+        const blockerMsg = data.message || "Informations manquantes pour calculer le devis";
         setError(blockerMsg);
         toast.error(blockerMsg);
         setConfirmOpen(false);
@@ -144,7 +144,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       }
       
       const qualifier = allowProvisional ? ' (provisoire)' : '';
-      toast.success(`Pricing lancé${qualifier} - ${data?.lines_count ?? 0} lignes calculées`);
+      toast.success(`Calcul lancé${qualifier} - ${data?.lines_count ?? 0} lignes calculées`);
       setConfirmOpen(false);
       setProvisionalConfirmOpen(false);
       onComplete?.();
@@ -175,7 +175,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       }
 
       if (message.includes('not ready') || message.includes('status')) {
-        setError('Le dossier n\'est pas prêt pour le pricing');
+        setError("Le dossier n’est pas encore prêt pour le calcul du devis");
       } else if (message.includes('Access denied')) {
         setError('Vous n\'avez pas accès à ce dossier');
       } else {
@@ -185,7 +185,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       if (onEstimate && message === 'IMO goods scope requires clarification') {
         toast.warning('Devis confirmé non disponible : rattachement des marchandises dangereuses à vérifier. L’estimation reste distincte.');
       } else {
-        toast.error(message || 'Erreur lors du lancement du pricing');
+        toast.error(message || "Impossible de lancer le calcul du devis");
       }
       onComplete?.();
     } finally {
@@ -235,11 +235,11 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-warning-foreground" />
-            <CardTitle className="text-base">{onEstimate ? 'Estimation du dossier' : isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}</CardTitle>
+            <CardTitle className="text-base">{onEstimate ? 'Estimation du dossier' : isRerun ? "Recalculer le devis" : "Calculer le devis"}</CardTitle>
           </div>
           <CardDescription>
           {onEstimate ? 'Un montant indicatif, les postes restant à compléter et vos hypothèses de travail.' : isRerun
-              ? 'Un pricing a déjà été calculé. Vous pouvez relancer le calcul avec les données mises à jour.'
+              ? "Un calcul existe déjà. Vous pouvez recalculer le devis avec les informations à jour."
               : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
           </CardDescription>
         </CardHeader>
@@ -249,7 +249,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             <Alert className="border-indigo-300 bg-indigo-50 dark:bg-indigo-950/30">
               <AlertTriangle className="h-4 w-4 text-indigo-600" />
               <AlertDescription className="text-sm text-indigo-800 dark:text-indigo-200">
-                Le pricing est bloqué : ce dossier est identifié comme <strong>{blockedByIntent}</strong>.
+                Le calcul est bloqué : ce dossier est identifié comme <strong>{blockedByIntent}</strong>.
                 Clarifiez l'intention commerciale avant de tarifer.
               </AlertDescription>
             </Alert>
@@ -314,7 +314,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             ) : (
               <>
                 <Calculator className="h-4 w-4" />
-                {onEstimate ? 'Calculer le devis confirmé' : isRerun ? 'Relancer le pricing' : 'Lancer le pricing'}
+                {onEstimate ? 'Calculer le devis confirmé' : isRerun ? "Recalculer le devis" : "Calculer le devis"}
               </>
             )}
           </Button>
@@ -348,10 +348,10 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirmer le lancement du pricing ?</AlertDialogTitle>
+            <AlertDialogTitle>Calculer le devis maintenant ?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
-                <p>Cette action va déclencher le moteur de pricing.</p>
+                <p>Le devis sera calculé à partir des informations du dossier.</p>
                 <ul className="list-disc list-inside text-sm space-y-1">
                   <li>Le calcul est basé sur les décisions validées</li>
                   <li>L'opération est tracée et auditée</li>
@@ -360,7 +360,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
                 <div className="flex items-start gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg mt-3">
                   <AlertTriangle className="h-4 w-4 text-warning-foreground mt-0.5" />
                   <p className="text-sm text-warning-foreground">
-                    Une fois lancé, le pricing ne peut pas être annulé.
+                    Une fois lancé, le calcul ne peut pas être annulé.
                   </p>
                 </div>
               </div>

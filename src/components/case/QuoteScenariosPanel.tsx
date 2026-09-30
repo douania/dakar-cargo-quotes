@@ -1,3 +1,4 @@
+import { SourceNoteEditor } from "@/components/SourceText";
 /**
  * Phases P1-A2 à P1-A4 — périmètres et estimations isolées par scénario.
  *
@@ -438,7 +439,7 @@ function CargoUnitFields({ unit, position, removable, onChange, onRemove }: Carg
         />
 
         <TextField
-          label={unit.scenarioBasis === undefined ? "Poids brut (kg, vide = inconnu)" : "Poids brut (kg, préciser la base ci-dessous en v2)"}
+          label={unit.scenarioBasis === undefined ? "Poids brut (kg, vide = inconnu)" : "Poids brut (kg, préciser ci-dessous à quoi il correspond)"}
           value={unit.grossWeightKg}
           onChange={(v) => set("grossWeightKg", v)}
           placeholder="18000"
@@ -505,7 +506,7 @@ function CargoUnitFields({ unit, position, removable, onChange, onRemove }: Carg
             labels={{ unknown: "Inconnue", per_unit: "Par unité", total: "Total du lot" }} onChange={(v) => set("weightBasis", v)} />
           <TextField label="Numéro ONU (vide = inconnu)" value={unit.unNumber ?? ""} onChange={(v) => set("unNumber", v)} placeholder="UN3536" />
           <TextField label="Classe IMO (vide = dérivation ONU si possible)" value={unit.imoClass ?? ""} onChange={(v) => set("imoClass", v)} placeholder="9" />
-          <TextField label="Justification des hypothèses du lot (obligatoire pour calculer)" value={unit.scenarioBasis} onChange={(v) => set("scenarioBasis", v)} placeholder="Interprétation opérateur à confirmer ; source et limites" />
+          <SourceNoteEditor value={unit.scenarioBasis}><TextField label="Justification des hypothèses du lot (obligatoire pour calculer)" value={unit.scenarioBasis} onChange={(v) => set("scenarioBasis", v)} placeholder="Interprétation opérateur à confirmer ; source et limites" /></SourceNoteEditor>
         </>}
       </div>
     </div>
@@ -1425,7 +1426,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
       outputMutationKeys.current.delete(variables.mutationSignature);
       toast.success(
         data.idempotent_replay ? "Sortie de travail existante récupérée" : "Sortie de travail créée",
-        { description: `${data.scenario_reference} — jamais sélectionnée comme devis canonique.` },
+        { description: `${data.scenario_reference} — ce document reste une estimation et ne remplace pas le devis sélectionné.` },
       );
       await scenarioOutputsQuery.refetch();
     },
@@ -1519,7 +1520,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
     let idempotencyKey = pricingMutationKeys.current.get(signature);
     if (!idempotencyKey) {
       try { idempotencyKey = crypto.randomUUID(); }
-      catch { toast.error("Impossible de préparer un identifiant sécurisé pour cette estimation. Réessayez dans un navigateur sécurisé."); return; }
+      catch { toast.error("Impossible de préparer l’estimation. Réessayez depuis une connexion HTTPS avec un navigateur à jour."); return; }
       pricingMutationKeys.current.set(signature, idempotencyKey);
     }
     pricingInFlight.current = true;
@@ -1710,8 +1711,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
               </Badge>
             </CardTitle>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Un scénario décrit un périmètre. Son estimation reste provisoire, isolée du
-              dossier canonique et ne constitue jamais une offre.
+              Un scénario permet de comparer des hypothèses. Son estimation reste provisoire et ne constitue pas une offre au client.
             </p>
           </div>
           {formMode === "none" ? (
@@ -1757,7 +1757,7 @@ export function QuoteScenariosPanel({ caseId, actionRef, onPricingPendingChange,
         <Alert className="border-border bg-muted/30 py-2">
           <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />
           <AlertDescription className="text-[11px] text-muted-foreground">
-            Les montants affichés sont des estimations internes non fermes. Une sortie de travail peut produire un PDF et un brouillon non envoyé clairement marqués scénario ; elle ne modifie ni les faits, ni le pricing ou le devis canonique.
+            Ces estimations ne sont pas des offres fermes. Les PDF et brouillons portent la mention « scénario » et ne sont pas envoyés. Les informations, calculs et devis du dossier restent inchangés.
           </AlertDescription>
         </Alert>
 

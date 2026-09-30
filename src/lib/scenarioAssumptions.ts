@@ -89,7 +89,7 @@ export const ASSUMPTION_STATUS_LABELS: Record<string, string> = {
   client_confirmed: "Confirmée client",
   refuted: "Réfutée",
   superseded: "Remplacée",
-  promoted_to_fact: "Promue en fact",
+  promoted_to_fact: "Ajoutée aux informations du dossier",
 };
 
 export const ASSUMPTION_TYPE_LABELS: Record<string, string> = {

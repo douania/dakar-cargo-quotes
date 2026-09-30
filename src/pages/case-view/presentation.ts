@@ -148,13 +148,13 @@ export function selectPilotageAction(
     blocker: "Sélection commerciale non faite", tone: "amber", targetId: "section-partner-detail",
   };
   if (state.status === "DECISIONS_COMPLETE") return {
-    kind: "unlock_pricing", label: "Débloquer le pricing",
-    blocker: "Décisions validées, confirmation pricing requise", tone: "emerald", targetId: "section-pricing",
+    kind: "unlock_pricing", label: "Autoriser le calcul du devis",
+    blocker: "Choix validés. Confirmez pour autoriser le calcul.", tone: "emerald", targetId: "section-pricing",
   };
   if (state.status === "ACK_READY_FOR_PRICING") {
     return hasCriticalUnconfirmed
-      ? { kind: "confirm_scope", label: "Confirmer le périmètre du dossier", blocker: "Des services dans le scope restent insuffisamment qualifiés", tone: "amber", targetId: "section-data" }
-      : { kind: "launch_pricing", label: "Lancer le pricing", blocker: "Aucun blocage majeur", tone: "emerald", targetId: "section-pricing" };
+      ? { kind: "confirm_scope", label: "Confirmer le périmètre du dossier", blocker: "Des prestations du dossier restent à préciser", tone: "amber", targetId: "section-data" }
+      : { kind: "launch_pricing", label: "Calculer le devis", blocker: "Aucun blocage majeur", tone: "emerald", targetId: "section-pricing" };
   }
   if (statusBelow(state.status, "PRICED_DRAFT")) return null;
   if (!state.hasSelectedVersion) return {

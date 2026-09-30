@@ -89,7 +89,7 @@ const adminItems = [
   { title: 'Templates compagnies', url: '/admin/carrier-billing', icon: Ship },
   { title: 'Documents', url: '/admin/documents', icon: BookOpen },
   { title: 'Intelligence marché', url: '/admin/market-intelligence', icon: BarChart3 },
-  { title: 'Intelligence prix', url: '/admin/pricing-intelligence', icon: DollarSign },
+  { title: "Analyse des tarifs", url: '/admin/pricing-intelligence', icon: DollarSign },
 ];
 
 export function AppSidebar() {

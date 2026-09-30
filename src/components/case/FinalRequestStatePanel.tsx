@@ -225,7 +225,7 @@ export function FinalRequestStatePanel({ caseId }: Props) {
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <ShieldCheck className="h-4 w-4" /> Demande client consolidée{" "}
-              <Badge variant="outline">Sans pricing</Badge>
+              <Badge variant="outline">Sans calcul de devis</Badge>
             </CardTitle>
             <Button
               type="button"
@@ -271,8 +271,7 @@ export function FinalRequestStatePanel({ caseId }: Props) {
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>État de travail uniquement</AlertTitle>
           <AlertDescription>
-            Cette revue conserve les demandes et contradictions. Elle ne
-            déclenche ni calcul, devis, fait canonique, puzzle ou email.
+            Cette revue rassemble les demandes et leurs contradictions. Elle ne modifie pas les informations du devis et ne lance ni analyse, calcul ou e-mail.
           </AlertDescription>
         </Alert>
         {error && (
@@ -725,7 +724,7 @@ export function FinalRequestStatePanel({ caseId }: Props) {
               </details>
             )}
             <p className="text-xs text-muted-foreground">
-              Autorisation de pricing : non.
+              Cette revue n’autorise pas le calcul du devis.
             </p>
           </>
         )}

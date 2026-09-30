@@ -67,7 +67,7 @@ it("nomme l’e-mail manquant lorsque c’est le seul défaut", () => {
 
 it("affiche l’état de collecte directe déjà calculé", () => {
   render(<PartnerCollectionReadinessCard caseId="case-test" />);
-  expect(screen.getByText("Pricing direct, aucune sollicitation nécessaire")).toBeInTheDocument();
+  expect(screen.getByText("Calcul possible sans demande de tarif à un partenaire")).toBeInTheDocument();
 });
 
 it("réserve la phrase DAP/DDP au scope explicitement hors périmètre", () => {

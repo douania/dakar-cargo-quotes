@@ -193,7 +193,7 @@ export function CargoCanonicalPreviewPanel({
   async function handleAdopt() {
     const derived = result?.derived_payload;
     if (!derived?.case_id || !derived.source || !derived.cargo_payload) {
-      toast.error("Payload dérivé indisponible : relancez la prévisualisation.");
+      toast.error("Les données à enregistrer ne sont plus disponibles. Affichez à nouveau l’aperçu.");
       return;
     }
 
@@ -213,7 +213,7 @@ export function CargoCanonicalPreviewPanel({
 
       if (error) {
         // Aucun fallback d'écriture : on remonte l'erreur du canonicalizer.
-        let msg = error.message ?? "Échec de l'adoption du cargo canonique";
+        let msg = error.message ?? "Impossible d’enregistrer la marchandise";
         const ctx = (error as { context?: unknown }).context;
         if (ctx && typeof (ctx as Response).json === "function") {
           try {
@@ -229,7 +229,7 @@ export function CargoCanonicalPreviewPanel({
         return;
       }
 
-      toast.success("Cargo canonique adopté (cargo_lines / cargo_equipment).");
+      toast.success("Marchandise enregistrée.");
       setConfirmOpen(false);
       onAdopted?.();
     } catch (err: unknown) {
@@ -275,22 +275,20 @@ export function CargoCanonicalPreviewPanel({
         ) : (
           <PackageCheck className="h-4 w-4" />
         )}
-        Adopter le cargo canonique
+        Enregistrer la marchandise
       </Button>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Adopter le cargo canonique ?</AlertDialogTitle>
+          <AlertDialogTitle>Enregistrer cette marchandise ?</AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-2 text-sm">
               <p>
-                Cette action écrit <strong>uniquement</strong> le cargo
-                canonique.
+                Cette action enregistre <strong>uniquement</strong> les marchandises et équipements extraits.
               </p>
               <ul className="list-disc pl-5 space-y-0.5">
-                <li>Cible : <strong>cargo_lines</strong> / <strong>cargo_equipment</strong>.</li>
-                <li><strong>quote_facts</strong> ne sera pas modifié.</li>
-                <li><strong>quote_gaps</strong> ne sera pas résolu.</li>
-                <li>Le pricing n'est <strong>pas</strong> lancé automatiquement.</li>
+                <li>Les informations utilisées pour le devis restent inchangées.</li>
+                <li>Les questions ouvertes restent à résoudre.</li>
+                <li>Aucun calcul de devis n’est lancé automatiquement.</li>
               </ul>
             </div>
           </AlertDialogDescription>
@@ -305,7 +303,7 @@ export function CargoCanonicalPreviewPanel({
             }}
           >
             {adopting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Confirmer l'adoption
+            Confirmer l’enregistrement
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -317,11 +315,11 @@ export function CargoCanonicalPreviewPanel({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <PackageSearch className="h-5 w-5 text-primary" />
-          Cargo canonique — prévisualisation
+          Marchandise extraite des pièces jointes
         </CardTitle>
         <CardDescription className="flex items-center gap-1.5">
           <Info className="h-3.5 w-3.5" />
-          Prévisualisation uniquement. Aucune donnée cargo canonique n’est écrite.
+          Vérifiez la marchandise extraite avant de l’enregistrer.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -368,7 +366,7 @@ export function CargoCanonicalPreviewPanel({
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>
-                  Canonicalizer (dry_run) : {dryRunError.code ?? "rejet"}
+                  Vérification sans enregistrement : {dryRunError.code ?? "rejet"}
                 </AlertTitle>
                 <AlertDescription>{dryRunError.message ?? "—"}</AlertDescription>
               </Alert>

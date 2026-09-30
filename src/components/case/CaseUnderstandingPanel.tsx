@@ -465,12 +465,12 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-sm font-semibold flex items-center gap-2 text-amber-700">
               <AlertTriangle className="h-4 w-4" />
-              Périmètre à confirmer selon les facts actuels
+              Prestations à confirmer selon les informations du dossier
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
             <p className="text-xs text-muted-foreground">
-              L'ancien résumé IA a été ignoré car il contredit les facts courants du dossier.
+              L’ancien résumé automatique contredit les informations actuelles du dossier. Il n’est plus utilisé.
             </p>
           </CardContent>
         </Card>

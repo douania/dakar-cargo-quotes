@@ -142,7 +142,7 @@ export default function PricingIntelligence() {
           <div className="flex-1">
             <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
               <TrendingUp className="h-8 w-8 text-primary" />
-              Pricing Intelligence
+              Analyse des tarifs
             </h1>
             <p className="text-muted-foreground mt-1">
               Analyse des patterns de prix et structures de cotation de Taleb
@@ -206,7 +206,7 @@ export default function PricingIntelligence() {
               Lancer une analyse
             </CardTitle>
             <CardDescription>
-              Analysez les emails et pièces jointes de Taleb pour extraire les patterns de pricing
+              Analysez les e-mails et pièces jointes de Taleb pour repérer les pratiques tarifaires
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

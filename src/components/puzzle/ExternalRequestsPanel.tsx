@@ -233,7 +233,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             {isPricingRerunning && (
               <Badge variant="outline" className="ml-1 animate-pulse">
                 <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                Pricing…
+                Calcul du devis…
               </Badge>
             )}
           </CardTitle>
@@ -1106,7 +1106,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmer la validation d'un fait critique</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
-              <span className="block">Ce fait peut modifier le pricing et déclencher une nouvelle cotation.</span>
+              <span className="block">Cette information peut modifier le calcul et déclencher une nouvelle cotation.</span>
               {criticalFactToValidate && (
                 <span className="block space-y-1 mt-2 text-sm">
                   <span className="block"><strong>Clé :</strong> <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">{criticalFactToValidate.fact_key}</code></span>

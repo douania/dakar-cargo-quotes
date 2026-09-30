@@ -31,7 +31,7 @@ export function PricingCommWarnings({ caseId }: PricingCommWarningsProps) {
     <Alert className="mt-3 border-amber-300 bg-amber-50 dark:bg-amber-950/30">
       <AlertTriangle className="h-4 w-4 text-amber-600" />
       <AlertDescription>
-        <p className="font-medium text-sm mb-1">Ce pricing a été calculé alors que certaines communications sont encore en cours.</p>
+        <p className="font-medium text-sm mb-1">Ce devis a été calculé avant la fin de certains échanges. Des réponses restent attendues.</p>
         <ul className="list-disc list-inside text-sm space-y-0.5">
           {items.map((item, i) => <li key={i}>{item}</li>)}
         </ul>

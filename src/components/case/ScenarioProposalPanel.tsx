@@ -1,3 +1,4 @@
+import { SourceText } from "@/components/SourceText";
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -79,7 +80,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, on
     {proposal?.groups.map(g => <div key={g.unit_ref} className="border-t pt-2 text-xs space-y-1">
       <p className="font-semibold">{g.unit_ref} — {g.quantity} × {g.equipment} {g.ownership}</p>
       <blockquote className="break-words">{g.excerpt}</blockquote>
-      <p>E-mail source : {g.source_email_id}</p>
+      <SourceText text={`e-mail ${g.source_email_id}`} label="Source" />
       {g.assumptions.map(a => <p key={a}>{a}</p>)}
       {g.imo_source && <p>Classe {g.imo_class} dérivée pour ce lot uniquement — {g.imo_source.source}.</p>}
       {proposal.pad_candidates.filter(c => c.unit_ref === g.unit_ref).map(c => <div key={c.category} className="bg-muted p-2">

@@ -44,7 +44,7 @@ function renderPanel(props: Partial<ComponentProps<typeof PricingLaunchPanel>> =
 
 async function confirmPricing(user: ReturnType<typeof userEvent.setup>, container?: HTMLElement) {
   const scope = container ? within(container) : screen;
-  await user.click(scope.getByRole('button', { name: 'Relancer le pricing' }));
+  await user.click(scope.getByRole('button', { name: 'Recalculer le devis' }));
   await user.click(await screen.findByRole('button', { name: 'Confirmer' }));
 }
 
@@ -133,10 +133,10 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
   it('does not run on mount or opening/cancelling the confirmation', async () => {
     const user = userEvent.setup();
     renderPanel();
-    expect(screen.getByRole('button', { name: 'Relancer le pricing' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Recalculer le devis' })).toBeEnabled();
     await waitFor(() => expect(queriedCases).toEqual(['case-a']));
     expect(invokeMock).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Relancer le pricing' }));
+    await user.click(screen.getByRole('button', { name: 'Recalculer le devis' }));
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
     expect(invokeMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Annuler' }));
@@ -145,7 +145,7 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
 
   it('preserves the intent guard and hides provisional pricing under that guard', async () => {
     renderPanel({ blockedByIntent: 'opportunity_check', canProvisionalDdp: true });
-    expect(screen.getByRole('button', { name: 'Relancer le pricing' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Recalculer le devis' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /Générer un devis provisoire/ })).toBeNull();
     await waitFor(() => expect(queriedCases).toEqual(['case-a']));
     expect(invokeMock).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
 
   it('preserves missing-data prechecks on rerun', async () => {
     renderPanel({ pricingPrechecks: [{ code: 'HS_CODE_REQUIRED', key: 'hs', label: 'HS manquant' }] });
-    expect(screen.getByRole('button', { name: 'Relancer le pricing' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Recalculer le devis' })).toBeDisabled();
     expect(screen.getByText('HS manquant')).toBeInTheDocument();
     await waitFor(() => expect(queriedCases).toEqual(['case-a']));
     expect(invokeMock).not.toHaveBeenCalled();
@@ -169,8 +169,8 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
       return { data: { pricing_blockers: ['PAD_CONFLICT'], message: 'PAD à révoquer' }, error: null };
     });
     await confirmPricing(user);
-    expect(await screen.findByText('Dernier pricing bloqué')).toBeInTheDocument();
-    expect(screen.getByText(/Run #4/)).toBeInTheDocument();
+    expect(await screen.findByText('Le dernier calcul est bloqué')).toBeInTheDocument();
+    expect(screen.getByText(/Calcul n° 4/)).toBeInTheDocument();
     expect(invokeMock).toHaveBeenCalledExactlyOnceWith('run-pricing', { body: { case_id: 'case-a' } });
     expect(onComplete).toHaveBeenCalledTimes(1);
 
@@ -180,8 +180,8 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
     });
     await confirmPricing(user);
     await waitFor(() => expect(queriedCases).toHaveLength(3));
-    await waitFor(() => expect(screen.queryByText('Dernier pricing bloqué')).toBeNull());
-    expect(screen.queryByText(/Run #4/)).toBeNull();
+    await waitFor(() => expect(screen.queryByText('Le dernier calcul est bloqué')).toBeNull());
+    expect(screen.queryByText(/Calcul n° 4/)).toBeNull();
     expect(onComplete).toHaveBeenCalledTimes(2);
     expect(invokeMock.mock.calls.every(([name]) => name === 'run-pricing')).toBe(true);
   });
@@ -201,8 +201,8 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
         return { data: null, error: new Error(message) };
       });
       await confirmPricing(user);
-      expect(await screen.findByText('Dernier pricing échoué')).toBeInTheDocument();
-      expect(screen.getByText(/Run #4/)).toBeInTheDocument();
+      expect(await screen.findByText('Le dernier calcul a échoué')).toBeInTheDocument();
+      expect(screen.getByText(/Calcul n° 4/)).toBeInTheDocument();
       expect(queriedCases).toHaveLength(2);
       expect(invokeMock).toHaveBeenCalledTimes(1);
     },
@@ -221,7 +221,7 @@ describe('versioned-case manual pricing and latest-run recovery', () => {
       return { data: { lines_count: 16 }, error: null };
     });
     await confirmPricing(user, a.container);
-    await waitFor(() => expect(within(a.container).queryByText('Dernier pricing bloqué')).toBeNull());
+    await waitFor(() => expect(within(a.container).queryByText('Le dernier calcul est bloqué')).toBeNull());
     expect(within(b.container).getByText('Blocage dossier B')).toBeInTheDocument();
     expect(queriedCases.filter(id => id === 'case-a')).toHaveLength(2);
     expect(queriedCases.filter(id => id === 'case-b')).toHaveLength(1);

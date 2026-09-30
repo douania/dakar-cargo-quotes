@@ -72,9 +72,7 @@ export function MultiRequestLinesPanel({ caseId }: Props) {
             <Alert className="mb-3 border-amber-300 bg-amber-50 dark:bg-amber-950/30">
               <AlertTriangle className="h-4 w-4 text-amber-600" />
               <AlertDescription className="text-xs text-amber-800 dark:text-amber-200">
-                Dossier multi-lot : les facts globaux (poids, colis, mode) reflètent le dernier lot traité, pas l'ensemble.
-                Fiez-vous aux détails par ligne ci-dessous.
-              </AlertDescription>
+                Ce dossier contient plusieurs lots. Le poids, les colis et le mode affichés au niveau du dossier correspondent au dernier lot traité. Consultez les détails de chaque lot ci-dessous.</AlertDescription>
             </Alert>
 
             <ul className="space-y-2">

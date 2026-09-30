@@ -1,3 +1,4 @@
+import { SourceText, SourceNoteEditor } from "@/components/SourceText";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -154,9 +155,9 @@ function GroupDecision({ guided = false, group, context, head, issues, readOnly,
       <div className="mt-3 space-y-2 text-sm">
         <p>Propriété des conteneurs : {group.ownership}</p>
         {dangerousGoodsFalse && <p>Statut du dossier : non dangereux.</p>}
-        <p>Source du groupe : {evidence?.reference || group.proposed_basis || "aucune source rattachée sans ambiguïté"}</p>
+        <SourceText label="Source du groupe" text={evidence?.reference || group.proposed_basis || "Source à préciser"} />
         {evidence && <><p>Extrait client : {evidence.excerpt}</p><p>Calcul du poids du scénario : {evidence.calculation}</p></>}
-        <p>Catégorie proposée pour l’estimation : {group.proposed_category || "à choisir"}. {group.proposed_basis}</p>
+        <p>Catégorie proposée pour l’estimation : {group.proposed_category || "à choisir"}.</p><SourceText text={group.proposed_basis ?? ""} />
       </div>
     </details>
     {evidence?.warnings.map(w => <p key={w} className="text-sm text-primary">{w}</p>)}
@@ -166,11 +167,11 @@ function GroupDecision({ guided = false, group, context, head, issues, readOnly,
       <div className="mt-4 space-y-5">
         <fieldset className="min-w-0 space-y-3"><legend className="mb-2 font-semibold">1. Vérifier le poids</legend>
           <p className="text-sm text-muted-foreground">Choisissez si le poids est confirmé par une source ou retenu provisoirement avec une réserve.</p>
-          {weightBasisField}{weightSourceField}{reservationField}
+          {weightBasisField}<SourceNoteEditor value={weightSource}>{weightSourceField}</SourceNoteEditor>{reservationField}
         </fieldset>
         <fieldset className="min-w-0 space-y-3 border-t pt-4"><legend className="px-1 font-semibold">2. Choisir la catégorie portuaire</legend>
           <p className="text-sm text-muted-foreground">La catégorie PAD sert au droit de passage portuaire. Une proposition pour l’estimation reste à vérifier.</p>
-          {categoryField}{categorySourceField}
+          {categoryField}<SourceNoteEditor value={source}>{categorySourceField}</SourceNoteEditor>
         </fieldset>
         <fieldset className="min-w-0 space-y-3 border-t pt-4"><legend className="px-1 font-semibold">3. Confirmer pour le devis</legend>
           <p className="text-sm text-muted-foreground">Cette confirmation conserve les faits client. Elle ne valide ni le danger de la marchandise ni les autres frais.</p>
@@ -189,19 +190,19 @@ function GroupDecision({ guided = false, group, context, head, issues, readOnly,
         <div className="flex flex-wrap items-center gap-2"><h4 className="text-xl font-bold">{group.quantity} × {group.equipment_code}</h4><span className="rounded-full border px-2 py-0.5 text-xs font-semibold">{group.ownership}</span>{dangerousGoodsFalse && <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-semibold text-green-700 dark:text-green-300">Non dangereux</span>}</div>
         <p className="text-sm">{group.description}</p>
         <p className="text-sm">Poids par conteneur : {perContainer === null ? "à préciser" : `${perContainer.toLocaleString("fr-FR")} kg`}</p>
-        <p className="text-xs text-muted-foreground">Source du groupe : {evidence?.reference || group.proposed_basis || "aucune source rattachée sans ambiguïté"}</p>
+        <SourceText label="Source du groupe" text={evidence?.reference || group.proposed_basis || "Source à préciser"} className="text-xs text-muted-foreground" />
       </div>
       <div className="space-y-3 rounded-md border p-4">
         <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs font-medium uppercase text-muted-foreground">Catégorie PAD du groupe {group.unit_ref}</p><p className="text-3xl font-bold">{category || "—"}</p></div><span className="rounded-full border px-2 py-1 text-xs font-semibold">{status}</span></div>
         {line?.amount != null && <p className="text-sm font-medium">Droit de passage : {line.amount.toLocaleString("fr-FR")} F CFA</p>}
-        <p className="text-xs text-muted-foreground">Source : {line?.tariff_source || evidence?.reference || group.proposed_basis || "à vérifier"}</p>
-        {categorySourceField}
+        <SourceText label="Source" text={line?.tariff_source || evidence?.reference || group.proposed_basis || "à vérifier"} className="text-xs text-muted-foreground" />
+        <SourceNoteEditor value={source}>{categorySourceField}</SourceNoteEditor>
         {attestations}
         {actions}
       </div>
     </div>
     <p className="text-sm">Poids total : {group.total_weight_kg === null ? "à préciser" : `${group.total_weight_kg.toLocaleString("fr-FR")} kg`}</p>
-    <p className="text-sm">Estimation : {group.proposed_category ? `catégorie proposée ${group.proposed_category}` : "catégorie non retenue"}. {group.proposed_basis}</p>
+    <p className="text-sm">Estimation : {group.proposed_category ? `catégorie proposée ${group.proposed_category}` : "catégorie non retenue"}.</p><SourceText text={group.proposed_basis ?? ""} />
     {issues.map(code => <p className="text-sm text-amber-700" key={code}>{messages[code] ?? "Confirmation non exploitable : revoir ce groupe et ses sources."}</p>)}
     <details ref={detailsRef} className="rounded border p-3">
       <summary className="cursor-pointer text-sm">Poids et références détaillées</summary>
@@ -217,7 +218,7 @@ function GroupDecision({ guided = false, group, context, head, issues, readOnly,
         {weightBasisField}
         {reservationField}
         {categoryField}
-        {weightSourceField}
+        <SourceNoteEditor value={weightSource}>{weightSourceField}</SourceNoteEditor>
       </div>
       {missing.length > 0 && <ul className="text-sm text-amber-700 list-disc pl-5" aria-label="À compléter avant confirmation">{missing.map(m => <li key={m}>{m}</li>)}</ul>}
       {error && <p role="alert" className="text-sm text-destructive mt-2">{error}</p>}

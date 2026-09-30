@@ -137,7 +137,7 @@ export function CaseActionPlan({ caseId }: CaseActionPlanProps) {
   // 8. Lancer le pricing
   allSteps.push({
     id: "pricing",
-    label: "Lancer le pricing",
+    label: "Calculer le devis",
     status: statusAtLeast(status, "PRICED_DRAFT") ? "done" : "pending",
     group: "consolidation",
   });

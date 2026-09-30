@@ -224,7 +224,7 @@ describe('lot 3 operator presentation', () => {
       { type: 'VALIDATED_INTERNAL', reference: 'Interne' },
     ];
     render(<QueryClientProvider client={new QueryClient()}><PricingResultPanel caseId="case-a" /></QueryClientProvider>);
-    const summary = screen.getByLabelText('Synthèse du pricing confirmé');
+    const summary = screen.getByLabelText('Synthèse du calcul du devis');
     // One line to confirm: the payable total is qualified (GO CTO 2026-09-26), never presented as complete.
     expect(within(summary).getByText('Total à payer provisoire')).toBeVisible();
     expect(within(summary).getByText('Hors 1 poste à confirmer')).toBeVisible();
@@ -240,7 +240,7 @@ describe('lot 3 operator presentation', () => {
     render(<QueryClientProvider client={new QueryClient()}><PricingResultPanel caseId="case-a" /></QueryClientProvider>);
     const button = screen.getByRole('button', { name: 'Créer la version v3' });
     expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'Le Pricing Run #2 est déjà versionné');
+    expect(button).toHaveAttribute('title', 'Le calcul n° 2 est déjà versionné');
     expect(invokeMock).not.toHaveBeenCalled();
   });
 

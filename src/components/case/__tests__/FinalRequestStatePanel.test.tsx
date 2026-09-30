@@ -72,7 +72,7 @@ describe("FinalRequestStatePanel P1-C2-B", () => {
   it("reste manuel au montage et n'expose aucune action de pricing", async () => {
     render(<FinalRequestStatePanel caseId={CASE} />);
     expect(invokeMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/Sans pricing/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sans calcul de devis/i)).toBeInTheDocument();
     expect(screen.queryByText(/prêt à coter/i)).toBeNull();
     await userEvent.setup().click(
       screen.getByRole("button", { name: /Ouvrir la revue/i }),
@@ -314,7 +314,7 @@ describe("FinalRequestStatePanel P1-C2-B", () => {
     );
     expect(await screen.findByText("SOURCE_UNATTESTED:fixture"))
       .toBeInTheDocument();
-    expect(screen.getByText(/Autorisation de pricing : non/i))
+    expect(screen.getByText(/Cette revue n’autorise pas le calcul du devis/i))
       .toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Valider cette capture/i }))
       .toBeNull();

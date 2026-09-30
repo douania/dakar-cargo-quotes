@@ -1,3 +1,4 @@
+import { SourceText } from "@/components/SourceText";
 import { OperatorBasisAdoption } from "./OperatorBasisAdoption";
 import { Button } from "@/components/ui/button";
 import { formatScenarioPricingAmount, type ScenarioPricingRunSummary } from "@/lib/scenarioPricing";
@@ -71,7 +72,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
                 <summary className="cursor-pointer whitespace-nowrap">Détail</summary>
                 <div className="mt-2 min-w-64 space-y-1 whitespace-pre-wrap break-words">
                   {note && <p>{note}</p>}
-                  {reference && <p className="text-xs text-muted-foreground">Source : {reference}</p>}
+                  {reference && <SourceText text={reference} label="Source" className="text-xs text-muted-foreground" />}
                   {isStayLine(line) && <p className="text-xs text-muted-foreground">Voir aussi « Franchises, tranches et calculs de séjour » ci-dessous.</p>}
                 </div>
               </details> : <span className="text-muted-foreground">—</span>}</td>
@@ -113,10 +114,10 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
                   <p>Illustration non ajoutée au total ; ce n’est pas la durée retenue.</p>
                 </div> : !info.carrier_comparison && <p>Exemple à compléter : conditions du lot, taux ou quantité/poids insuffisamment renseignés.</p>}
                 {info.reservations.map((reservation, i) => <p key={i} className="whitespace-pre-wrap">{reservation}</p>)}
-                {info.sources.map((source, i) => <p key={i} className="text-xs text-muted-foreground">Source : {source}</p>)}
+                {info.sources.map((source, i) => <SourceText key={i} text={source} label="Source" className="text-xs text-muted-foreground" />)}
               </div> : <>
                 <p className="mt-1 text-sm whitespace-pre-wrap">{note}</p>
-                {typeof source.reference === "string" && <p className="mt-1 text-xs text-muted-foreground">Source : {source.reference}</p>}
+                {typeof source.reference === "string" && <SourceText text={source.reference} label="Source" className="mt-1 text-xs text-muted-foreground" />}
               </>}
             </article>;
           })}

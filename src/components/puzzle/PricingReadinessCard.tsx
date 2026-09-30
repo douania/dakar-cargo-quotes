@@ -71,7 +71,7 @@ export function PricingReadinessCard({ caseId }: PricingReadinessCardProps) {
       icon: <Minus className="h-4 w-4 text-muted-foreground" />,
       label: 'Direct',
       badgeClass: 'bg-muted text-muted-foreground',
-      summary: 'Aucune sollicitation partenaire — pricing direct possible.',
+      summary: "Le calcul peut commencer sans demander de tarif à un partenaire.",
     },
   };
 

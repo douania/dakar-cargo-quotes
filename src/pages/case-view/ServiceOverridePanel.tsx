@@ -103,7 +103,7 @@ export function ServiceOverridePanel({
             <CardTitle className="text-base">Aucun package de services défini</CardTitle>
           </div>
           <CardDescription>
-            Sélectionnez le package de services correspondant à ce dossier pour activer le pricing.
+            Choisissez les prestations du dossier pour permettre le calcul du devis.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -322,7 +322,7 @@ export function ServiceOverridePanel({
         </div>
         {isLocked && (
           <p className="text-xs text-muted-foreground italic">
-            Pricing en cours — modifications désactivées
+            Calcul en cours — modifications indisponibles
           </p>
         )}
       </CardContent>

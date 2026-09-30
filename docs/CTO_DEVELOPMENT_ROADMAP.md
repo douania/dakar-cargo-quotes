@@ -2698,3 +2698,17 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Rollback deux fichiers PASS : patch marchandise-steps-rollback.patch appliqué/inversé sur copie isolée82c29c4, empreintes initiales retrouvées. Publication prévue en un commit unique, réversible par revert ciblé ; bascule précédente disponible.
 - Aucun commit/push, Cloud, DB/Auth/RLS, migration, fonction serveur/FROZEN, calcul ou envoi modifié. Recette Cloud et appréciation utilisateur NOT_RUN ; prochaine action : publication privée (commit/push work, synchronisation Lovable, recette synthétique) sous GO distinct §2.1.
 - GO de publication reçu le 30 septembre : commit/push du lot seul sur work, synchronisation de l’aperçu privé et recette synthétique sans envoi client ; production générale hors périmètre.
+
+#### Textes simples dans l’application — réalisation locale du 30 septembre 2026 — PASS_WITH_BASELINE
+
+- GO utilisateur explicite : simplification globale des textes, tests et retour arrière en local, sans publication. Base/HEAD/GitHub work776013d inchangés ; notes antérieures et .claude/ préservées.
+- 50 fichiers source/tests, +276/-194 : vocabulaire des dossiers, calculs, sources, échanges, navigation et administration ; sept tests existants adaptés, trois tests de présentation des sources ajoutés.
+- UUID/empreintes des sources remplacés à l’affichage par des références lisibles ; original accessible dans un détail natif fermé. Justifications techniques éditables sur demande, valeurs et handlers intacts ; réserves, montants, avertissements et attestations conservés.
+- Revue : 240 appels de lecture/écriture/invocation identiques à la base ; aucun diff serveur/FROZEN ni modification de calcul. Données de test synthétiques uniquement ; les textes déjà clairs restent en place.
+- Contrôles : configuration des fonctions, isolation des bundles, typecheck et build PASS ; lint732/16 identique. Vitest636 PASS/1FAIL LocalTransportEstimateFields:35, même échec reproduit sur copie isolée776013d (4PASS/1FAIL). SourceText3/3 PASS après remplacement final des données synthétiques.
+- Frontend Design Premium utilisé ; audit strict115 constats identiques (40 non résolus/75 violations), aucune conformité globale revendiquée. Pas de nouveau DESIGN.md conformément aux consignes du dépôt.
+- Navigateur local synthétique : vrais CaseView/lots/PAD/source, E/S et voisins simulés ; références repliées, ouverture clavier, édition conservant les références complètes, rendus1280/375px sans débordement global PASS. Captures ui-copy-1280.png et ui-copy-375-full.png hors dépôt ; viewport restauré.
+- Rollback code/tests PASS : patch ui-copy-rollback.patch appliqué puis inversé sur copie isolée ; fichiers initiaux retrouvés et trois nouveaux fichiers retirés. Preuves et liste exacte dans ui-copy-proof.json hors dépôt.
+- Aucun commit/push/publication, DB/Auth/RLS/migration, calcul, PDF, brouillon ou envoi exécuté. Deno/live et recette Cloud NOT_RUN ; validation de chaque écran avec des données réelles NOT_RUN.
+- Suite : publication dans l’aperçu privé (commit/push work, synchronisation Lovable et recette synthétique) sous GO distinct §2.1. Rollback futur par revert du commit de ce lot ; la bascule de présentation n’annule pas ces changements de vocabulaire.
+- GO de publication reçu le 30 septembre : commit/push du lot sur work, synchronisation de l’aperçu privé Lovable et recette synthétique, sans envoi client ni production générale.

@@ -58,7 +58,7 @@ export function getRequestCloseLoopState(
   ) {
     return {
       state: "pricing_rerunning",
-      label: "Pricing relancé",
+      label: "Calcul relancé",
       reasons: ["Recalcul en cours après validation"],
       remainingProposedCount: 0,
     };

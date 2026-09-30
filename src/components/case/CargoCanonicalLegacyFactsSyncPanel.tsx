@@ -187,8 +187,8 @@ export function CargoCanonicalLegacyFactsSyncPanel({
       const written = data?.data?.written?.length ?? 0;
       toast.success(
         written > 0
-          ? `${written} fact(s) legacy synchronisé(s) (quote_facts).`
-          : "Aucun fact à synchroniser.",
+          ? `${written} information(s) reportée(s) dans le dossier.`
+          : "Aucune information à reporter.",
       );
       setConfirmOpen(false);
       onSynced?.();
@@ -218,21 +218,20 @@ export function CargoCanonicalLegacyFactsSyncPanel({
         ) : (
           <ArrowRightLeft className="h-4 w-4" />
         )}
-        Synchroniser vers facts legacy
+        Reporter dans le dossier
       </Button>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Synchroniser vers les facts legacy ?</AlertDialogTitle>
+          <AlertDialogTitle>Reporter ces informations dans le dossier ?</AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-2 text-sm">
               <p>
-                Cette action écrit <strong>uniquement</strong> les facts
-                legacy listés ci-dessous (<strong>quote_facts</strong>).
+                Seules les informations listées ci-dessous seront reportées dans le dossier pour le devis.
               </p>
               <ul className="list-disc pl-5 space-y-0.5">
-                <li><strong>cargo_lines</strong> / <strong>cargo_equipment</strong> ne sont pas modifiés.</li>
-                <li><strong>quote_gaps</strong> ne sera pas résolu.</li>
-                <li>Le pricing n'est <strong>pas</strong> lancé automatiquement.</li>
+                <li>La liste des marchandises et équipements reste inchangée.</li>
+                <li>Les questions ouvertes restent à résoudre.</li>
+                <li>Aucun calcul de devis n’est lancé automatiquement.</li>
               </ul>
             </div>
           </AlertDialogDescription>
@@ -247,7 +246,7 @@ export function CargoCanonicalLegacyFactsSyncPanel({
             }}
           >
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Confirmer la synchronisation
+            Confirmer le report
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -259,12 +258,11 @@ export function CargoCanonicalLegacyFactsSyncPanel({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ArrowRightLeft className="h-5 w-5 text-primary" />
-          Cargo canonique → facts legacy
+          Reporter la marchandise dans le dossier
         </CardTitle>
         <CardDescription className="flex items-center gap-1.5">
           <Info className="h-3.5 w-3.5" />
-          Projection minimale vers quote_facts. Mécanisme distinct de l'adoption
-          canonique. Aucun pricing n'est lancé.
+          Vérifiez les informations à reporter depuis la marchandise enregistrée. Aucun calcul de devis n’est lancé.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -274,7 +272,7 @@ export function CargoCanonicalLegacyFactsSyncPanel({
           ) : (
             <Eye className="h-4 w-4" />
           )}
-          Prévisualiser la synchronisation
+          Voir les informations à reporter
         </Button>
 
         {state === "error" && (
@@ -293,11 +291,11 @@ export function CargoCanonicalLegacyFactsSyncPanel({
             {/* Facts à écrire */}
             <div>
               <p className="text-sm font-semibold mb-1">
-                Facts à écrire ({facts.length})
+                Informations à reporter ({facts.length})
               </p>
               {facts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Aucun fact candidat déterministe.
+                  Aucune information ne peut être reportée avec certitude.
                 </p>
               ) : (
                 <div className="rounded-md border overflow-x-auto">
@@ -328,10 +326,10 @@ export function CargoCanonicalLegacyFactsSyncPanel({
             {/* Facts ignorés */}
             <div>
               <p className="text-sm font-semibold mb-1">
-                Facts ignorés ({skipped.length})
+                Informations non reprises ({skipped.length})
               </p>
               {skipped.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Aucun fact ignoré.</p>
+                <p className="text-sm text-muted-foreground">Toutes les informations ont été reprises.</p>
               ) : (
                 <div className="flex flex-col gap-1.5">
                   {skipped.map((s) => (

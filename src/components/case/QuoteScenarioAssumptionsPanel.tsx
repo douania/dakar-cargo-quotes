@@ -1,3 +1,4 @@
+import { SourceText } from "@/components/SourceText";
 /**
  * Phase P1-A1 — Panneau de gestion des hypothèses opérateur.
  *
@@ -781,10 +782,10 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
                     <Badge
                       variant="outline"
                       className="text-[10px] bg-blue-50 text-blue-700 border-blue-200"
-                      title="Référence informative vers un fact lié — pas une promotion automatique."
+                      title="Lien vers une information du dossier. Aucune validation automatique."
                     >
                       <Link2 className="h-3 w-3 mr-1" />
-                      Fact lié
+                      Information liée
                     </Badge>
                   ) : null}
                 </div>
@@ -798,7 +799,7 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
                   <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
                     {group.rows.map(row => <div key={`${groupIndex}-${row.label}`} className="min-w-0">
                       <dt className="text-muted-foreground">{row.label}</dt>
-                      <dd className="break-words">{row.value}</dd>
+                      <dd className="break-words"><SourceText text={row.value} className="text-xs" /></dd>
                     </div>)}
                   </dl>
                 </section>)}
@@ -809,10 +810,7 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
               </div>
 
               {a.basis ? (
-                <p className="mt-1 text-muted-foreground">
-                  <span className="font-medium">Base : </span>
-                  {a.basis}
-                </p>
+                <SourceText text={a.basis} label="Justification" className="mt-1 text-muted-foreground" />
               ) : null}
 
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">

@@ -322,7 +322,7 @@ export default function ClientOverrides() {
               Contrats Clients
             </h1>
             <p className="text-muted-foreground">
-              Gestion des overrides de pricing par client
+              Tarifs particuliers convenus avec chaque client
             </p>
           </div>
           <Button onClick={() => openDialog()} className="gap-2">
@@ -534,7 +534,7 @@ export default function ClientOverrides() {
               {/* Mode + Prix */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Mode de pricing *</Label>
+                  <Label>Mode de calcul *</Label>
                   <Select
                     value={formData.pricing_mode}
                     onValueChange={(v) => setFormData({ ...formData, pricing_mode: v })}

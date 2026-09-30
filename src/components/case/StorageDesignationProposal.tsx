@@ -1,3 +1,4 @@
+import { SourceText } from "@/components/SourceText";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,7 @@ export function StorageDesignationProposal({ caseId, group, onAdopt }: {
     {error && <p role="alert">{error}</p>}
     {proposal && <>
       <p>Description examinée : {proposal.description}</p>
-      <p>{proposal.source}</p>
+      <SourceText text={proposal.source} />
       {proposal.warning && <p role="status">{proposal.warning}</p>}
       {!proposal.candidates.length && <p>Aucune correspondance justifiée. Précisez la description du scénario ou conservez le choix manuel.</p>}
       {proposal.candidates.map(c => <div key={c.id} className="border rounded p-2">

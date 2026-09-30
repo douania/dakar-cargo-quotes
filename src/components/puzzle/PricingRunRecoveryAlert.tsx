@@ -74,16 +74,16 @@ export function PricingRunRecoveryAlert({ caseId }: PricingRunRecoveryAlertProps
     <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/30">
       <AlertTriangle className="h-4 w-4 text-amber-600" />
       <AlertTitle className="text-sm text-amber-900 dark:text-amber-100">
-        {latestRun.status === 'failed' ? 'Dernier pricing échoué' : 'Dernier pricing bloqué'}
+        {latestRun.status === 'failed' ? "Le dernier calcul a échoué" : "Le dernier calcul est bloqué"}
       </AlertTitle>
       <AlertDescription className="space-y-2 text-sm text-amber-900 dark:text-amber-100">
         <div>
-          Run #{latestRun.run_number}
+          Calcul n° {latestRun.run_number}
           {runDate ? <span className="text-amber-800 dark:text-amber-200"> · {runDate}</span> : null}
         </div>
         {displayedMessage ? <p>{displayedMessage}</p> : null}
         {hasUnknownIncotermHint ? (
-          <p>Vérifiez le fait routing.incoterm, corrigez l’incoterm, puis relancez le pricing.</p>
+          <p>Vérifiez et corrigez l’incoterm du dossier, puis relancez le calcul.</p>
         ) : null}
       </AlertDescription>
     </Alert>

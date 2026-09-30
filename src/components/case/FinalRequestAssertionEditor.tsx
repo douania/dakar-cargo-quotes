@@ -181,7 +181,7 @@ export function FinalRequestAssertionEditor({
             <FileCheck2 className="h-4 w-4" /> Instructions client structurées
           </h4>
           <p className="text-xs text-muted-foreground mt-1">
-            Saisie humaine contrôlée, sans extraction automatique ni pricing.
+            Renseignez les informations vérifiées. Aucune extraction ni aucun calcul automatique.
           </p>
         </div>
         <Badge variant="outline">
@@ -349,7 +349,7 @@ export function FinalRequestAssertionEditor({
           {quotationVersionIds.length === 0
             ? (
               <p className="text-xs text-destructive">
-                Aucune version de devis canonique dans cette capture.
+                Aucune version de devis enregistrée dans cet état du dossier.
               </p>
             )
             : (
@@ -427,9 +427,7 @@ export function FinalRequestAssertionEditor({
             Enregistrer cette révision de travail
           </Button>
           <p className="text-xs text-muted-foreground">
-            Cette révision reste une consolidation à revoir : elle ne lance ni
-            pricing, devis, PDF ou email.
-          </p>
+            Cette révision reste à vérifier. Elle ne lance aucun calcul et ne crée ni devis, PDF ou e-mail.</p>
         </div>
       )}
     </div>

@@ -98,7 +98,7 @@ const ACTION_NAV_LABELS: Partial<Record<ActionKey, string>> = {
   unsent_partner: "Voir les envois",
   pending_facts: "Voir les faits à valider",
   select_partner: "Voir les offres",
-  launch_pricing: "Aller au pricing",
+  launch_pricing: "Voir le calcul du devis",
   create_version: "Aller à la version",
   apply_facts: "Voir les faits proposés",
 };
@@ -126,14 +126,14 @@ import {
 
 /* ─── Next-step table (deterministic, no AI) ─── */
 const NEXT_STEPS: Record<string, string> = {
-  blocking_gap: "À réception de la réponse client, relancer l'analyse puis le pricing",
+  blocking_gap: "Après la réponse du client, relancer l’analyse puis le calcul du devis",
   drafted_client_gap: "Attendre la réponse du client",
   open_client_gap: "Traiter la réponse puis relancer l'analyse",
   draft_partner: "Préparer et confirmer l'envoi aux partenaires",
   unsent_partner: "Confirmer l'envoi, puis attendre les réponses",
-  pending_facts: "Après validation, relancer le pricing",
+  pending_facts: "Après validation, recalculer le devis",
   apply_facts: "Valider ou rejeter chaque fait, puis relancer l'analyse",
-  select_partner: "Sélectionner l'offre, puis relancer le pricing",
+  select_partner: "Sélectionner l’offre, puis recalculer le devis",
   launch_pricing: "Créer la version du devis",
   create_version: "Exporter le PDF",
   export_pdf: "Préparer l'email client",
@@ -527,8 +527,8 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         type: "internal",
         actionKey: "launch_pricing",
         priority: getPriority(),
-        title: "Lancer le pricing",
-        reason: "Dossier validé et débloqué pour pricing",
+        title: "Calculer le devis",
+        reason: "Le dossier est prêt pour le calcul du devis",
         status: "to_execute",
         nextStep: NEXT_STEPS.launch_pricing,
         icon: <Calculator className="h-4 w-4 text-emerald-600" />,

@@ -592,10 +592,10 @@ export default function CaseView() {
       const { data, error } = await supabase.functions.invoke("set-case-fact", { body });
       if (error) throw error;
       if (data?.ok === false) {
-        throw new Error(data?.error || "set-case-fact a échoué");
+        throw new Error(data?.error || "L’information n’a pas pu être enregistrée");
       }
 
-      toast.success(`Fact appliqué : ${payload.fact_key}`);
+      toast.success(`Information enregistrée : ${payload.fact_key}`);
       handleRefresh();
     } catch (e: any) {
       toast.error(`Impossible d'appliquer ${payload.fact_key} : ${e.message}`);
@@ -1099,7 +1099,7 @@ export default function CaseView() {
       }
       const { data, error } = await supabase.functions.invoke("set-case-fact", { body: payload });
       if (error) throw error;
-      if (data?.ok === false) throw new Error(data?.error || "set-case-fact a échoué");
+      if (data?.ok === false) throw new Error(data?.error || "L’information n’a pas pu être enregistrée");
       toast.success(`${addFactKey} enregistré`);
       setAddFactKey("");
       setAddFactValue("");
@@ -1412,7 +1412,7 @@ export default function CaseView() {
               {pilotage.confirmedQuote ? <>
                 <p className="mt-1 font-semibold">Version {pilotage.confirmedQuote.versionNumber}</p>
                 <p className="text-lg font-bold">{formatScenarioPricingAmount(pilotage.confirmedQuote.amount, pilotage.confirmedQuote.currency)}</p>
-                <p className="text-xs text-muted-foreground">Montant du snapshot sélectionné</p>
+                <p className="text-xs text-muted-foreground">Montant de la version sélectionnée</p>
               </> : <p className="mt-1 text-sm text-muted-foreground">Aucun devis client sélectionné</p>}
             </div>
             <div className="border p-3">
@@ -1476,7 +1476,7 @@ export default function CaseView() {
               prechecks.push({
                 code: "SERVICE_PACKAGE_REQUIRED",
                 key: "service.package",
-                label: "Package de services requis avant pricing"
+                label: "Choisissez les prestations avant de calculer le devis"
               });
             }
 
@@ -1486,7 +1486,7 @@ export default function CaseView() {
               const firstValid10 = hsCandidates.find(c => c.length === 10);
               const hsDigits = firstValid10 || rawHs.replace(/\D/g, "");
               if (!hsDigits || hsDigits.length !== 10) {
-                prechecks.push({ code: "HS_CODE_REQUIRED", key: "cargo.hs_code", label: "Code HS 10 chiffres requis avant pricing" });
+                prechecks.push({ code: "HS_CODE_REQUIRED", key: "cargo.hs_code", label: "Renseignez le code douanier à 10 chiffres avant le calcul" });
               }
 
               const hasExemption = !!String(getFact("regulatory.exemption_title")?.value_text ?? "").trim();
@@ -1520,7 +1520,7 @@ export default function CaseView() {
               }
 
               if (!resolveCargoValue(getFact("cargo.value"))) {
-                prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Valeur marchandise requise avant pricing" });
+                prechecks.push({ code: "CARGO_VALUE_REQUIRED", key: "cargo.value", label: "Renseignez la valeur de la marchandise avant le calcul" });
               }
             }
           }
@@ -1808,7 +1808,7 @@ export default function CaseView() {
           </>,
           advanced: <>
         <div className="mb-4 hidden flex-wrap items-center gap-2 rounded-md border p-3 has-[button]:flex" aria-label="Actions des outils avancés">
-          <span className="mr-1 text-xs font-medium text-muted-foreground">Actions cargo canonique</span>
+          <span className="mr-1 text-xs font-medium text-muted-foreground">Actions sur la marchandise</span>
           <div id="cargo-canonical-action" />
           <div id="cargo-legacy-sync-action" />
         </div>
@@ -1985,7 +1985,7 @@ export default function CaseView() {
                     const activeClientGapCount = ((clientGapKeyRows.data ?? []) as any[]).filter((r: any) => currentOpenGapKeys.has(r.gap_key)).length;
                     const openCommCount = (eqrOpenCheck.count ?? 0) + (factsProposedCheck.count ?? 0) + activeClientGapCount;
                     if (openCommCount > 0) {
-                      toast.info("Boucle communication en cours — pricing automatique reporté.");
+                      toast.info("Des échanges sont encore en cours. Le calcul automatique est reporté.");
                       setPricingRefreshToken(t => t + 1);
                       await handleRefresh();
                       return;
@@ -2000,16 +2000,16 @@ export default function CaseView() {
                       .maybeSingle();
 
                     if (recentRun?.status !== "running" && recentRun?.status !== "success") {
-                      toast.info(guided ? "Informations complétées — calcul du devis en cours…" : "Tous les gaps résolus — lancement automatique du pricing…");
+                      toast.info(guided ? "Informations complétées — calcul du devis en cours…" : "Toutes les informations bloquantes sont renseignées. Le calcul démarre automatiquement…");
                       const { data: pricingResult, error: pricingError } = await supabase.functions.invoke("run-pricing", {
                         body: { case_id: caseId },
                       });
                       if (pricingError || pricingResult?.pricing_blockers?.length > 0) {
-                        const reason = pricingResult?.message || pricingError?.message || 'Pricing bloqué';
+                        const reason = pricingResult?.message || pricingError?.message || "Calcul bloqué";
                         console.warn("[auto-pricing] blocked or failed:", reason);
                         toast.warning(reason);
                       } else {
-                        toast.success("Pricing lancé automatiquement");
+                        toast.success("Calcul du devis lancé automatiquement");
                       }
                       setPricingRefreshToken(t => t + 1);
                       await handleRefresh();

@@ -438,10 +438,7 @@ function MaritimeFeeProposalsForCase({ caseId }: MaritimeFeeProposalsPanelProps)
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <ShieldAlert className="h-3.5 w-3.5" />
-              Suggestions indicatives, jamais additionnées automatiquement.
-              Les décisions seront contrôlées au prochain pricing ; ce panneau
-              ne modifie pas un devis déjà généré.
-            </div>
+              Ces suggestions ne sont pas ajoutées automatiquement au total. Vos choix seront vérifiés au prochain calcul ; les devis déjà créés restent inchangés.</div>
 
             {proposals.map((p) => {
               const canSetAmount = p.suggested_amount_xof != null &&

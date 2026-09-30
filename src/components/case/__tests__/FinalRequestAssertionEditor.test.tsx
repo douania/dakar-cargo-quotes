@@ -52,7 +52,7 @@ describe("FinalRequestAssertionEditor P1-C2 typé", () => {
     const onCommit = vi.fn();
     editor(onCommit);
     expect(onCommit).not.toHaveBeenCalled();
-    expect(screen.getByText(/sans extraction automatique ni pricing/i))
+    expect(screen.getByText(/Aucune extraction ni aucun calcul automatique/i))
       .toBeInTheDocument();
   });
 
