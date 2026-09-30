@@ -316,6 +316,24 @@ it('shows selected-version reservations beside its total, and replaces them when
   expect(screen.getByRole('button',{name:'Relire les éléments et tracer l’envoi manuel'})).toBeVisible();
 });
 
+it('keeps snapshot reservations readable on the home while preserving the original source and selected version', async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='QUOTED_VERSIONED';
+  const original = `Danger à confirmer; e-mail aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee; SHA256 ${'a'.repeat(64)}; supplément IMO non compris`;
+  cockpitOverrides={hasSelectedVersion:true,selectedVersionNumber:1,
+    selectedVersionSnapshot:{totals:{total_payable:1200000,currency:'XOF'},meta:{quoteQualification:{level:'partial',reasons:[{code:'SYNTHETIC_SOURCE',message:original}]}}}};
+  const before=JSON.stringify(cockpitOverrides);
+  mount();
+  const region=screen.getByRole('region',{name:'Document destiné au client'});
+  expect(within(region).getByText('Danger à confirmer; e-mail de référence; supplément IMO non compris')).toBeVisible();
+  expect(within(region).getByText(original)).not.toBeVisible();
+  await userEvent.click(within(region).getByText('Détails techniques de la source'));
+  expect(within(region).getByText(original)).toBeVisible();
+  expect(region).toHaveTextContent('Total partiel');
+  expect(region.textContent?.replace(/\s/g,'')).toContain('1200000');
+  expect(JSON.stringify(cockpitOverrides)).toBe(before);
+  expect(invoke).not.toHaveBeenCalled();expect(estimateAction).not.toHaveBeenCalled();
+});
+
 it.each([
   ['partial', 'Relire le devis et ses réserves', 'Des postes restent à confirmer'],
   ['provisional', 'Relire le devis et ses réserves', 'Cette version comporte des réserves'],

@@ -15,6 +15,7 @@
  */
 
 import { useState } from 'react';
+import { SourceText } from '@/components/SourceText';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -410,7 +411,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
                           <summary className="cursor-pointer text-amber-700 dark:text-amber-300">Voir les réserves ({qualification.reasons.length})</summary>
                           <ul className="mt-2 space-y-1 text-muted-foreground">
                             {qualification.reasons.map((reason, reasonIndex) => (
-                              <li key={`${reason.code}-${reasonIndex}`}>• {REASON_LABELS[reason.code] || reason.message || reason.code}</li>
+                              <li key={`${reason.code}-${reasonIndex}`} className="ml-4 list-disc"><SourceText text={REASON_LABELS[reason.code] || reason.message || reason.code} className="text-xs" /></li>
                             ))}
                           </ul>
                         </details>

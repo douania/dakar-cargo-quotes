@@ -2723,3 +2723,7 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Auto-revue et audit Frontend Design Premium :115 constats stricts identiques, aucune nouvelle violation ; conformité globale non revendiquée. Rollback : patch inverse vérifié sans modification, futur revert du commit correctif unique.
 - Base locale/GitHub6aac42b alignée ; notes antérieures roadmap et .claude/ préservées hors commit. Publication privée autorisée ; recette du devis réellement concerné à effectuer après synchronisation.
 - Aucun changement DB/Auth/RLS/migration/fonction serveur/FROZEN, aucune sauvegarde métier ni envoi. Deno/live NOT_RUN (présentation seule). Les longues explications métier et le contenu des brouillons enregistrés ne sont pas réécrits par cette correction.
+
+- Complément de recette du même correctif : les réserves de version étaient également affichées brutes dans CaseTodoCard et QuotationVersionCard. Même présentation appliquée à ces deux vues, sans réécriture du snapshot ni du PDF/brouillon existant.
+- Contrôles affectés repris : cockpit41 + synchronisation des versions24 =65 PASS ; typecheck/build PASS, lint732/16 inchangé. Test synthétique du résumé : réserve visible, référence originale repliée puis accessible, snapshot/total inchangés, zéro appel métier.
+- Premier correctif publié4555bb9 et rendu Base vérifié dans Lovable ; CI36706644928 :637 PASS/1FAIL baseline connu. Complément publié séparément pour terminer le même lot ; retour arrière par les deux reverts ciblés en ordre inverse.

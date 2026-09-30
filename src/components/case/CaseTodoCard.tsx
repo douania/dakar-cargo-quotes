@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { SourceText } from "@/components/SourceText";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatScenarioPricingAmount } from "@/lib/scenarioPricing";
 import type { QuotationPreparationSummary } from "@/components/puzzle/SendQuotationPanel";
@@ -82,7 +83,7 @@ export function CaseTodoCard({ status, action, quote, loading, error, missingIte
         <p className="text-2xl font-semibold [overflow-wrap:anywhere]">{quote.amount
           ? formatScenarioPricingAmount(quote.amount.amount, quote.amount.currency) : "Montant non disponible"}</p>
         {(quote.pendingItems.length > 0 || quote.reservations.length > 0) && <ul className="list-disc space-y-1 pl-5 text-sm [overflow-wrap:anywhere]">
-          {[...quote.pendingItems, ...quote.reservations].map((text, index) => <li key={index}>{text}</li>)}
+          {[...quote.pendingItems, ...quote.reservations].map((text, index) => <li key={index}><SourceText text={text} /></li>)}
         </ul>}
         <p className="text-sm text-muted-foreground">Envoi manuel hors application, puis marquage comme envoyé. Vérifiez la version, le PDF, le destinataire et le message.</p>
         <section aria-label="Préparation de la version sélectionnée" className="space-y-2 border-t pt-3 text-sm [overflow-wrap:anywhere]">
