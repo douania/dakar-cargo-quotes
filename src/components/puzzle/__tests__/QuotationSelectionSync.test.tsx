@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QuotationVersionCard } from '../QuotationVersionCard';
@@ -171,6 +171,56 @@ function renderPair(caseId: string, client?: QueryClient) {
 function amountPattern(n: number) {
   return new RegExp(n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'));
 }
+
+function CaseStatusProbe({ caseId }: { caseId: string }) {
+  const { data } = useQuery({
+    queryKey: ['case-view', caseId],
+    queryFn: async () => ({ status: db.quote_cases.find(row => row.id === caseId)?.status }),
+  });
+  return <output data-testid={'status-' + caseId}>{String(data?.status ?? '')}</output>;
+}
+
+describe('L1 refresh after PDF export and sent marking', () => {
+  it('detects the generated PDF in the mounted send panel without reloading', async () => {
+    seedTwoVersions('case-a');
+    seedDraft('case-a-v1', {});
+    const pair = renderPair('case-a');
+    await pair.panel().findByText('PDF non détecté côté interface');
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    invokeMock.mockImplementation(async () => {
+      db.quotation_documents.push({ id: 'pdf-a', quotation_version_id: 'case-a-v1', document_type: 'pdf', file_path: 'synthetic.pdf', created_at: '2026-09-30' });
+      return { data: { ok: true, data: { url: 'https://example.test/synthetic.pdf' } }, error: null };
+    });
+    await userEvent.click(pair.card().getAllByRole('button', { name: 'Générer le PDF' })[1]);
+    await pair.panel().findByText('PDF détecté côté interface');
+    expect(invokeMock).toHaveBeenCalledWith('export-quotation-version-pdf', { body: { version_id: 'case-a-v1' } });
+    open.mockRestore();
+  });
+
+  it('refreshes the mounted case status after marking sent and leaves other cases cached', async () => {
+    seedTwoVersions('case-a');
+    seedTwoVersions('case-b');
+    seedDraft('case-a-v1', {});
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    render(<QueryClientProvider client={client}>
+      <SendQuotationPanel caseId="case-a" />
+      <CaseStatusProbe caseId="case-a" /><CaseStatusProbe caseId="case-b" />
+    </QueryClientProvider>);
+    await screen.findByDisplayValue('Corps case-a-v1');
+    invokeMock.mockImplementation(async () => {
+      db.quote_cases = db.quote_cases.map(row => row.id === 'case-a' ? { ...row, status: 'SENT' } : row);
+      db.email_drafts[0] = { ...db.email_drafts[0], status: 'sent', sent_at: '2026-09-30T12:00:00Z' };
+      return { data: { ok: true }, error: null };
+    });
+    const otherState = client.getQueryState(['case-view', 'case-b']);
+    await userEvent.click(screen.getByRole('button', { name: 'Marquer comme envoyé' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmer le marquage' }));
+    await waitFor(() => expect(screen.getByTestId('status-case-a')).toHaveTextContent('SENT'));
+    expect(screen.getByTestId('status-case-b')).toHaveTextContent('QUOTED_VERSIONED');
+    expect(client.getQueryState(['case-view', 'case-b'])).toEqual(otherState);
+    client.clear();
+  });
+});
 
 beforeEach(() => {
   vi.resetAllMocks();

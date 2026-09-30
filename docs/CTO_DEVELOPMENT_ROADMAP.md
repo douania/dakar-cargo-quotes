@@ -2755,3 +2755,16 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Auto-revue du diff et diff-check PASS ; deux lignes de tests remplacées. Notes locales antérieures et .claude/ préservés ; aucune DB/Auth/RLS/migration/FROZEN/runtime modifiée.
 - Aucun commit/push/déploiement ; CI GitHub du correctif NOT_RUN. Preuve hors dépôt : visualizations/2026/09/30/01a0f26d-7d5c-72c3-8005-3cc9a0e715f6/ci-tests-fix-final.log.
 - GO publication reçu le 30 septembre : commit des deux tests et de cette seule section, push work et contrôle CI GitHub ; aucun déploiement. Rollback : revert ciblé du commit du lot.
+
+### 2026-09-30 — Clôture L1 : corrections locales et reprise stockage (GO CTO)
+- Base `a12c89e` sur `work`, alignée origin/work ; réalisation locale seulement, aucun commit/push/publication.
+- QuotationVersionCard relit send-quotation-data après export PDF ; useSendQuotation attend les actualisations et recharge case-view/case-timeline du dossier après marquage.
+- Diff code/test : 3 fichiers, +60/-6 ; deux régressions comportementales FAIL avant patch puis PASS ; 39 tests ciblés PASS, contre-revue indépendante sans blocage.
+- `npm run ci` exit0 : Vitest657 PASS, Deno1746 PASS/6 ignorés, build/types/config PASS ; dettes lint/Deno inchangées = PASS_WITH_BASELINE. Deno live NOT_RUN.
+- Reprise Cloud sur seul document jetable ad86f239… du sandbox3c43b0df… : panne limitée au navigateur (URL stockage bloquée temporairement), ligne0/fichier1 et erreur explicite ; fermer/réouvrir puis réessayer donne ligne0/fichier0, fait1 conservé. Blocage retiré avant reprise ; aucun service désactivé.
+- Hors fixtures,10 comptes/empreintes inchangés ; aucune modification Auth/RLS/schéma/fonction serveur. Upload : événement synthétique supplémentaire. Preuves hors dépôt l1-storage-retry-proof.json et captures l1-storage-retry-*.png.
+- Audit UI global strict :115 constats hors correctif ciblé, conformité globale non revendiquée ; pas de refonte sous ce GO.
+- Statut PARTIAL global : correctifs locaux validés, reprise stockage PASS ; recette Cloud des deux actualisations NOT_RUN tant que non publié. Risque résiduel : une panne de relecture réseau peut encore laisser un affichage périmé.
+- Suite : GO distinct commit/push work, synchronisation aperçu privé Lovable puis recette ciblée PDF/statut ; conserver les acquis. Rollback code : retirer uniquement le diff de ces3 fichiers ; préserver les notes et fixtures antérieures.
+
+- GO de publication reçu : commit/push work, synchronisation aperçu privé et recette ciblée PDF/statut autorisés ; résultat à consigner après vérification.

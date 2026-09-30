@@ -222,11 +222,14 @@ export function useSendQuotation(caseId: string | undefined) {
 
       return data;
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId] });
-      queryClient.invalidateQueries({ queryKey: ['quote-case'], exact: false });
-      // P1-A: unified cockpit state
-      queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId] });
+    onSuccess: async (data) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ['case-view', caseId], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ['case-timeline', caseId], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ['quote-case'], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId] }),
+      ]);
 
       if (data.idempotent) {
         toast.info('Devis déjà marqué comme envoyé', {

@@ -263,6 +263,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken }: Q
       if (url) {
         setDownloadUrls(prev => ({ ...prev, [version.id]: url }));
         window.open(url, '_blank');
+        await queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId], exact: true });
         toast.success(`PDF v${version.version_number} généré`, {
           description: 'PDF exporté. Vous pouvez maintenant finaliser la revue du brouillon avant marquage comme envoyé.',
         });
