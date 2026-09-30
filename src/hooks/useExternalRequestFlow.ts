@@ -13,7 +13,7 @@ export function useExternalRequestFlow(caseId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ["external-response-facts", caseId] });
   };
 
-  // P2.1: Send a draft request to the partner
+  // Prepare a draft; delivery is manual and confirmed separately.
   const sendRequest = useMutation({
     mutationFn: async (requestId: string) => {
       const { data, error } = await supabase.functions.invoke("send-external-quote-request", {
@@ -32,7 +32,7 @@ export function useExternalRequestFlow(caseId: string | undefined) {
       invalidateAll();
     },
     onError: (err: Error) => {
-      toast.error("Erreur d'envoi: " + err.message);
+      toast.error("Erreur de préparation du message : " + err.message);
     },
   });
 

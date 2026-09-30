@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import type { CockpitState } from '@/hooks/useCockpitState';
 import type { QuotationPreparationSummary } from '@/components/puzzle/SendQuotationPanel';
 import { CASE_PRESENTATION_KEY } from '../presentation';
@@ -75,6 +75,27 @@ beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPar
   panelMounts={};client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{cleanup();client.clear();localStorage.clear();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+
+it('confirms commercial outcomes, blocks repeated clicks and retains server errors',async()=>{
+  status='SENT'; mount();
+  await userEvent.click(screen.getByRole('tab',{name:'Devis & offre'}));
+  await userEvent.click(screen.getByText('Devis confirmé, versions et envoi'));
+  const outcomeButton=screen.getByRole('button',{name:'Client a accepté'});
+  await userEvent.click(outcomeButton);
+  expect(invoke).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button',{name:'Annuler'}));
+  expect(invoke).not.toHaveBeenCalled();
+  await userEvent.click(outcomeButton);
+  let finish!:(value:unknown)=>void;
+  invoke.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  const confirm=screen.getByRole('button',{name:'Confirmer la décision'});
+  fireEvent.click(confirm);fireEvent.click(confirm);
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(invoke).toHaveBeenCalledWith('close-commercial-outcome',{body:{case_id:'case-a',outcome:'ACCEPTED'}});
+  finish({data:{ok:false,error:{message:'Décision refusée'}},error:null});
+  await waitFor(()=>expect(screen.getByRole('alertdialog')).toHaveTextContent('Décision refusée'));
+  expect(screen.getByRole('button',{name:'Confirmer la décision'})).toBeEnabled();
+});
 
 it('orders guided questions before groups and keeps tools and independent variants collapsed',async()=>{
   localStorage.removeItem(CASE_PRESENTATION_KEY);status='NEED_INFO';

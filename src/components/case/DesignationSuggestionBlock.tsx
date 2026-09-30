@@ -381,10 +381,10 @@ export default function DesignationSuggestionBlock({
     },
   });
 
-  // --- Apply to dossier mutation (existing behavior — UNCHANGED per CTO) ---
+  // Each fact remains a separate write; never announce a complete application after a partial failure.
   const applyToDossierMutation = useMutation({
     mutationFn: async (candidate: SuggestionCandidate) => {
-      await supabase.functions.invoke("set-case-fact", {
+      const categoryResult = await supabase.functions.invoke("set-case-fact", {
         body: {
           case_id: caseId,
           fact_key: "cargo.pad_category",
@@ -392,20 +392,34 @@ export default function DesignationSuggestionBlock({
         },
       });
 
+      if (categoryResult.error || !categoryResult.data?.ok) {
+        throw new Error("Application de la catégorie non confirmée. Vérifiez les faits du dossier avant de réessayer.");
+      }
       const rate = candidate.padCategory ? padRates?.[candidate.padCategory] : null;
       if (rate) {
-        await supabase.functions.invoke("set-case-fact", {
-          body: {
-            case_id: caseId,
-            fact_key: "cargo.pad_rate_fcfa_per_ton",
-            value_number: rate.amount,
-          },
-        });
+        try {
+          const rateResult = await supabase.functions.invoke("set-case-fact", {
+            body: {
+              case_id: caseId,
+              fact_key: "cargo.pad_rate_fcfa_per_ton",
+              value_number: rate.amount,
+            },
+          });
+          if (rateResult.error || !rateResult.data?.ok) {
+            throw new Error("Tarif non confirmé");
+          }
+        } catch {
+          throw new Error("Application partielle : catégorie enregistrée, tarif non confirmé. Vérifiez les faits du dossier avant de réessayer.");
+        }
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] });
+    onSettled: () => {
+      for (const key of ["case-facts", "case-timeline", "cockpit-state", "scope-gate-facts", "quote-scenario-pad-scope-facts"]) {
+        queryClient.invalidateQueries({ queryKey: [key, caseId] });
+      }
       queryClient.invalidateQueries({ queryKey: ["quote_facts"] });
+    },
+    onSuccess: () => {
       toast({ title: "Catégorie PAD appliquée au dossier" });
     },
     onError: (err: any) => {

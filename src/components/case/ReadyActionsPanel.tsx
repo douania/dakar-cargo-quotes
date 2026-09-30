@@ -7,7 +7,9 @@
  * to avoid a divergent second engine.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import { clientDraftScopes, isCurrentClientDraft, type ClientDraftScope } from "@/lib/clientDraftScope";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toFactPayload } from "@/pages/case-view/helpers";
@@ -69,6 +71,7 @@ interface ReadyAction {
   message?: string;
   target?: string;
   gapKey?: string;
+  draftScope?: ClientDraftScope;
   status:
     | "to_prepare"
     | "ready_to_send"
@@ -176,6 +179,9 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
   const queryClient = useQueryClient();
   const [isAskingClient, setIsAskingClient] = useState(false);
   const [isMarkingSent, setIsMarkingSent] = useState(false);
+  const [markingDraft, setMarkingDraft] = useState<ClientDraftScope | null>(null);
+  const [markError, setMarkError] = useState<string | null>(null);
+  const markingBusy = useRef(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0);
   const { hasCriticalUnconfirmed } = useQualifiedScopeGate(caseId);
 
@@ -356,15 +362,12 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         }
 
         const gapRequest = clientGaps.find((r: any) => r.gap_key === gap.gap_key);
-        const hasDraft = drafts.some((d: any) =>
-          d?.dedupe_key?.includes(gap.gap_key) ||
-          d?.body?.includes(gap.gap_key)
-        );
+        const draftScope = clientDraftScopes(clientGaps).find(scope => scope.gapKeys.includes(gap.gap_key));
         const gapStatus = gapRequest?.status;
 
         let actionStatus: ReadyAction["status"] = "to_prepare";
         if (gapStatus === "sent") actionStatus = "waiting_response";
-        else if (gapStatus === "drafted" || hasDraft) actionStatus = "ready_to_send";
+        else if (draftScope) actionStatus = "ready_to_send";
         else if (gapStatus === "answered") actionStatus = "waiting_response";
 
         result.push({
@@ -373,7 +376,8 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
           priority: getPriority(),
           title: gap.question_fr || `Résoudre le gap ${gap.gap_key}`,
           reason: `Gap bloquant : ${gap.gap_category ?? gap.gap_key}`,
-          message: gap.question_fr ?? undefined,
+          message: draftScope?.body ?? gap.question_fr ?? undefined,
+          draftScope,
           target: "Client",
           gapKey: gap.gap_key,
           status: actionStatus,
@@ -385,17 +389,17 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
     }
 
     // 2 — Drafted client gap requests (not yet sent)
-    const draftedGaps = clientGaps.filter(
-      (r: any) => r.status === "drafted" && !blockingGaps.some((g: any) => g.gap_key === r.gap_key)
-    );
-    if (draftedGaps.length > 0) {
+    const draftedScopes = clientDraftScopes(clientGaps).filter(scope =>
+      !scope.gapKeys.some(key => blockingGaps.some((g: any) => g.gap_key === key)));
+    for (const scope of draftedScopes) {
       result.push({
         type: "client",
         actionKey: "drafted_client_gap",
         priority: getPriority(),
-        title: `Envoyer ${draftedGaps.length} clarification(s) client`,
+        title: `Vérifier le message client — ${scope.gapKeys.length} clarification(s)`,
         reason: "Clarifications prêtes mais non envoyées",
-        message: draftedGaps[0]?.draft_body ?? undefined,
+        message: scope.body,
+        draftScope: scope,
         target: "Client",
         status: "ready_to_send",
         nextStep: NEXT_STEPS.drafted_client_gap,
@@ -636,29 +640,37 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
   }
 
   async function handleMarkSent() {
-    if (!caseId || isMarkingSent) return;
-    const draftedKeys = (data?.clientGaps ?? [])
-      .filter((r: any) => r.status === "drafted")
-      .map((r: any) => r.gap_key as string);
-    if (draftedKeys.length === 0) {
-      toast.info("Aucune clarification en brouillon");
-      return;
-    }
+    if (!caseId || !markingDraft || markingBusy.current) return;
+    const scope = markingDraft;
+    markingBusy.current = true;
     setIsMarkingSent(true);
+    setMarkError(null);
     try {
+      const { data: current, error: readError } = await supabase.from("client_gap_requests")
+        .select("id, gap_key, status, draft_subject, draft_body, source_timeline_event_id")
+        .eq("case_id", caseId).in("gap_key", scope.gapKeys).eq("status", "drafted");
+      if (readError) throw readError;
+      if (!isCurrentClientDraft(scope, current ?? [])) throw new Error("Ce message a changé. Fermez cette fenêtre et vérifiez le brouillon actualisé.");
       const { data: res, error } = await supabase.functions.invoke(
         "mark-client-gap-request-sent",
-        { body: { case_id: caseId, gap_keys: draftedKeys } }
+        { body: { case_id: caseId, gap_keys: scope.gapKeys } }
       );
       if (error) throw error;
-      if (res?.ok) {
+      if (!res?.ok) throw new Error("Le marquage n’a pas été confirmé. Vérifiez le suivi avant de réessayer.");
+      if (res.updated !== scope.gapKeys.length || (res.skipped ?? 0) !== 0) {
+        throw new Error(`Marquage incomplet : ${res.updated ?? 0} clarification(s) confirmée(s) sur ${scope.gapKeys.length}. Fermez cette fenêtre et vérifiez le suivi actualisé.`);
+      }
+      if (res.ok) {
         toast.success(
           `${res.updated} clarification(s) marquée(s) comme envoyée(s)`
         );
+        setMarkingDraft(null);
       }
     } catch (e: any) {
+      setMarkError(e?.message ?? "Marquage non confirmé");
       toast.error(`Erreur: ${e?.message ?? "unknown"}`);
     } finally {
+      markingBusy.current = false;
       setIsMarkingSent(false);
       invalidateAll();
     }
@@ -790,7 +802,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
 
                     {/* Mark sent: only for ready_to_send client actions */}
                     {action.type === "client" &&
-                      action.status === "ready_to_send" && (
+                      action.status === "ready_to_send" && action.draftScope && (
                         <Button
                           size="sm"
                           variant="secondary"
@@ -798,7 +810,8 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
                           disabled={isMarkingSent}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleMarkSent();
+                            setMarkError(null);
+                            setMarkingDraft(action.draftScope!);
                           }}
                         >
                           {isMarkingSent ? (
@@ -806,7 +819,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
                           ) : (
                             <Check className="h-3 w-3 mr-1" />
                           )}
-                          Marquer envoyé
+                          Confirmer l’envoi manuel
                         </Button>
                       )}
 
@@ -838,6 +851,21 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
             </div>
           </Collapsible>
         ))}
+        <AlertDialog open={!!markingDraft} onOpenChange={(open) => { if (!open && !markingBusy.current) setMarkingDraft(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmer l’envoi de ce message client</AlertDialogTitle>
+              <AlertDialogDescription>Confirmez uniquement si vous avez envoyé ce message. Seules ses {markingDraft?.gapKeys.length} clarification(s) seront marquées comme envoyées. Aucun e-mail ne sera envoyé par cette action.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <p className="text-sm font-medium">{markingDraft?.subject}</p>
+            <pre className="max-h-60 overflow-auto whitespace-pre-wrap text-sm">{markingDraft?.body}</pre>
+            {markError && <p role="alert" className="text-sm text-destructive">{markError}</p>}
+            <AlertDialogFooter>
+              <Button variant="outline" disabled={isMarkingSent} onClick={() => setMarkingDraft(null)}>Annuler</Button>
+              <Button disabled={isMarkingSent} onClick={handleMarkSent}>{isMarkingSent ? "Enregistrement…" : "Confirmer cet envoi"}</Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

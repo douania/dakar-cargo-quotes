@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -175,6 +176,10 @@ function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel,
 export default function CaseView() {
   const queryClient = useQueryClient();
   const { caseId } = useParams<{ caseId: string }>();
+  const [commercialOutcome, setCommercialOutcome] = useState<'ACCEPTED' | 'REJECTED' | null>(null);
+  const [outcomePending, setOutcomePending] = useState(false);
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
+  const outcomeBusy = React.useRef(false);
   const scenarioPricingAction = React.useRef<ScenarioPricingAction>(null);
   const scenarioPanel = React.useRef<HTMLDetailsElement>(null);
   const [guided, setGuided] = useState(() => {
@@ -1696,60 +1701,42 @@ export default function CaseView() {
           </Alert>
         )}
 
-        {/* A1: Commercial outcome buttons — only when SENT */}
         {caseData.status === 'SENT' && (
           <div className="mb-6 flex gap-3">
-            <Button
-              variant="outline"
-              className="border-green-500 text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/20"
-              onClick={async () => {
-                try {
-                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
-                    body: { case_id: caseId, outcome: 'ACCEPTED' },
-                  });
-                  if (error) throw error;
-                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
-                  if (data.data?.idempotent) {
-                    toast.info('Devis déjà marqué comme accepté');
-                  } else {
-                    toast.success('Devis marqué comme accepté');
-                  }
-                  // Refresh case data
-                  window.location.reload();
-                } catch (err) {
-                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
-                }
-              }}
-            >
-              <Check className="h-4 w-4 mr-2" />
-              Client a accepté
-            </Button>
-            <Button
-              variant="outline"
-              className="border-red-500 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20"
-              onClick={async () => {
-                try {
-                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
-                    body: { case_id: caseId, outcome: 'REJECTED' },
-                  });
-                  if (error) throw error;
-                  if (!data?.ok) throw new Error(data?.error?.message || 'Échec');
-                  if (data.data?.idempotent) {
-                    toast.info('Devis déjà marqué comme refusé');
-                  } else {
-                    toast.success('Devis marqué comme refusé');
-                  }
-                  window.location.reload();
-                } catch (err) {
-                  toast.error('Erreur', { description: err instanceof Error ? err.message : 'Erreur inconnue' });
-                }
-              }}
-            >
-              <X className="h-4 w-4 mr-2" />
-              Client a refusé
-            </Button>
+            <Button variant="outline" disabled={outcomePending} onClick={() => { setOutcomeError(null); setCommercialOutcome('ACCEPTED'); }}>Client a accepté</Button>
+            <Button variant="outline" disabled={outcomePending} onClick={() => { setOutcomeError(null); setCommercialOutcome('REJECTED'); }}>Client a refusé</Button>
           </div>
         )}
+        <AlertDialog open={!!commercialOutcome} onOpenChange={(open) => { if (!open && !outcomeBusy.current) setCommercialOutcome(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{commercialOutcome === 'ACCEPTED' ? 'Confirmer l’acceptation du client' : 'Confirmer le refus du client'}</AlertDialogTitle>
+              <AlertDialogDescription>Cette décision clôture le suivi commercial du devis envoyé. Vérifiez la réponse du client avant de confirmer. Aucun e-mail ne sera envoyé.</AlertDialogDescription>
+            </AlertDialogHeader>
+            {outcomeError && <p role="alert" className="text-sm text-destructive">{outcomeError}</p>}
+            <AlertDialogFooter>
+              <Button variant="outline" disabled={outcomePending} onClick={() => setCommercialOutcome(null)}>Annuler</Button>
+              <Button disabled={outcomePending || caseData.status !== 'SENT'} onClick={async () => {
+                if (!commercialOutcome || outcomeBusy.current || caseData.status !== 'SENT') return;
+                outcomeBusy.current = true; setOutcomePending(true); setOutcomeError(null);
+                try {
+                  const { data, error } = await supabase.functions.invoke('close-commercial-outcome', {
+                    body: { case_id: caseId, outcome: commercialOutcome },
+                  });
+                  if (error) throw error;
+                  if (!data?.ok) throw new Error(data?.error?.message || 'Décision non enregistrée');
+                  toast.success(commercialOutcome === 'ACCEPTED' ? 'Devis marqué comme accepté' : 'Devis marqué comme refusé');
+                  setCommercialOutcome(null);
+                  await queryClient.invalidateQueries({ queryKey: ['case-view', caseId] });
+                  await queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId] });
+                  handleRefresh();
+                } catch (err) {
+                  setOutcomeError(err instanceof Error ? err.message : 'Décision non enregistrée');
+                } finally { outcomeBusy.current = false; setOutcomePending(false); }
+              }}>{outcomePending ? 'Enregistrement…' : 'Confirmer la décision'}</Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
 
 

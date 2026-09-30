@@ -262,6 +262,18 @@ afterEach(() => {
 });
 
 describe('QuotationVersionCard <-> SendQuotationPanel selection sync', () => {
+  it('qualifies a partial selected version in both the panel and manual-send confirmation', async () => {
+    seedTwoVersions('case-a'); seedDraft('case-a-v1', {});
+    const selected = db.quotation_versions.find(row => row.id === 'case-a-v1')!;
+    selected.snapshot = { totals: { total_ht: 1000000, total_payable: 1100000, subtotal_before_sodatra_vat: 1000000, currency: 'XOF' },
+      raw_lines: [{ description: 'Transport test', source: 'TO_CONFIRM', amount: null }], meta: { quoteQualification: { level: 'provisional', firmTotalPolicy: 'excludes_reserved_items', reasons: [] } } };
+    const pair = renderPair('case-a');
+    expect(await pair.panel().findByText('Total partiel — hors postes réservés')).toBeVisible();
+    await userEvent.click(pair.panel().getByRole('button', { name: 'Marquer comme envoyé' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Total partiel — hors postes réservés');
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(amountPattern(1100000));
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
   it('reports the saved preparation and unsaved edits, then clears them for a different version', async () => {
     seedTwoVersions('case-a');seedDraft('case-a-v1', {});
     const report=vi.fn();

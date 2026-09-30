@@ -29,6 +29,7 @@ import {
 import { Plus, Download, Trash2, Loader2, FileText, Pencil, Mail, RefreshCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import DocumentMetadataEditor from "./DocumentMetadataEditor";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 
 const DOCUMENT_TYPES = [
   "BL", "HBL", "AWB",
@@ -174,6 +175,10 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deletingDoc, setDeletingDoc] = useState<{ id: string; storage_path: string; file_name: string } | null>(null);
+  const [storageRetryDoc, setStorageRetryDoc] = useState<typeof deletingDoc>(null);
+  const deleteBusy = useRef(false);
+  const removedDocumentRows = useRef(new Set<string>());
   const [docType, setDocType] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
@@ -311,17 +316,32 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (doc: { id: string; storage_path: string }) => {
-      const { error } = await supabase.from("case_documents").delete().eq("id", doc.id);
-      if (error) throw error;
-      await supabase.storage.from("case-documents").remove([doc.storage_path]);
+      if (!removedDocumentRows.current.has(doc.id)) {
+        const { data, error } = await supabase.from("case_documents").delete().eq("id", doc.id).select("id");
+        if (error) throw error;
+        if (!data?.some(row => row.id === doc.id)) throw new Error("Suppression non confirmée. Actualisez les documents avant de réessayer.");
+        removedDocumentRows.current.add(doc.id);
+      }
+      const { error: storageError } = await supabase.storage.from("case-documents").remove([doc.storage_path]);
+      if (storageError) throw new Error("Document retiré du dossier, mais fichier non supprimé. Réessayez pour terminer la suppression du fichier.");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["case-documents", caseId] });
       queryClient.invalidateQueries({ queryKey: ["case-documents-metadata", caseId] });
-      toast({ title: "Document supprimé" });
+      queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
+      toast({ title: "Document supprimé", description: "Les faits déjà extraits restent à vérifier dans le dossier." });
+      setStorageRetryDoc(null);
+      setDeletingDoc(null);
     },
-    onError: (err: any) => {
-      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    onError: (err: Error) => {
+      if (deletingDoc && removedDocumentRows.current.has(deletingDoc.id)) setStorageRetryDoc(deletingDoc);
+      toast({ title: "Suppression incomplète", description: err.message, variant: "destructive" });
+    },
+    onSettled: () => {
+      deleteBusy.current = false;
+      queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
+      queryClient.invalidateQueries({ queryKey: ["case-documents", caseId] });
+      queryClient.invalidateQueries({ queryKey: ["case-documents-metadata", caseId] });
     },
   });
 
@@ -551,8 +571,9 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => deleteMutation.mutate({ id: doc.id, storage_path: doc.storage_path })}
-                            disabled={deleteMutation.isPending}
+                            aria-label={`Supprimer ${doc.file_name}`}
+                            onClick={() => { deleteMutation.reset(); setDeletingDoc({ id: doc.id, storage_path: doc.storage_path, file_name: doc.file_name }); }}
+                            disabled={deleteMutation.isPending || !!storageRetryDoc}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -668,6 +689,32 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
         </Card>
       )}
 
+      {storageRetryDoc && !deletingDoc && (
+        <div role="alert" className="rounded-md border border-destructive p-3 text-sm">
+          Le fichier « {storageRetryDoc.file_name} » reste à supprimer. Terminez cette reprise avant de quitter le dossier.
+          <Button variant="outline" className="ml-2" onClick={() => setDeletingDoc(storageRetryDoc)}>Reprendre la suppression du fichier</Button>
+        </div>
+      )}
+      <AlertDialog open={!!deletingDoc} onOpenChange={(open) => { if (!open && !deleteBusy.current) setDeletingDoc(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce document ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le document « {deletingDoc?.file_name} » sera retiré du dossier et son fichier supprimé, sans restauration depuis cette interface.
+              Les faits déjà extraits ne seront pas supprimés : vérifiez leurs sources et leur validité avant un nouveau calcul.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteMutation.error && <p role="alert" className="text-sm text-destructive">{deleteMutation.error.message}</p>}
+          <AlertDialogFooter>
+            <Button variant="outline" disabled={deleteMutation.isPending} onClick={() => setDeletingDoc(null)}>Fermer</Button>
+            <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => {
+              if (!deletingDoc || deleteBusy.current) return;
+              deleteBusy.current = true;
+              deleteMutation.mutate(deletingDoc);
+            }}>{deleteMutation.isPending ? "Suppression en cours…" : deleteMutation.error ? "Réessayer la suppression" : "Confirmer la suppression"}</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {editingDocId && (
         <DocumentMetadataEditor
           open={!!editingDocId}

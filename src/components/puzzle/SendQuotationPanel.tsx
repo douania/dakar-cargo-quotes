@@ -29,6 +29,7 @@ import { useSendQuotation } from '@/hooks/useSendQuotation';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useIsMutating } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { readGuidedQuote } from '@/pages/case-view/presentation';
 
 interface SendQuotationPanelProps {
   caseId: string;
@@ -174,6 +175,11 @@ function SendQuotationPanelInner({ caseId, onPreparationChange }: SendQuotationP
     return null;
   }
 
+  const quoteSummary = readGuidedQuote({
+    hasSelectedVersion: !!selectedVersion,
+    selectedVersionNumber: selectedVersion?.version_number ?? null,
+    selectedVersionSnapshot: selectedVersion?.snapshot ?? null,
+  });
   const snapshot = selectedVersion?.snapshot as any;
   const totalHt = snapshot?.totals?.total_ht;
   const totalPayable = snapshot?.totals?.total_payable ?? snapshot?.totals?.total_ttc ?? totalHt;
@@ -250,7 +256,7 @@ function SendQuotationPanelInner({ caseId, onPreparationChange }: SendQuotationP
           )}
           {totalPayable !== undefined && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{hasDetailedCommercialTotals ? 'Total à payer' : 'Total HT'}</span>
+              <span className="text-muted-foreground">{quoteSummary?.qualification ?? 'Montant — qualification à vérifier'}{!hasDetailedCommercialTotals && totalPayable === totalHt ? ' (HT)' : ''}</span>
               <span className="font-bold text-emerald-600 dark:text-emerald-400">
                 {formatAmount(totalPayable)} {currency}
               </span>
@@ -531,7 +537,7 @@ function SendQuotationPanelInner({ caseId, onPreparationChange }: SendQuotationP
                     </p>
                     {totalPayable !== undefined && (
                       <p>
-                        {hasDetailedCommercialTotals ? 'Total à payer' : 'Montant total HT'} : <strong>{formatAmount(totalPayable)} {currency}</strong>
+                        {quoteSummary?.qualification ?? 'Montant — qualification à vérifier'}{!hasDetailedCommercialTotals && totalPayable === totalHt ? ' (HT)' : ''} : <strong>{formatAmount(totalPayable)} {currency}</strong>
                       </p>
                     )}
                     {editTo.trim() && (

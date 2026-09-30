@@ -75,8 +75,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Brouillon",
-  sent: "Envoyée (brouillon)",
-  sent_confirmed: "Envoyée (confirmée)",
+  sent: "Message préparé — envoi à confirmer",
+  sent_confirmed: "Envoi manuel confirmé",
   response_received: "Réponse reçue",
   response_analyzed: "Analysée",
   partially_validated: "Validation partielle",
@@ -113,6 +113,9 @@ interface Props {
 }
 
 export function ExternalRequestsPanel({ caseId, threadId }: Props) {
+  const [confirmSendId, setConfirmSendId] = useState<string | null>(null);
+  const confirmingSend = React.useRef(false);
+  const [confirmSendError, setConfirmSendError] = useState<string | null>(null);
   const {
     requests,
     responses,
@@ -437,7 +440,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                   {req.created_by === null && req.status === "draft" && (
                     <div className="flex items-start gap-2 p-2 rounded bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-700 dark:text-blue-300">
                       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      Demande créée automatiquement suite à un gap fret bloquant. Renseignez l'email du partenaire puis cliquez sur Envoyer.
+                      Demande créée automatiquement suite à un gap fret bloquant. Renseignez l'email du partenaire puis préparez le message. Aucun e-mail n’est envoyé automatiquement.
                     </div>
                   )}
                   {req.purpose_detail && (
@@ -585,7 +588,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                           ) : (
                             <Send className="h-3 w-3 mr-1" />
                           )}
-                          Envoyer
+                          Préparer le message
                         </Button>
                       </div>
                     )}
@@ -597,14 +600,14 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                           variant="outline"
                           className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
                           disabled={isConfirming}
-                          onClick={() => confirmSent.mutateAsync(req.id)}
+                          onClick={() => { setConfirmSendError(null); setConfirmSendId(req.id); }}
                         >
                           {isConfirming ? (
                             <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                           ) : (
                             <CheckCircle className="h-3 w-3 mr-1" />
                           )}
-                          Confirmer l'envoi
+                          Confirmer l’envoi manuel
                         </Button>
                       </div>
                     )}
@@ -1142,6 +1145,25 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
             >
               Confirmer la validation
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!confirmSendId} onOpenChange={(open) => { if (!open && !confirmingSend.current) setConfirmSendId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer l’envoi manuel au partenaire</AlertDialogTitle>
+            <AlertDialogDescription>Confirmez seulement après avoir envoyé le message à {requests.find(req => req.id === confirmSendId)?.partner_email || 'ce partenaire'} depuis votre messagerie. Cette action enregistre le suivi et n’envoie aucun e-mail.</AlertDialogDescription>
+          </AlertDialogHeader>
+          {confirmSendError && <p role="alert" className="text-sm text-destructive">{confirmSendError}</p>}
+          <AlertDialogFooter>
+            <Button variant="outline" disabled={isConfirming} onClick={() => setConfirmSendId(null)}>Annuler</Button>
+            <Button disabled={isConfirming} onClick={async () => {
+              if (!confirmSendId || confirmingSend.current) return;
+              confirmingSend.current = true;
+              try { await confirmSent.mutateAsync(confirmSendId); setConfirmSendId(null); }
+              catch (error) { setConfirmSendError(error instanceof Error ? error.message : 'Envoi non confirmé'); }
+              finally { confirmingSend.current = false; }
+            }}>{isConfirming ? 'Enregistrement…' : 'Confirmer cet envoi'}</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

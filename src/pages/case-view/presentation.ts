@@ -176,7 +176,7 @@ function finiteAmount(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function readConfirmedQuote(state: CockpitState): PilotageViewModel["confirmedQuote"] {
+function readConfirmedQuote(state: Pick<CockpitState, "selectedVersionNumber" | "selectedVersionSnapshot">): PilotageViewModel["confirmedQuote"] {
   if (state.selectedVersionNumber === null || !state.selectedVersionSnapshot) return null;
   const totalsValue = state.selectedVersionSnapshot.totals;
   if (!totalsValue || typeof totalsValue !== "object" || Array.isArray(totalsValue)) return null;
@@ -284,7 +284,7 @@ export interface GuidedQuoteSummary {
 
 // Read the selected snapshot, never a live estimate or a recomputed total.
 // Missing qualification is explicitly unknown, never inferred as firm.
-export function readGuidedQuote(state: CockpitState): GuidedQuoteSummary | null {
+export function readGuidedQuote(state: Pick<CockpitState, "hasSelectedVersion" | "selectedVersionNumber" | "selectedVersionSnapshot">): GuidedQuoteSummary | null {
   if (!state.hasSelectedVersion || state.selectedVersionNumber == null) return null;
   const snapshot = record(state.selectedVersionSnapshot);
   const qualification = record(record(snapshot.meta).quoteQualification);

@@ -2727,3 +2727,19 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Complément de recette du même correctif : les réserves de version étaient également affichées brutes dans CaseTodoCard et QuotationVersionCard. Même présentation appliquée à ces deux vues, sans réécriture du snapshot ni du PDF/brouillon existant.
 - Contrôles affectés repris : cockpit41 + synchronisation des versions24 =65 PASS ; typecheck/build PASS, lint732/16 inchangé. Test synthétique du résumé : réserve visible, référence originale repliée puis accessible, snapshot/total inchangés, zéro appel métier.
 - Premier correctif publié4555bb9 et rendu Base vérifié dans Lovable ; CI36706644928 :637 PASS/1FAIL baseline connu. Complément publié séparément pour terminer le même lot ; retour arrière par les deux reverts ciblés en ordre inverse.
+
+#### Fiabilisation du dossier L1 — réalisation locale du 30 septembre 2026 — PASS_WITH_BASELINE
+
+- GO utilisateur « go » sur le lot de fiabilisation du rapport (F01/F03/F04/F05/F06/F12) ; Codex exécutant unique, contre-revue indépendante lecture seule. Base/HEAD/origin/work e73fcc18 inchangés ; notes antérieures (+48 lignes) et .claude/ préservées.
+- Périmètre : 9 fichiers applicatifs frontend et 4 tests ; aucun serveur, moteur/FROZEN, Auth/RLS, migration ou référentiel modifié. Roadmap complétée uniquement en fin de lot.
+- PAD : retour vérifié pour chaque fait, arrêt au refus catégorie, tarif échoué signalé comme application partielle, lecteurs rafraîchis même en erreur ; aucune atomicité serveur nouvelle revendiquée.
+- Documents : confirmation nommée avec portée sur les faits, retour suppression ligne/stockage vérifié, reprise locale du fichier après fermeture, autres suppressions désactivées tant que reprise nécessaire ; compteur actualisé.
+- Échanges : préparation partenaire distincte de l’envoi manuel confirmé ; marquage client limité au message/source affiché, relecture avant action, updated/skipped contrôlés, résultat incomplet explicite. Gardes double clic et erreurs conservées dans les dialogues.
+- Offre : qualification du snapshot sélectionné réutilisée dans le panneau et sa confirmation ; acceptation/refus commercial confirmés avant action, sans rechargement intégral. Calcul, montants, contrats serveur et règles de statut inchangés.
+- Tests finaux : Vitest654 PASS/1FAIL LocalTransportEstimateFields:35 ; Deno1745 PASS/1FAIL set_intake_facts_batch:193/6ignored. Les deux échecs reproduits sur archive intacte e73fcc18 ; pas de correction hors lot.
+- Configuration99 fonctions, isolation bundles, typecheck frontend et build PASS ; typecheck Deno49 erreurs/5 groupes = baseline ; lint727/16 contre732/16, sans aggravation. npm run ci s’arrête sur l’échec Vitest baseline ; contrôles suivants exécutés séparément.
+- Contre-revue : blocage faux succès marquage levé, remarques compteur/reprise corrigées. Audit Premium strict115 constats identiques hors décalages de lignes ; conformité globale non revendiquée.
+- Retour arrière testé : patch L1 appliqué puis inversé sur copie isolée de HEAD, empreintes initiales restaurées et nouveaux fichiers absents. Preuves l1-proof.json, l1-code.patch et journaux hors dépôt dans les livrables de ce chat.
+- Limites : recette navigateur/Cloud NOT_RUN ; interactions testées localement avec E/S simulées. Reprise stockage conservée pendant la session seulement ; relecture/mutation non transactionnelles. Garde générale de navigation/saisies et révision après SENT restent L4/L2, hors L1.
+- Aucun commit/push/déploiement, aucune écriture Cloud, génération de devis/PDF/brouillon ni envoi. Suite : GO de publication distinct §2.1, puis recette privée ciblée ; rollback futur par revert ciblé du seul lot.
+- GO publication reçu le 30 septembre : commit/push du seul lot L1 sur work, synchronisation de l’aperçu privé Lovable et recette ciblée sans envoi client ni publication générale.
