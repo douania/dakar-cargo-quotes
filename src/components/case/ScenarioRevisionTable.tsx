@@ -97,7 +97,7 @@ function RevisionDetail({ row, locked, busy, pendingScenarioId, pendingPricingId
       {row.canSelect && !row.isSelected && <Button size="sm" variant="outline" disabled={actionsLocked} onClick={() => onSelect(row.id)}>
         {pendingScenarioId === row.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Check className="mr-1 h-3 w-3" />}Sélectionner
       </Button>}
-      {row.pricingSucceeded && row.isSelected && !row.outputId && <Button size="sm" variant="outline" disabled={actionsLocked || !!pendingOutputAction} onClick={() => onCreateOutput(row.id)}>
+      {row.pricingSucceeded && row.isSelected && !row.outputId && <Button size="sm" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal text-left" disabled={actionsLocked || !!pendingOutputAction} onClick={() => onCreateOutput(row.id)}>
         {pendingOutputAction === `create:${row.pricingRunId}` ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <FileText className="mr-1 h-3 w-3" />}
         Créer une sortie de travail (PDF et brouillon marqués scénario)
       </Button>}

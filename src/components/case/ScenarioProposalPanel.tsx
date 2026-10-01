@@ -68,7 +68,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, on
   };
 
   return <section ref={panel} className="rounded border border-sky-200 p-3 space-y-2" aria-label="Proposition contextuelle de scénario">
-    <Button size="sm" variant="outline" disabled={disabled || pending} onClick={() => void propose()}>
+    <Button size="sm" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal text-left" disabled={disabled || pending} onClick={() => void propose()}>
       {pending ? "Vérification de la proposition…" : "Proposer les groupes et catégories PAD depuis les e-mails"}
     </Button>
     <p className="text-xs text-muted-foreground">Lecture seule. Aucun fait, scénario ou tarif enregistré automatiquement. Les photos ne sont pas analysées par ce parcours.</p>
