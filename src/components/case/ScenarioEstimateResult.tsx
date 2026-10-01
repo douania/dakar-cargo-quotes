@@ -53,7 +53,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
     {!run && !error && !pending && <p>Aucune estimation pour ce scénario. Lancez le calcul après vérification des hypothèses.</p>}
     {run && <>
       <p className="text-xs text-muted-foreground">{pending || error ? "Dernier résultat enregistré" : "Résultat enregistré"} · exécution {run.run_seq} · {new Date(run.completed_at).toLocaleString("fr-FR")}</p>
-      <QuotationBasis context={`Estimation n° ${run.run_seq}`} facts={run.facts_snapshot} assumptions={run.assumptions_snapshot} onReview={onReview} reviewLabel="Revoir les variantes et hypothèses" />
+      <QuotationBasis context={`Estimation n° ${run.run_seq}`} facts={run.facts_snapshot} assumptions={run.assumptions_snapshot} onReview={onReview} reviewLabel="Revoir les variantes et hypothèses" collapsed />
       {run.status === "success" ? <>
         <p className="font-semibold text-lg">{run.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"} : HT {formatScenarioPricingAmount(run.indicative_total_ht, run.currency)} · TTC {formatScenarioPricingAmount(run.indicative_total_ttc, run.currency)}</p>
         <p className="text-sm text-muted-foreground">Estimation non ferme, distincte du devis confirmé. Les postes à confirmer ne sont pas gratuits.</p>
@@ -69,7 +69,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
             return <tr className="border-t align-top" data-estimate-status={isPricedEstimateLine(line) || isExcludedEstimateLine(line) ? "settled" : "pending"} key={`${String(line.id ?? "line")}-${i}`}>
               <td className="p-2">{String(line.description ?? line.category ?? "Prestation")}</td>
               <td className="text-right p-2 whitespace-nowrap">{isExcludedEstimateLine(line) ? "Exclu sous hypothèse" : isPricedEstimateLine(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
-              <td className="p-2 max-w-sm [overflow-wrap:anywhere]">{sourcePresentation(estimateLineBase(line)).text}</td>
+              <td className="p-2 min-w-[12rem] max-w-sm break-words">{sourcePresentation(estimateLineBase(line)).text}</td>
               <td className="p-2 whitespace-nowrap">{estimateLineStatus(line)}</td>
               <td className="p-2">{hasDetails ? <details>
                 <summary className="cursor-pointer whitespace-nowrap">Détail</summary>

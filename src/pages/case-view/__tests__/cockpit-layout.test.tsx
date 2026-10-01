@@ -406,6 +406,47 @@ it('preserves the same form instance and unsaved text through navigation and bot
   expect(versionMounts).toBe(1);expect(invoke).not.toHaveBeenCalled();
 });
 
+it('orders the guided quote tab as client version, latest calculation, then estimates, with the same instances',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='QUOTED_VERSIONED';const {container}=mount();
+  await userEvent.click(within(screen.getByRole('navigation',{name:'Navigation du dossier'})).getByRole('button',{name:'Devis'}));
+  const client=screen.getByRole('region',{name:'Devis destiné au client'});
+  const calculation=screen.getByRole('region',{name:'Dernier calcul du devis'});
+  const estimate=container.querySelector('#section-scenario-variants')!;
+  expect(client).toContainElement(container.querySelector('#section-version'));
+  expect(client).toContainElement(container.querySelector('#section-send'));
+  expect(calculation).toContainElement(container.querySelector('#section-pricing-result'));
+  expect(container.querySelector('#section-pricing-result')).not.toHaveAttribute('open');
+  expect(estimate).toContainElement(screen.getByLabelText('Résultat de l’estimation sélectionnée'));
+  expect(client.compareDocumentPosition(calculation)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(calculation.compareDocumentPosition(estimate)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const input=screen.getByRole('textbox',{name:'Brouillon de test'});await userEvent.type(input,'Saisie conservée');
+  await userEvent.click(screen.getByRole('button',{name:'Présentation précédente'}));
+  expect(screen.queryByRole('region',{name:'Devis destiné au client'})).toBeNull();
+  const previous=screen.getByText('Devis confirmé, versions et envoi').closest('details')!;
+  expect(previous).not.toHaveAttribute('open');
+  expect(previous).toContainElement(container.querySelector('#section-version'));
+  expect(previous).toContainElement(container.querySelector('#section-send'));
+  expect(screen.getByLabelText('Résultat de l’estimation sélectionnée').compareDocumentPosition(previous)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByRole('textbox',{name:'Brouillon de test',hidden:true})).toBe(input);expect(input).toHaveValue('Saisie conservée');
+  await userEvent.click(screen.getByRole('button',{name:'Présentation guidée'}));
+  expect(screen.getByRole('region',{name:'Devis destiné au client'})).toContainElement(input);
+  expect(input).toBeVisible();expect(input).toHaveValue('Saisie conservée');
+  expect(versionMounts).toBe(1);expect(invoke).not.toHaveBeenCalled();expect(estimateAction).not.toHaveBeenCalled();
+});
+
+it('keeps the calculation first and open before any client version exists',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='PRICED_DRAFT';const {container}=mount();
+  await userEvent.click(within(screen.getByRole('navigation',{name:'Navigation du dossier'})).getByRole('button',{name:'Devis'}));
+  expect(screen.queryByRole('region',{name:'Devis destiné au client'})).toBeNull();
+  const calculation=screen.getByRole('region',{name:'Dernier calcul du devis'});
+  expect(calculation).toContainElement(container.querySelector('#section-pricing-result'));
+  expect(calculation).toContainElement(container.querySelector('#section-version'));
+  expect(container.querySelector('#section-pricing-result')).toHaveAttribute('open');
+  expect(calculation.compareDocumentPosition(container.querySelector('#section-scenario-variants')!)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByText('Calcul')).toBeInTheDocument();expect(screen.queryByText('Pricing')).toBeNull();
+  expect(invoke).not.toHaveBeenCalled();
+});
+
 it.each(['fetching','error'])('does not advise an action from stale cockpit data while %s',mode=>{
   localStorage.removeItem(CASE_PRESENTATION_KEY);cockpitFetching=mode==='fetching';cockpitError=mode==='error'?new Error('offline'):null;
   mount();const todo=screen.getByRole('region',{name:'À faire dans le dossier'});

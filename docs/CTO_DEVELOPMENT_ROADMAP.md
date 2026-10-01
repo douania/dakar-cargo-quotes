@@ -2781,3 +2781,15 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Recette visuelle locale du composant réel sur données fictives : bases, historique absent et six lots, mobile 375 px sans débordement horizontal. Parcours complet contrôlé en tests de composition ; recette Cloud NOT_RUN.
 - Aucune DB/Auth/RLS, migration, fonction serveur, tarification, donnée client ou règle de recalcul/envoi modifiée ; questions sans liaison de lot fiable restent dans les contrôles du dossier.
 - Publication privée et recette intégrée à soumettre sous GO distinct §2.1. Rollback : retirer le seul diff L3 en conservant les notes antérieures ; aucun rollback runtime nécessaire.
+
+### 2026-10-01 — Lot Devis : ordre de l’onglet et bases repliées — PASS local, publication NOT_RUN
+- GO utilisateur « GO pour le lot Devis, fais-le ici » : Claude Code exécutant unique, auto-revue du diff (présentation seule, §2.1). Base work/HEAD/origin 3a25c07 inchangée ; notes antérieures de roadmap et .claude/ préservées hors lot.
+- Constat de départ (aperçu privé, dossier synthétique 450cb321…) : onglet Devis ≈ 11 300 px, estimation « NE PAS ENVOYER » en tête, version v4 client et envoi en bas, « Bases retenues » répété 5 fois avec faits ouverts, codes bruts, colonne Base coupée lettre par lettre.
+- Vue guidée : « Devis destiné au client » (issue commerciale, versions, envoi) en tête dès qu’une version existe, puis « Dernier calcul du devis » (replié si versionné), puis « Estimation et variantes » avec le panneau d’estimation ; sans version, le calcul reste en tête et ouvert. Indicateur d’étapes : « Pricing » → « Calcul ».
+- Même technique de portails stables que Marchandise : mêmes instances, saisies conservées entre présentations, ancres/identifiants inchangés. Présentation précédente : ordre et repli inchangés.
+- QuotationBasis : bloc repliable avec résumé (incoterm, conteneurs, poids…), ouvert pour la version sélectionnée et replié pour estimation, calcul et autres versions ; faits conservés repliés. Codes exacts traduits (Oui/Non, modes, SEA_FCL_IMPORT…, prestations sans « _ », Hypothèse assistée) ; code inconnu affiché tel qu’enregistré.
+- Colonne Base de l’estimation : largeur minimale et césure par mot. Aucun montant, snapshot, handler, appel serveur ni donnée persistée modifié.
+- Diff : 7 fichiers +199/-50 (CaseView, QuotationBasis, ScenarioEstimateResult, PricingResultPanel, QuotationVersionCard, 2 tests) ; 4 tests ajoutés, 3 tests QuotationBasis adaptés au repli.
+- npm run ci exit 0 : config 99 fonctions, bundles, typecheck, Vitest 666/666, types Deno 49/5 baseline, Deno 1746 PASS/6 ignorés, lint 725/16 sans aggravation, build PASS. Deno 2.9.5 et Python 3.13 installés ce jour sur demande utilisateur pour exécuter la CI complète.
+- Recette navigateur NOT_RUN : CaseView exige une session Cloud ; à faire dans l’aperçu privé après publication. Rollback : patch inverse vérifié (git apply -R --check PASS) ; futur revert ciblé du commit du lot.
+- Aucune DB/Auth/RLS/migration/fonction serveur/FROZEN ni envoi. Publication (commit/push work, synchronisation Lovable, recette synthétique) sous GO distinct §2.1.

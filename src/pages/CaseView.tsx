@@ -177,6 +177,57 @@ function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel,
   </>;
 }
 
+// Same stable-portal technique for the quote tab: guided mode shows the client version first,
+// then the latest calculation, then estimates and variants. The previous layout keeps its order.
+const QUOTE_PARTS = ["pricing", "stepper", "padReview", "result", "versions", "send", "maritime", "outcome"] as const;
+type QuotePart = typeof QUOTE_PARTS[number];
+function QuotePresentation({ guided, versioned, hasCalculation, summary, setVariantsTarget, parts }: {
+  guided: boolean; versioned: boolean; hasCalculation: boolean; summary: string;
+  setVariantsTarget: (node: HTMLDivElement | null) => void;
+  parts: Record<QuotePart, React.ReactNode>;
+}) {
+  const [hosts] = useState(() => Object.fromEntries(QUOTE_PARTS.map(name => [name, document.createElement("div")])) as Record<QuotePart, HTMLDivElement>);
+  const slot = (name: QuotePart) => <div key={name} className="min-w-0" ref={node => {
+    if (node && hosts[name].parentElement !== node) node.appendChild(hosts[name]);
+  }} />;
+  const sectionClass = "mb-6 min-w-0 space-y-3";
+  return <>
+    {guided ? <>
+      {slot("stepper")}
+      {versioned && <section aria-labelledby="quote-client-heading" className={sectionClass}>
+        <div>
+          <h2 id="quote-client-heading" className="text-lg font-semibold">Devis destiné au client</h2>
+          <p className="text-sm text-muted-foreground">Version sélectionnée, PDF et message. L’envoi reste manuel hors application.</p>
+        </div>
+        {slot("outcome")}{slot("versions")}{slot("send")}
+      </section>}
+      {hasCalculation ? <section aria-labelledby="quote-calculation-heading" className={sectionClass}>
+        <div>
+          <h2 id="quote-calculation-heading" className="text-lg font-semibold">Dernier calcul du devis</h2>
+          <p className="text-sm text-muted-foreground">{versioned ? "Base des versions créées. Un nouveau calcul ne modifie pas une version existante." : "Relisez ce calcul avant de créer la version destinée au client."}</p>
+        </div>
+        {slot("padReview")}{slot("result")}{!versioned && slot("versions")}
+      </section> : <>{slot("padReview")}{slot("result")}{!versioned && slot("versions")}</>}
+      <section id="section-scenario-variants" tabIndex={-1} aria-labelledby="quote-estimate-heading" className="mb-4 min-w-0 rounded-lg border p-4">
+        <h2 id="quote-estimate-heading" className="font-medium">Estimation et variantes</h2>
+        <p className="mb-3 text-sm text-muted-foreground">Montants indicatifs pour comparer des hypothèses. Ils ne constituent pas le devis client.</p>
+        {slot("pricing")}
+        <div ref={setVariantsTarget} />
+      </section>
+      {slot("maritime")}
+      {!versioned && slot("outcome")}
+      {!versioned && slot("send")}
+    </> : <>
+      {slot("pricing")}
+      <details className="mb-4 min-w-0 rounded-lg border p-4">
+        <summary className="cursor-pointer font-medium">Devis confirmé, versions et envoi{summary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {summary}</span>}</summary>
+        {slot("stepper")}{slot("padReview")}{slot("result")}{slot("versions")}{slot("send")}{slot("maritime")}{slot("outcome")}
+      </details>
+    </>}
+    {QUOTE_PARTS.map(name => createPortal(parts[name], hosts[name], name))}
+  </>;
+}
+
 export default function CaseView() {
   const queryClient = useQueryClient();
   const { caseId } = useParams<{ caseId: string }>();
@@ -1260,6 +1311,7 @@ export default function CaseView() {
       target.focus({ preventScroll: true });
     });
   };
+  const quoteVersioned = ['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData?.status ?? "");
   const confirmedQuoteSummary = cockpitState ? [
     cockpitState.selectedVersionNumber !== null ? `version ${cockpitState.selectedVersionNumber}` : null,
     cockpitState.hasPdf ? "PDF" : null,
@@ -1466,10 +1518,14 @@ export default function CaseView() {
               onAction={focusPilotageAction} onOpen={openGuidedSection} />
           </TabsContent>
           <TabsContent value="devis" forceMount hidden={activeTab !== "devis"} aria-labelledby={guided ? "guided-nav-devis" : undefined} className="mt-4 print:block">
-        {/* Pricing Launch Panel — visible for pricing-eligible statuses
+        <QuotePresentation guided={guided} summary={confirmedQuoteSummary} setVariantsTarget={setVariantsTarget}
+          versioned={quoteVersioned}
+          hasCalculation={needsPadReview(gaps) || ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status)}
+          parts={{
+        /* Pricing Launch Panel — visible for pricing-eligible statuses
             Lot 4.1: also visible upstream when canProvisionalDdp === true,
-            so the amber CTA can appear even in NEED_INFO/FACTS_PARTIAL. */}
-        {(() => {
+            so the amber CTA can appear even in NEED_INFO/FACTS_PARTIAL. */
+        pricing: (() => {
           // ── P2: compute pricing prechecks (mirror run-pricing coherence checks) ──
           // P4: Skip global prechecks for multi-lot — run-pricing resolves per-line
           // Lot 4.1: hoisted out of the gate so canProvisionalDdp can drive rendering
@@ -1589,17 +1645,11 @@ export default function CaseView() {
               </details>
             </div>
           );
-        })()}
-        {guided && <section id="section-scenario-variants" tabIndex={-1} aria-label="Estimation et variantes" className="mb-4 min-w-0 rounded-lg border p-4">
-          <h2 className="font-medium">Estimation et variantes</h2>
-          <div ref={setVariantsTarget} />
-        </section>}
-        <details open={guided || undefined} className="mb-4 min-w-0 rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Devis confirmé, versions et envoi{confirmedQuoteSummary && <span className="ml-2 text-sm font-normal text-muted-foreground">— {confirmedQuoteSummary}</span>}</summary>
-        {/* M9b: Output pipeline stepper — read-only progression indicator */}
-        {isPipelineVisible && (() => {
+        })(),
+        /* M9b: Output pipeline stepper — read-only progression indicator */
+        stepper: isPipelineVisible && (() => {
           const steps = [
-            { label: "Pricing", done: true },
+            { label: "Calcul", done: true },
             { label: "Version", done: pipelineStepperData?.hasVersion ?? false },
             { label: "PDF", done: pipelineStepperData?.hasPdf ?? false },
             { label: "Brouillon", done: pipelineStepperData?.hasDraft ?? false },
@@ -1626,15 +1676,15 @@ export default function CaseView() {
               ))}
             </div>
           );
-        })()}
+        })(),
 
-        {needsPadReview(gaps) && <div className="mb-4 rounded border p-3">
+        padReview: needsPadReview(gaps) && <div className="mb-4 rounded border p-3">
           <p className="text-sm">{PAD_REVIEW_FR}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
-        </div>}
-        {/* Pricing Result Panel — visible after pricing */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
-          <details id="section-pricing-result" open={guided || undefined} className="mb-6 rounded border p-3">
+        </div>,
+        /* Pricing Result Panel — visible after pricing */
+        result: ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
+          <details id="section-pricing-result" open={(guided && !quoteVersioned) || undefined} className="mb-6 rounded border p-3">
             <summary className="cursor-pointer">Résultat du devis — vérifier les bases retenues et la date</summary>
             <PricingResultPanel
               key={caseId}
@@ -1647,28 +1697,29 @@ export default function CaseView() {
               onVersionCreated={() => setVersionRefreshToken(t => t + 1)}
             />
           </details>
-        )}
+        ),
 
-        {/* Phase 12: Quotation versions */}
-        {['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
+        /* Phase 12: Quotation versions */
+        versions: ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6" id="section-version">
             <QuotationVersionCard onReviewBasis={() => openCoordinationBlock(guided ? "section-request" : "section-data", "marchandise")} caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
           </div>
-        )}
+        ),
 
-        {/* Phase 19A: Send quotation */}
-        {['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
+        /* Phase 19A: Send quotation */
+        send: ['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6" id="section-send">
             <SendQuotationPanel caseId={caseId!} onPreparationChange={setPreparation} />
           </div>
-        )}
+        ),
 
-        <details className="mb-6 rounded border border-dashed p-3">
+        maritime: <details className="mb-6 rounded border border-dashed p-3">
           <summary className="cursor-pointer font-medium">Propositions maritimes à confirmer</summary>
           <p className="my-2 text-xs text-muted-foreground">Décisions auditées à consulter avant leur intégration par un nouveau calcul.</p>
           <MaritimeFeeProposalsPanel caseId={caseId!} />
-        </details>
+        </details>,
 
+        outcome: <>
         {/* A1: Commercial outcome banner */}
         {isTerminalOutcome && (
           <Alert className={`mb-6 ${caseData.status === 'ACCEPTED' ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-red-500 bg-red-50 dark:bg-red-950/20'}`}>
@@ -1724,10 +1775,8 @@ export default function CaseView() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-
-
-        </details>
+        </>,
+        }} />
           </TabsContent>
           <TabsContent value="marchandise" forceMount hidden={activeTab !== "marchandise"} aria-labelledby={guided ? "guided-nav-marchandise" : undefined} className="mt-4 print:block">
         <MerchandisePresentation variantsTarget={variantsTarget} guided={guided} hasQuestions={blockingGaps.length + nonBlockingOpenGaps.length > 0}

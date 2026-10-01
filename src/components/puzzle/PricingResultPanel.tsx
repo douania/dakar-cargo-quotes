@@ -303,7 +303,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <QuotationBasis context={`Calcul n° ${pricingRun.run_number}`} inputs={pricingRun.inputs_json} facts={pricingRun.facts_snapshot} lots={lots} onReview={onReviewBasis} />
+        <QuotationBasis context={`Calcul n° ${pricingRun.run_number}`} inputs={pricingRun.inputs_json} facts={pricingRun.facts_snapshot} lots={lots} onReview={onReviewBasis} collapsed />
         {/* Regime Blocker Alert */}
         {(() => {
           const outputs = pricingRun.outputs_json as any;

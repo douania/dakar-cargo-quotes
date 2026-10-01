@@ -401,7 +401,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
                         )}
                       </div>
 
-                      <QuotationBasis context={`Version v${version.version_number}${version.is_selected ? " sélectionnée" : ""}`} inputs={snapshot?.inputs} lots={snapshot?.lots} onReview={onReviewBasis} />
+                      <QuotationBasis context={`Version v${version.version_number}${version.is_selected ? " sélectionnée" : ""}`} inputs={snapshot?.inputs} lots={snapshot?.lots} onReview={onReviewBasis} collapsed={!version.is_selected} />
                       {Number.isFinite(displayedTotal) && (
                         <p className="mt-2 text-lg font-bold">
                           {formatAmount(displayedTotal)} {currency}
