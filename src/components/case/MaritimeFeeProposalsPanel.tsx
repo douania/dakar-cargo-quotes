@@ -341,8 +341,8 @@ function MaritimeFeeProposalsForCase({ caseId }: MaritimeFeeProposalsPanelProps)
   return (
     <Card className="mb-4 border-cyan-200 dark:border-cyan-900/50">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2">
             <Ship className="h-5 w-5 text-cyan-600 dark:text-cyan-400 mt-0.5 shrink-0" />
             <div>
               <CardTitle className="text-base">
@@ -357,7 +357,7 @@ function MaritimeFeeProposalsForCase({ caseId }: MaritimeFeeProposalsPanelProps)
           {/* Une décision ne déclenche aucun recalcul depuis ce panneau. */}
           <Badge
             variant="outline"
-            className="shrink-0 border-amber-400 text-amber-700 dark:text-amber-300"
+            className="max-w-full shrink-0 whitespace-normal border-amber-400 text-amber-700 dark:text-amber-300"
           >
             Recalcul requis pour intégrer une décision
           </Badge>
