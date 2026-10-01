@@ -1,4 +1,6 @@
 import { QuotationBasis } from "@/components/case/QuotationBasis";
+import { readableReservationText, shortenText } from "@/lib/reservationPresentation";
+import { sourcePresentation } from "@/lib/sourcePresentation";
 /**
  * Phase 12 + P3b.1: PricingResultPanel
  * Displays the latest successful pricing run and allows version creation.
@@ -212,7 +214,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
   const qualification = resolveQualificationFromRun(pricingRun);
   const primaryReason = qualification.reasons[0];
   const primaryReasonLabel = primaryReason
-    ? (REASON_LABELS[primaryReason.code] || primaryReason.message || primaryReason.code)
+    ? shortenText(sourcePresentation(readableReservationText(REASON_LABELS[primaryReason.code] || primaryReason.message || primaryReason.code)).text).summary
     : null;
   const extraReasonsCount = qualification.reasons.length > 1 ? qualification.reasons.length - 1 : 0;
 

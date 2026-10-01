@@ -791,7 +791,7 @@ export function QuoteScenarioAssumptionsPanel({ caseId }: QuoteScenarioAssumptio
                 </div>
               </div>
 
-              <p className="mt-1.5 text-foreground">{a.statement}</p>
+              <SourceText text={a.statement} className="mt-1.5 text-sm text-foreground" />
 
               <div className="mt-2 space-y-2">
                 {presentation.groups.map((group, groupIndex) => <section key={`${a.id}-group-${groupIndex}`} className="rounded border border-border/50 p-2">

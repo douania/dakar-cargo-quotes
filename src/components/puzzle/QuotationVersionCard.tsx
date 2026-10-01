@@ -1,4 +1,5 @@
 import { QuotationBasis } from "@/components/case/QuotationBasis";
+import { readableReservations } from "@/lib/reservationPresentation";
 /**
  * Phase 12 + Lot 3A: QuotationVersionCard
  * Displays existing quotation versions with selection, PDF export,
@@ -38,10 +39,10 @@ interface QuoteQualification {
 
 const REASON_LABELS: Record<string, string> = {
   MISSING_CARGO_VALUE: "Valeur marchandise en attente",
-  MISSING_HS_CODE: "Code HS a confirmer",
-  PAD_CATEGORY_UNRESOLVED: "Categorie PAD a confirmer",
-  PARTNER_COST_PENDING: "Cout partenaire en attente",
-  RATE_PENDING_CONFIRMATION: "Certains tarifs restent a confirmer",
+  MISSING_HS_CODE: "Code HS à confirmer",
+  PAD_CATEGORY_UNRESOLVED: "Catégorie PAD à confirmer",
+  PARTNER_COST_PENDING: "Coût partenaire en attente",
+  RATE_PENDING_CONFIRMATION: "Certains tarifs restent à confirmer",
 };
 
 const RATE_PENDING_REASON = {
@@ -409,16 +410,19 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
                       )}
                       {sameAsPrevious && <p className="text-xs text-muted-foreground">même montant que v{previousVersion.version_number}</p>}
 
-                      {qualification.reasons.length > 0 && (
-                        <details className="mt-2 text-xs">
-                          <summary className="cursor-pointer text-amber-700 dark:text-amber-300">Voir les réserves ({qualification.reasons.length})</summary>
-                          <ul className="mt-2 space-y-1 text-muted-foreground">
-                            {qualification.reasons.map((reason, reasonIndex) => (
-                              <li key={`${reason.code}-${reasonIndex}`} className="ml-4 list-disc"><SourceText text={REASON_LABELS[reason.code] || reason.message || reason.code} className="text-xs" /></li>
-                            ))}
-                          </ul>
-                        </details>
-                      )}
+                      {qualification.reasons.length > 0 && (() => {
+                        const reasons = readableReservations(qualification.reasons.map(reason => REASON_LABELS[reason.code] || reason.message || reason.code));
+                        return (
+                          <details className="mt-2 text-xs">
+                            <summary className="cursor-pointer text-amber-700 dark:text-amber-300">Voir les réserves ({reasons.length})</summary>
+                            <ul className="mt-2 space-y-1 text-muted-foreground">
+                              {reasons.map(reason => (
+                                <li key={reason.key} className="ml-4 list-disc"><SourceText text={reason.text} className="text-xs" /></li>
+                              ))}
+                            </ul>
+                          </details>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex flex-col gap-2">

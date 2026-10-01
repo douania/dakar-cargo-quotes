@@ -1,6 +1,7 @@
 import { QuotationBasis } from "./QuotationBasis";
 import { SourceText } from "@/components/SourceText";
 import { sourcePresentation } from "@/lib/sourcePresentation";
+import { isMachineReference } from "@/lib/reservationPresentation";
 import { OperatorBasisAdoption } from "./OperatorBasisAdoption";
 import { Button } from "@/components/ui/button";
 import { formatScenarioPricingAmount, type ScenarioPricingRunSummary } from "@/lib/scenarioPricing";
@@ -69,7 +70,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
             return <tr className="border-t align-top" data-estimate-status={isPricedEstimateLine(line) || isExcludedEstimateLine(line) ? "settled" : "pending"} key={`${String(line.id ?? "line")}-${i}`}>
               <td className="p-2">{String(line.description ?? line.category ?? "Prestation")}</td>
               <td className="text-right p-2 whitespace-nowrap">{isExcludedEstimateLine(line) ? "Exclu sous hypothèse" : isPricedEstimateLine(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
-              <td className="p-2 min-w-[12rem] max-w-sm break-words">{sourcePresentation(estimateLineBase(line)).text}</td>
+              <td className="p-2 min-w-[12rem] max-w-sm break-words">{isMachineReference(estimateLineBase(line)) ? "Référence tarifaire (voir Détail)" : sourcePresentation(estimateLineBase(line)).text}</td>
               <td className="p-2 whitespace-nowrap">{estimateLineStatus(line)}</td>
               <td className="p-2">{hasDetails ? <details>
                 <summary className="cursor-pointer whitespace-nowrap">Détail</summary>

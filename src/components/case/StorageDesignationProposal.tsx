@@ -41,10 +41,10 @@ export function StorageDesignationProposal({ caseId, group, onAdopt }: {
     {proposal && <>
       <p>Description examinée : {proposal.description}</p>
       <SourceText text={proposal.source} />
-      {proposal.warning && <p role="status">{proposal.warning}</p>}
+      {proposal.warning && <div role="status"><SourceText text={proposal.warning} /></div>}
       {!proposal.candidates.length && <p>Aucune correspondance justifiée. Précisez la description du scénario ou conservez le choix manuel.</p>}
       {proposal.candidates.map(c => <div key={c.id} className="border rounded p-2">
-        <p>{c.label} — code {c.code ?? "absent"} — {c.unit} — {c.method}</p><p>{c.justification}</p>
+        <p>{c.label} — code {c.code ?? "absent"} — {c.unit} — {c.method}</p><SourceText text={c.justification} />
         <p>Source de désignation : {c.document ?? "non renseignée"} · preuve {c.evidence ?? "non renseignée"} · date {c.effective_date ?? "non renseignée"}</p>
         <p>Classification proposée, non confirmée. Tarif à corroborer séparément.</p>
         {!c.applicable ? <p>Code ou unité hors calcul actuel à la tonne : non applicable automatiquement.</p> :

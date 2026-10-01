@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SourceText } from "@/components/SourceText";
 import {
   AlertTriangle,
   Anchor,
@@ -532,7 +533,7 @@ function MaritimeFeeProposalsForCase({ caseId }: MaritimeFeeProposalsPanelProps)
                           </p>
                         )}
                         <p>Source opérateur : {current.decision_source}</p>
-                        <p>Justification : {current.justification}</p>
+                        <SourceText label="Justification" text={current.justification} />
                         {current.is_stale && (
                           <p className="font-medium text-amber-700 dark:text-amber-300">
                             Décision obsolète : les faits ou la proposition ont
@@ -782,7 +783,7 @@ function OrphanDecisionsBlock({
             <p className="text-xs text-muted-foreground">
               Source opérateur : {decision.decision_source}
             </p>
-            <p className="text-xs text-muted-foreground">Justification : {decision.justification}</p>
+            <SourceText label="Justification" text={decision.justification} className="text-xs text-muted-foreground" />
             <p className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">
               Obsolète : proposition disparue du moteur.
             </p>
@@ -884,7 +885,7 @@ function WarningsBlock({ warnings }: { warnings: string[] }) {
         <ul className="list-disc pl-4 space-y-1">
           {warnings.map((w, i) => (
             <li key={i} className="text-xs">
-              {w}
+              <SourceText text={w} className="text-xs" />
             </li>
           ))}
         </ul>

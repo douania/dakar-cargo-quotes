@@ -61,6 +61,7 @@ import { useExternalRequestFlow } from "@/hooks/useExternalRequestFlow";
 import { usePartnerSuggestions, type PartnerSuggestion } from "@/hooks/usePartnerSuggestions";
 import { PartnerSuggestionPanel } from "@/components/puzzle/PartnerSuggestionPanel";
 import { PartnerScopeCard } from "@/components/puzzle/PartnerScopeCard";
+import { SourceText } from "@/components/SourceText";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -444,7 +445,7 @@ export function ExternalRequestsPanel({ caseId, threadId }: Props) {
                     </div>
                   )}
                   {req.purpose_detail && (
-                    <p className="text-sm text-muted-foreground whitespace-pre-line">{req.purpose_detail}</p>
+                    <SourceText text={req.purpose_detail} className="text-sm text-muted-foreground whitespace-pre-line" />
                   )}
 
                   {/* COM-2A: Suggestion banners */}

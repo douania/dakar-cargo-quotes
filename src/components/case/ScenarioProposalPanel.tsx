@@ -85,7 +85,7 @@ export function ScenarioProposalPanel({ caseId, disabled = false, onUseDraft, on
       {g.imo_source && <p>Classe {g.imo_class} dérivée pour ce lot uniquement — {g.imo_source.source}.</p>}
       {proposal.pad_candidates.filter(c => c.unit_ref === g.unit_ref).map(c => <div key={c.category} className="bg-muted p-2">
         <p>PAD {c.category} — proposition, non appliquée au calcul</p>
-        <p>{c.justification}</p><p>Alias validés : {c.matching_aliases.join(" ; ")}</p>
+        <SourceText text={c.justification} /><p>Alias validés : {c.matching_aliases.join(" ; ")}</p>
         <p>{c.rate === null ? "Tarif à confirmer : source unique applicable non vérifiée." : `Tarif de référence : ${c.rate} FCFA/t ; ce n’est pas le montant du lot.`}</p>
         {c.tariff_source && <p>Source : {String(c.tariff_source.source_document)} — ligne {String(c.tariff_source.id)}, niveau {String(c.tariff_source.evidence_level)}, effet {String(c.tariff_source.effective_date)}.</p>}
       </div>)}

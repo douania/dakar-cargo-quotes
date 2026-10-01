@@ -29,6 +29,35 @@ describe("source presentation", () => {
     expect(source.textContent).toBe(original);
   });
 
+  it("opens a long text on its first sentence and keeps the whole text and the exact original reachable", () => {
+    const long = "Magasinage — lot lot-1 — à confirmer. Franchise : à confirmer. Franchise applicable à confirmer : terminal, équipement et conditions IMO/température à vérifier. Exemple non chiffrable avec les conditions connues. Source : https://dpw-prod-cd-1.dpworld.com/senegal/faqs (consulté le 2026-09-16)";
+    render(<SourceText text={long} />);
+    expect(screen.getByText("Magasinage — lot 1 — à confirmer.")).toBeVisible();
+    const more = screen.getByText("Lire la suite").closest("details")!;
+    expect(more.open).toBe(false);
+    const whole = screen.getByText(/Exemple non chiffrable avec les conditions connues/);
+    expect(whole).not.toBeVisible();
+    fireEvent.click(screen.getByText("Lire la suite"));
+    expect(whole).toBeVisible();
+    expect(whole).toHaveTextContent("consulté le 2026-09-16");
+  });
+
+  it("translates exact known codes, keeps unknown ones, and renders nothing for an empty runtime value", () => {
+    const { container, rerender } = render(<SourceText text="Au moins un poste tarifaire est en attente de confirmation (TO_CONFIRM)." />);
+    expect(screen.getByText("Au moins un poste tarifaire est en attente de confirmation.")).toBeVisible();
+    rerender(<SourceText text="Périmètre lot-2 : packaging_unknown ; code_inconnu_local" />);
+    expect(screen.getByText("Périmètre lot-2 : Emballage inconnu ; code_inconnu_local")).toBeVisible();
+    rerender(<SourceText text={null as unknown as string} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("can show every word at once where the full text must be read before acting", () => {
+    const long = `${"Condition importante à lire avant validation, ".repeat(6)}fin du texte.`;
+    render(<SourceText text={long} unfolded />);
+    expect(screen.getByText(/fin du texte\./)).toBeVisible();
+    expect(screen.queryByText("Lire la suite")).toBeNull();
+  });
+
   it("keeps the complete source in the editable value and submitted payload", () => {
     let saved = "";
     function Editor() {

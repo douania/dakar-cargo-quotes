@@ -27,6 +27,20 @@ describe("guided control wording", () => {
     expect(fallback.detail).toBe("custom.special");
     expect(fallback.label).toContain("préciser");
   });
+
+  it("names a known field in generic missing-information wording and keeps the original", () => {
+    const known = presentGuidedGap({ gap_key: "contacts.client_email", question_fr: "Information manquante: contacts.client_email" });
+    expect(known.label).toBe("Adresse e-mail client à préciser");
+    expect(known.detail).toBe("Information manquante: contacts.client_email");
+    const unknown = presentGuidedGap({ gap_key: "x", question_fr: "Information manquante: custom.unmapped_key" });
+    expect(unknown.label).toBe("Information manquante: custom.unmapped_key");
+  });
+
+  it("does not repeat the to-confirm suffix of a pending line", () => {
+    const quote = readGuidedQuote({ hasSelectedVersion: true, selectedVersionNumber: 1,
+      selectedVersionSnapshot: { raw_lines: [{ description: "Magasinage — lot lot-1 — à confirmer", source: "TO_CONFIRM" }, { description: "Livraison", source: "TO_CONFIRM" }] } });
+    expect(quote?.pendingItems).toEqual(["Magasinage — lot lot-1 — à confirmer", "Livraison — à confirmer"]);
+  });
 });
 
 function cockpit(overrides: Partial<CockpitState> = {}): CockpitState {

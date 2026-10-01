@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, HelpCircle, Brain, Clock, AlertTriangle, MessageSquare, Compass, Lightbulb } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
+import { SourceText } from "@/components/SourceText";
 
 // ── Types for timeline events ──
 interface TimelineEvent {
@@ -444,7 +445,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
                 <Badge variant="destructive" className="text-xs shrink-0 mt-0.5">
                   {c.code.replace(/_/g, " ")}
                 </Badge>
-                <span className="text-xs text-muted-foreground">{c.message_fr}</span>
+                <SourceText text={c.message_fr} className="text-xs text-muted-foreground" />
               </div>
             ))}
             {(coherence?.warnings ?? []).map((w) => (

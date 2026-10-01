@@ -14,6 +14,7 @@ import { Check, Edit2, FileInput, Loader2, Search, Sparkles } from "lucide-react
 import { toast } from "@/hooks/use-toast";
 import { normalizeForMatch, extractTokens } from "@/lib/normalizeForMatch";
 import { expandTokensWithSynonyms } from "@/lib/commoditySynonyms";
+import { SourceText } from "@/components/SourceText";
 
 interface SuggestionCandidate {
   categoryId: string | null;
@@ -598,9 +599,7 @@ export default function DesignationSuggestionBlock({
                   Confirmer
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground pl-2">
-                {rec.justification_fr}
-              </p>
+              <SourceText text={rec.justification_fr} className="text-[11px] text-muted-foreground pl-2" />
               {rec.matching_aliases.length > 0 && (
                 <p className="text-[10px] text-muted-foreground pl-2">
                   Alias proches : {rec.matching_aliases.join(", ")}

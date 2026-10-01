@@ -249,6 +249,9 @@ export function presentGuidedGap(gap: { gap_key: string; question_fr?: string | 
     guidance: original === PAD_WEIGHT_REVIEW_FR ? PAD_WEIGHT_REVIEW_FR : PAD_REVIEW_FR,
     detail: original || PAD_REVIEW_FR,
   };
+  // Generic server wording "Information manquante: <fact key>" is shown with the known field name.
+  const missingKey = /^Information manquante\s*:\s*([\w.]+)$/.exec(original)?.[1];
+  if (missingKey && FACT_LABELS[missingKey]) return { label: `${FACT_LABELS[missingKey]} à préciser`, guidance: null, detail: original };
   return { label: original || FACT_LABELS[gap.gap_key] || "Information à préciser dans les contrôles", guidance: null, detail: original ? null : gap.gap_key };
 }
 
@@ -295,7 +298,8 @@ export function readGuidedQuote(state: Pick<CockpitState, "hasSelectedVersion" |
     if (String(source ?? "").trim().split(/[+:]/)[0].toUpperCase() !== "TO_CONFIRM") return [];
     const label = [line.description, line.charge_name, line.label, line.service_name].find(v => typeof v === "string" && v.trim());
     const lot = line.lot_index != null ? `Lot ${line.lot_index} · ` : "";
-    return [`${lot}${label ?? `Poste ${index + 1}`} — à confirmer`];
+    const text = `${lot}${label ?? `Poste ${index + 1}`}`;
+    return [/à confirmer\s*$/.test(text) ? text : `${text} — à confirmer`];
   });
   const reservations = (Array.isArray(qualification.reasons) ? qualification.reasons : [])
     .flatMap((value) => {

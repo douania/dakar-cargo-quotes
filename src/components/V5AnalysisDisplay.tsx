@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { SourceText } from "@/components/SourceText";
 
 interface CoherenceAlert {
   type: string;
@@ -202,7 +203,7 @@ export function V5AnalysisDisplay({ v5Analysis }: Props) {
                   >
                     {getSeverityIcon(alert.severity)}
                     <div className="flex-1">
-                      <p className="font-medium">{alert.message_fr}</p>
+                      <SourceText text={alert.message_fr} className="font-medium" />
                       {alert.ctu_reference && (
                         <p className="text-xs mt-1 opacity-80">
                           Réf. CTU: {alert.ctu_reference}
@@ -331,7 +332,7 @@ export function V5AnalysisDisplay({ v5Analysis }: Props) {
                         {risk_analysis.time_risk.level}
                       </Badge>
                     </div>
-                    <p className="text-sm">{risk_analysis.time_risk.message_fr}</p>
+                    <SourceText text={risk_analysis.time_risk.message_fr} />
                   </div>
                 )}
                 {risk_analysis.nature_risk && (
@@ -345,7 +346,7 @@ export function V5AnalysisDisplay({ v5Analysis }: Props) {
                         {risk_analysis.nature_risk.level}
                       </Badge>
                     </div>
-                    <p className="text-sm">{risk_analysis.nature_risk.message_fr}</p>
+                    <SourceText text={risk_analysis.nature_risk.message_fr} />
                   </div>
                 )}
               </div>
@@ -383,7 +384,7 @@ export function V5AnalysisDisplay({ v5Analysis }: Props) {
                     >
                       {point.category}
                     </Badge>
-                    <p className="text-sm">{point.message_fr}</p>
+                    <SourceText text={point.message_fr} />
                   </div>
                 ))}
               </div>

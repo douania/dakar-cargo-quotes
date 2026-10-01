@@ -1,4 +1,5 @@
 import { resolveImoPricingFacts, type ImoFact } from "../../../supabase/functions/_shared/imo-pricing-facts.ts";
+import { SourceText } from "@/components/SourceText";
 
 interface Props {
   facts: readonly ImoFact[];
@@ -19,7 +20,7 @@ export default function ImoClassificationNotice({ facts, isMultiLot = false, pen
   return (
     <div role={blocked ? "alert" : "status"} className={`mb-4 rounded-lg border p-4 text-sm space-y-2 ${blocked ? "border-destructive text-destructive" : "border-border bg-muted/30"}`}>
       <p className="font-medium">Classification IMDG{isPreview ? " — aperçu avant enregistrement" : ""}</p>
-      <p>{result.message}</p>
+      <SourceText text={result.message} />
       {result.classification.status === "DERIVED" && <p>Classe déterminée automatiquement à partir du numéro ONU.</p>}
       {blocked && <p>À corriger avant le chiffrage.</p>}
       {isMultiLot && <p>Information au niveau du dossier : préciser la classification de chaque lot concerné. Un numéro ONU global ne s’applique pas automatiquement à tous les lots.</p>}

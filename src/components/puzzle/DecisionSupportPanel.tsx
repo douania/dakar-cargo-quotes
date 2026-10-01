@@ -57,6 +57,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import { DecisionProgressIndicator } from './DecisionProgressIndicator';
+import { SourceText } from "@/components/SourceText";
 import { 
   useDecisionSupport, 
   DecisionType, 
@@ -247,9 +248,7 @@ export function DecisionSupportPanel({ caseId }: Props) {
             </div>
 
             {/* Justification */}
-            <p className="text-sm text-muted-foreground">
-              {option.justification_fr}
-            </p>
+            <SourceText text={option.justification_fr} className="text-sm text-muted-foreground" />
 
             {/* Pros/Cons (collapsible) */}
             {(option.pros.length > 0 || option.cons.length > 0) && (

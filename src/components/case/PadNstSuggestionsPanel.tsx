@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Anchor, Search, Copy, AlertTriangle, Loader2, ChevronDown, Info } from "lucide-react";
 import { toast } from "sonner";
+import { SourceText } from "@/components/SourceText";
 import {
   getPadCategoryLabel,
   getEvidenceLevelLabel,
@@ -467,7 +468,7 @@ function SuggestionCard({ suggestion, padLabels }: { suggestion: PadNstSuggestio
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-2 space-y-1 text-xs text-muted-foreground">
-              <p>{suggestion.notes}</p>
+              <SourceText text={suggestion.notes} className="text-xs" />
               {(suggestion.source_document || suggestion.source_reference) && (
                 <p className="italic">
                   Source : {suggestion.source_document}

@@ -358,6 +358,32 @@ it('keeps snapshot reservations readable on the home while preserving the origin
   expect(invoke).not.toHaveBeenCalled();expect(estimateAction).not.toHaveBeenCalled();
 });
 
+it('keeps the home quote card short: pending items once, three reservations open and the rest one click away',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='QUOTED_VERSIONED';
+  const reasons=['Cotation sur bases opérateur explicites et révisables.','commodity_classification_unknown',
+    ...[1,2,3].map(lot=>`Périmètre lot-${lot} : commodity_classification_unknown`),
+    `Magasinage — lot lot-1 — à confirmer. ${'Franchise et conditions à vérifier avant usage contractuel. '.repeat(5)}`,
+    'Réserve finale à relire'].map((message,i)=>({code:`R${i}`,message}));
+  cockpitOverrides={hasSelectedVersion:true,selectedVersionNumber:1,
+    selectedVersionSnapshot:{totals:{total_payable:48024930,currency:'XOF'},meta:{quoteQualification:{level:'partial',reasons}},
+      raw_lines:[{description:'Magasinage — lot lot-1 — à confirmer',source:'TO_CONFIRM'},{description:'Magasinage — lot lot-1 — à confirmer',source:'TO_CONFIRM'}]}};
+  mount();const region=screen.getByRole('region',{name:'Document destiné au client'});
+  expect(region).toHaveTextContent('Postes à confirmer, exclus du total (2)');
+  expect(within(region).getAllByText('Magasinage — lot 1 — à confirmer (×2)')).toHaveLength(1);
+  expect(region).not.toHaveTextContent('à confirmer — à confirmer');
+  expect(region).toHaveTextContent('Réserves de cette version (5)');
+  expect(within(region).getByText('Cotation sur bases opérateur explicites et révisables.')).toBeVisible();
+  expect(within(region).getByText('Lot 1, lot 2, lot 3 : Classification marchandise inconnue')).toBeVisible();
+  expect(region).not.toHaveTextContent('commodity_classification_unknown');
+  const last=within(region).getByText('Réserve finale à relire');expect(last).not.toBeVisible();
+  await userEvent.click(within(region).getByText('Voir les 2 autres réserves'));
+  expect(last).toBeVisible();
+  expect(within(region).getByText('Magasinage — lot 1 — à confirmer.')).toBeVisible();
+  expect(within(region).getByText('Lire la suite')).toBeVisible();
+  expect(region.textContent?.replace(/\s/g,'')).toContain('48024930');
+  expect(invoke).not.toHaveBeenCalled();
+});
+
 it.each([
   ['partial', 'Relire le devis et ses réserves', 'Des postes restent à confirmer'],
   ['provisional', 'Relire le devis et ses réserves', 'Cette version comporte des réserves'],
