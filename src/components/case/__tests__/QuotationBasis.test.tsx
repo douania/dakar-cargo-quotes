@@ -43,6 +43,13 @@ it("folds the same saved bases behind a readable digest and translates recorded 
   expect(onReview).not.toHaveBeenCalled();
 });
 
+it("names the lot reference of saved containers in the folded digest", () => {
+  render(<QuotationBasis collapsed context="Version v1" inputs={{ containers: [{ type: "20HQ", coc_soc: "SOC", quantity: 39, unit_ref: "lot-1" }] }} />);
+  const summary = screen.getByText("Bases retenues pour cette cotation").closest("summary")!;
+  expect(summary).toHaveTextContent("Conteneurs : Type : 20HQ · Propriété : SOC · Quantité : 39 · Lot : lot 1");
+  expect(summary).not.toHaveTextContent("unit_ref");
+});
+
 it("keeps unknown codes exactly as recorded", () => {
   render(<QuotationBasis context="Calcul n° 5" inputs={{ incoterm: "XYZ_CODE" }} facts={[{ key: "routing.incoterm", value_text: "CUSTOM_CODE", source_type: "partner_note" }]} />);
   expect(screen.getAllByText("XYZ_CODE")[0]).toBeVisible();

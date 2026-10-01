@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { SourceText } from "@/components/SourceText";
 import { sourcePresentation } from "@/lib/sourcePresentation";
+import { readableReservationText } from "@/lib/reservationPresentation";
 import { FACT_LABELS } from "@/pages/case-view/constants";
 
 type RecordValue = Record<string, unknown>;
@@ -15,6 +16,7 @@ const labels: Record<string, string> = {
   cargoDescription: "Marchandise", cargoWeight: "Poids retenu (tonnes)", cargoVolume: "Volume (m³)",
   cargo_weight: "Poids enregistré (unité non précisée)", cargo_volume: "Volume enregistré (unité non précisée)", containers: "Conteneurs",
   weightPerContainerKg: "Poids par conteneur (kg)", quantity: "Quantité", type: "Type", coc_soc: "Propriété",
+  unit_ref: "Lot", unitRef: "Lot",
 };
 
 const sources: Record<string, string> = {
@@ -67,7 +69,7 @@ export function QuotationBasis({ context, inputs, facts, lots, assumptions, onRe
     <details open={!collapsed || undefined} className="space-y-3">
       <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <span className="font-semibold">Bases retenues pour cette cotation</span>
-        <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{context} · {sourcePresentation(digest).text}</span>
+        <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{context} · {sourcePresentation(readableReservationText(digest)).text}</span>
       </summary>
     {onReview && <Button variant="outline" size="sm" className="mt-3 h-auto min-h-9 whitespace-normal" onClick={onReview}>{reviewLabel}</Button>}
     <InputValues inputs={inputs} />

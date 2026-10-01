@@ -1,12 +1,13 @@
 import { SourceText } from "@/components/SourceText";
-import { readableReservations } from "@/lib/reservationPresentation";
+import { prioritizeReservations, readableReservations } from "@/lib/reservationPresentation";
 
 /**
  * Display only: every recorded reservation stays reachable; the same reservation repeated per lot
- * is shown once, and only the first ones are open. Long texts fold inside SourceText.
+ * is shown once, unknown/excluded/to-confirm points come first, and only the first ones are open.
+ * Long texts fold inside SourceText.
  */
 export function ReservationList({ texts, title, visible = 3 }: { texts: string[]; title?: string; visible?: number }) {
-  const items = readableReservations(texts);
+  const items = prioritizeReservations(readableReservations(texts));
   if (items.length === 0) return null;
   const shown = items.slice(0, visible);
   const rest = items.slice(visible);

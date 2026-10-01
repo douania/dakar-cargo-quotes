@@ -7,13 +7,22 @@ import { OPEN_POINT_LABELS } from "@/lib/quoteScenarios";
 const SUMMARY_LIMIT = 180;
 const SCOPE_PREFIX = /^Périmètre\s+([^:]{1,40}?)\s*:\s*/;
 const OPEN_POINT_TOKEN = /\b[a-z]+(?:_[a-z]+)+\b/g;
+/** Recorded unit bases (per_unit…) shown in words; exact tokens only. */
+const UNIT_LABELS: Record<string, string> = {
+  per_unit: "par unité", per_container: "par conteneur", per_container_kg: "kg par conteneur",
+  per_day: "par jour", per_ton: "par tonne", per_tonne: "par tonne", per_kg: "par kg",
+};
+/** Points that name an unknown, excluded or still-to-confirm element come first in short lists. */
+// "\b" does not see "à" as a word character, so "à confirmer" is matched without it.
+const PRIORITY_RESERVATION = /\b(?:inconnue?s?|non compris|non inclus|exclue?s?|danger|IMO|manquante?s?|absente?s?)\b|(?:^|\s)à confirmer/i;
 
 /** Exact known codes only; unknown wording is kept as recorded. */
 export function readableReservationText(text: string): string {
   return text
     .replace(/\s*\(TO_CONFIRM\)/g, "")
-    .replace(OPEN_POINT_TOKEN, token => OPEN_POINT_LABELS[token as keyof typeof OPEN_POINT_LABELS] ?? token)
+    .replace(OPEN_POINT_TOKEN, token => OPEN_POINT_LABELS[token as keyof typeof OPEN_POINT_LABELS] ?? UNIT_LABELS[token] ?? token)
     .replace(/\b([Ll])ot lot-(\w+)/g, "$1ot $2")
+    .replace(/\blot-(\w+)/g, "lot $1")
     .replace(/(\s—\s*à confirmer)(?:\s*—\s*à confirmer)+/g, "$1")
     .replace(/\.{2}(?=\s|$)/g, ".")
     .trim();
@@ -37,7 +46,7 @@ function readableScope(scope: string): string {
   const value = scope.trim();
   if (value === "origin") return "origine";
   if (value === "destination") return "destination";
-  const lot = /^lot-(\w+)$/i.exec(value);
+  const lot = /^lot[- ](\w+)$/i.exec(value);
   return lot ? `lot ${lot[1]}` : value;
 }
 
@@ -64,7 +73,15 @@ export function readableReservations(texts: string[]): Array<{ key: string; text
     }
     groups.set(key, group);
   }
-  return Array.from(groups.entries()).map(([key, { scopes, body }]) => ({
-    key, text: scopes.length ? `${capitalize(scopes.join(", "))} : ${body}` : body,
-  }));
+  return Array.from(groups.entries()).map(([key, { scopes, body }]) => {
+    const prefix = capitalize(scopes.join(", "));
+    // "Lot 1 : Lot 1 : …" — the recorded text already names its own scope.
+    const repeated = scopes.length === 1 && body.toLowerCase().startsWith(`${prefix.toLowerCase()} :`);
+    return { key, text: scopes.length && !repeated ? `${prefix} : ${body}` : body };
+  });
+}
+
+/** Display order only: unknown, excluded or to-confirm points first, otherwise the recorded order. */
+export function prioritizeReservations<T extends { text: string }>(items: T[]): T[] {
+  return [...items.filter(item => PRIORITY_RESERVATION.test(item.text)), ...items.filter(item => !PRIORITY_RESERVATION.test(item.text))];
 }

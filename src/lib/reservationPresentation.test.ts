@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isMachineReference, readableReservations, readableReservationText, shortenText } from "./reservationPresentation";
+import { isMachineReference, prioritizeReservations, readableReservations, readableReservationText, shortenText } from "./reservationPresentation";
 
 // Synthetic excerpts shaped like the GoTrans home card; no customer data.
 const recorded = [
@@ -21,8 +21,8 @@ describe("readable reservations", () => {
       "Classification marchandise inconnue",
       "Lot 1, lot 2, lot 3 : Classification marchandise inconnue",
       "Destination, origine : Lieu à proposer",
-      "Lot 1 : Retour vide armateur — lot-1 (SOC) — exclu de l’estimation.",
-      "Lot 2 : Retour vide armateur — lot-2 (SOC) — exclu de l’estimation.",
+      "Lot 1 : Retour vide armateur — lot 1 (SOC) — exclu de l’estimation.",
+      "Lot 2 : Retour vide armateur — lot 2 (SOC) — exclu de l’estimation.",
     ]);
   });
 
@@ -32,6 +32,38 @@ describe("readable reservations", () => {
     const source = "Source : https://www.hapag-lloyd.com/content/dam/website/downloads/detention_demurrage/SN.pdf ; 531 325 FCFA; RATE_X_CUSTOM";
     expect(readableReservationText(source)).toBe(source);
     expect(readableReservationText("Hypothèses à vérifier; poids haut; Qté conteneurs source..")).toBe("Hypothèses à vérifier; poids haut; Qté conteneurs source.");
+  });
+
+  it("writes lots one way, names unit bases and never repeats a scope already in the text", () => {
+    expect(readableReservationText("Supplément IMO éventuel — lot-2 — à confirmer")).toBe("Supplément IMO éventuel — lot 2 — à confirmer");
+    expect(readableReservationText("Surestaries armateur — lot COC lot-3")).toBe("Surestaries armateur — lot COC lot 3");
+    expect(readableReservationText("poids 55000 kg (per_unit)")).toBe("poids 55000 kg (par unité)");
+    expect(readableReservations([
+      "Périmètre lot-1 : Lot lot-1 : hypothèse 39 × 20HQ SOC; poids 55000 kg (per_unit).",
+      "Périmètre lot-2 : Lot lot-2 : danger inconnu.",
+    ]).map(item => item.text)).toEqual([
+      "Lot 1 : hypothèse 39 × 20HQ SOC; poids 55000 kg (par unité).",
+      "Lot 2 : danger inconnu.",
+    ]);
+  });
+
+  it("puts unknown, excluded or to-confirm points first and otherwise keeps the recorded order", () => {
+    const ordered = prioritizeReservations([
+      { text: "Cotation sur bases opérateur explicites et révisables." },
+      { text: "Au moins un poste tarifaire est en attente de confirmation." },
+      { text: "Lot 1, lot 2 : Classification marchandise inconnue" },
+      { text: "Devis établi sur des bases opérateur : consulter les bases et réserves de la version." },
+      { text: "Magasinage — lot 1 — à confirmer." },
+      { text: "Droits et taxes douaniers et calcul CAF exclus." },
+    ]).map(item => item.text);
+    expect(ordered).toEqual([
+      "Lot 1, lot 2 : Classification marchandise inconnue",
+      "Magasinage — lot 1 — à confirmer.",
+      "Droits et taxes douaniers et calcul CAF exclus.",
+      "Cotation sur bases opérateur explicites et révisables.",
+      "Au moins un poste tarifaire est en attente de confirmation.",
+      "Devis établi sur des bases opérateur : consulter les bases et réserves de la version.",
+    ]);
   });
 
   it("opens long texts on a complete first sentence, or a word-bounded excerpt", () => {

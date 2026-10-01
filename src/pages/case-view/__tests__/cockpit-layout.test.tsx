@@ -372,13 +372,14 @@ it('keeps the home quote card short: pending items once, three reservations open
   expect(within(region).getAllByText('Magasinage — lot 1 — à confirmer (×2)')).toHaveLength(1);
   expect(region).not.toHaveTextContent('à confirmer — à confirmer');
   expect(region).toHaveTextContent('Réserves de cette version (5)');
-  expect(within(region).getByText('Cotation sur bases opérateur explicites et révisables.')).toBeVisible();
   expect(within(region).getByText('Lot 1, lot 2, lot 3 : Classification marchandise inconnue')).toBeVisible();
+  expect(within(region).getByText('Classification marchandise inconnue')).toBeVisible();
+  const generic=within(region).getByText('Cotation sur bases opérateur explicites et révisables.');expect(generic).not.toBeVisible();
   expect(region).not.toHaveTextContent('commodity_classification_unknown');
   const last=within(region).getByText('Réserve finale à relire');expect(last).not.toBeVisible();
-  await userEvent.click(within(region).getByText('Voir les 2 autres réserves'));
-  expect(last).toBeVisible();
   expect(within(region).getByText('Magasinage — lot 1 — à confirmer.')).toBeVisible();
+  await userEvent.click(within(region).getByText('Voir les 2 autres réserves'));
+  expect(last).toBeVisible();expect(generic).toBeVisible();
   expect(within(region).getByText('Lire la suite')).toBeVisible();
   expect(region.textContent?.replace(/\s/g,'')).toContain('48024930');
   expect(invoke).not.toHaveBeenCalled();

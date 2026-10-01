@@ -46,7 +46,7 @@ describe("source presentation", () => {
     const { container, rerender } = render(<SourceText text="Au moins un poste tarifaire est en attente de confirmation (TO_CONFIRM)." />);
     expect(screen.getByText("Au moins un poste tarifaire est en attente de confirmation.")).toBeVisible();
     rerender(<SourceText text="Périmètre lot-2 : packaging_unknown ; code_inconnu_local" />);
-    expect(screen.getByText("Périmètre lot-2 : Emballage inconnu ; code_inconnu_local")).toBeVisible();
+    expect(screen.getByText("Périmètre lot 2 : Emballage inconnu ; code_inconnu_local")).toBeVisible();
     rerender(<SourceText text={null as unknown as string} />);
     expect(container).toBeEmptyDOMElement();
   });

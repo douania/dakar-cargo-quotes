@@ -1680,7 +1680,7 @@ export default function CaseView() {
 
         padReview: needsPadReview(gaps) && <div className="mb-4 rounded border p-3">
           <p className="text-sm">{PAD_REVIEW_FR}</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
+          <Button variant="outline" size="sm" className="mt-2 h-auto min-h-9 max-w-full whitespace-normal text-left" onClick={openScenarioReview}>Examiner les groupes et propositions du scénario</Button>
         </div>,
         /* Pricing Result Panel — visible after pricing */
         result: ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (

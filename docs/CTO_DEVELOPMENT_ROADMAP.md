@@ -2803,3 +2803,11 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Diff : 23 fichiers +301/-47 (20 modifiés, 3 nouveaux : reservationPresentation + test, ReservationList) ; 10 tests ajoutés (SourceText, regroupement, accueil, questions).
 - npm run ci exit 0 : Vitest 676/676, Deno 1746 PASS/6 ignorés, types Deno 49/5 baseline, lint 725/16 sans aggravation, typecheck/build PASS. Patch inverse vérifié (git apply -R --check PASS).
 - Recette navigateur NOT_RUN (session Cloud requise) : à faire après publication sur GoTrans et 450cb321. Publication (commit/push work, synchronisation Lovable, recette) sous GO distinct §2.1.
+
+### 2026-10-01 — Petit lot des restes (lisibilité et mobile) — PASS local, publication NOT_RUN
+- GO utilisateur « go pour le petit lot des restes » ; Claude Code exécutant unique, auto-revue (présentation seule). Base work/HEAD/origin 816985e.
+- Portée non répétée (« Lot 1 : Lot 1 : » → « Lot 1 : ») ; lots écrits « lot 2 » partout ; bases d’unité traduites (per_unit → par unité, per_container, per_day, per_ton…) ; clé unit_ref nommée « Lot » dans le résumé des bases.
+- Réserves : points inconnus, exclus, non compris ou à confirmer affichés en tête de la liste courte, ordre enregistré conservé sinon ; toutes restent accessibles.
+- Contrôle mobile sur aperçu 816985e (cadre 371 px, même session, lecture seule) : accueil GoTrans sans débordement ; onglet Devis débordait (boutons/badges). Corrigé : en-têtes Scénarios et Résultat du calcul en retour à la ligne, boutons longs PAD/estimation à libellé multiligne.
+- Diff : 11 fichiers code/tests +83/-23 ; 4 tests ajoutés. npm run ci exit 0 : Vitest 679/679, Deno 1746 PASS/6 ignorés, types Deno 49/5, lint 725/16, build PASS. Patch inverse vérifié.
+- Recette mobile de l’onglet Devis après correctif NOT_RUN tant que non publié. Aucune donnée, PDF, message, calcul ni appel serveur modifié. Publication sous GO distinct §2.1.

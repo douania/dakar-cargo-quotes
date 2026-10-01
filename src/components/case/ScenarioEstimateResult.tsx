@@ -131,7 +131,7 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
           <p className="text-sm text-muted-foreground mb-2">Ces postes sont exclus du sous-total. Ils ne bloquent pas les montants déjà calculés.</p>
           <ul className="space-y-2">{Array.from(families.entries()).map(([key, item]) => <li key={key} className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span>{item.label} — {item.count} poste{item.count > 1 ? "s" : ""} non chiffré{item.count > 1 ? "s" : ""}</span>
-            {item.scenario && onReview ? <Button size="sm" variant="outline" onClick={onReview} disabled={pending}>{item.action}</Button>
+            {item.scenario && onReview ? <Button size="sm" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal text-left" onClick={onReview} disabled={pending}>{item.action}</Button>
               : <a className="underline" href="#estimate-service-details" onClick={event => {
                  const details = event.currentTarget.closest("section[aria-label='Résultat de l’estimation sélectionnée']")?.querySelector<HTMLDetailsElement>("#estimate-service-details tr[data-estimate-status='pending'] details");
                 if (details) details.open = true;

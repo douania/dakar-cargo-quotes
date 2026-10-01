@@ -255,8 +255,8 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
   return (
     <Card className="border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50/50 to-background dark:from-emerald-950/20">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
             <CardTitle className="text-lg">Résultat du calcul n° {pricingRun.run_number}</CardTitle>
             {isMultiLot && (
