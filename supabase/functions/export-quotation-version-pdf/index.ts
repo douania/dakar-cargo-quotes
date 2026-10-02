@@ -19,7 +19,7 @@ import { handleCors } from "../_shared/cors.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import { isToConfirmLine, lotSubtotalLabel } from "../_shared/quotation-line-status.ts";
-import { classifyClientLine, createRawLineLookup, projectClientQuote } from "../_shared/client-quote-projection.ts";
+import { classifyClientLine, clientLineLabel, createRawLineLookup, projectClientQuote } from "../_shared/client-quote-projection.ts";
 import {
   isScenarioOutputSnapshot,
   readScenarioOutputContext,
@@ -342,11 +342,37 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     y -= 5;
   }
 
+  /**
+   * Client versions: full description wrapped to the column width (3 lines at most, then "...").
+   * Scenario work outputs keep their documented single truncated line.
+   */
+  function descriptionLines(description: string): string[] {
+    if (!projection) return [sanitize(description.substring(0, 25))];
+    const width = colQty - colDesc - 8;
+    const measure = (text: string) => font.widthOfTextAtSize(text, 9);
+    const words = sanitize(clientLineLabel(description)).split(/\s+/).flatMap(word => {
+      const chunks: string[] = [];
+      let current = "";
+      for (const char of word) {
+        if (current && measure(current + char) > width) { chunks.push(current); current = ""; }
+        current += char;
+      }
+      if (current) chunks.push(current);
+      return chunks;
+    });
+    const wrapped = wrapToWidth(words.join(" "), measure, width);
+    if (wrapped.length <= 3) return wrapped;
+    let last = wrapped[2];
+    while (last.includes(" ") && measure(`${last} ...`) > width) last = last.replace(/\s+\S+$/, "");
+    return [wrapped[0], wrapped[1], `${last} ...`];
+  }
+
   // deno-lint-ignore no-explicit-any
   function drawLine(line: any) {
-    ensureSpace(lineHeight + 5);
     const serviceText = sanitize(lineServiceLabel(line).substring(0, 15));
-    const descText = sanitize((line.description || '').substring(0, 25));
+    const descLines = descriptionLines(String(line.description || ''));
+    const extraDescHeight = (descLines.length - 1) * 11;
+    ensureSpace(lineHeight + 5 + extraDescHeight);
     const amount = line.amount || 0;
     // Lot 4-A: detect "À confirmer" / reserve lines and never render "0 FCFA" for them.
     // Covers canonical TO_CONFIRM (Lot 3D) + provisional_reserve / CUSTOMS_RESERVE (Lot 4 DDP guard).
@@ -355,9 +381,11 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     const status = projection && rawLineFor ? classifyClientLine(line, rawLineFor(line)) : null;
     const statusNote = status && !["firm", "to_confirm", "unqualified"].includes(status.status)
       ? status.label : ""; // same wording as the screen and the e-mail
-    if (statusNote) ensureSpace(lineHeight + 15);
+    if (statusNote) ensureSpace(lineHeight + 15 + extraDescHeight);
     currentPage.drawText(serviceText, { x: colService, y, size: 9, font, color: black });
-    currentPage.drawText(descText, { x: colDesc, y, size: 9, font, color: black });
+    descLines.forEach((text, i) => {
+      currentPage.drawText(text, { x: colDesc, y: y - i * 11, size: 9, font, color: black });
+    });
     currentPage.drawText((line.quantity || 1).toString(), { x: colQty, y, size: 9, font, color: black });
     if (isToConfirm) {
       currentPage.drawText(sanitize('—'), { x: colRate, y, size: 9, font, color: gray });
@@ -370,7 +398,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
       currentPage.drawText(formatAmount(line.unit_price || 0), { x: colRate, y, size: 9, font, color: black });
       currentPage.drawText(formatAmount(amount), { x: colAmount, y, size: 9, font, color: black });
     }
-    y -= lineHeight;
+    y -= lineHeight + extraDescHeight;
     if (statusNote) {
       currentPage.drawText(sanitize(statusNote).substring(0, 75), { x: colDesc, y: y + 6, size: 7, font, color: gray });
       y -= 8;

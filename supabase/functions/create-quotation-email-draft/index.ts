@@ -206,6 +206,7 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
   const qualWord = qualification.level === "provisional" ? "devis provisoire"
     : qualification.level === "partial" ? "offre partielle"
     : "devis";
+  const qualDeterminer = qualification.level === "partial" ? "Cette" : "Ce";
 
   // Attachment wording
   if (hasPdf) {
@@ -218,8 +219,8 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
   // Route + incoterm
   if (origin && destination) {
     const routeLine = incoterm
-      ? `Ce ${qualWord} concerne votre expédition ${origin} → ${destination} (${incoterm}).`
-      : `Ce ${qualWord} concerne votre expédition ${origin} → ${destination}.`;
+      ? `${qualDeterminer} ${qualWord} concerne votre expédition ${origin} → ${destination} (${incoterm}).`
+      : `${qualDeterminer} ${qualWord} concerne votre expédition ${origin} → ${destination}.`;
     parts.push("");
     parts.push(routeLine);
   }
@@ -275,7 +276,7 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
   // Multi-lot summary
   if (isMultiLot && lotSummaryLines.length > 0) {
     parts.push("");
-    parts.push(`Ce ${qualWord} couvre ${lotSummaryLines.length} lots :`);
+    parts.push(`${qualDeterminer} ${qualWord} couvre ${lotSummaryLines.length} lots :`);
     parts.push(...lotSummaryLines);
   }
 

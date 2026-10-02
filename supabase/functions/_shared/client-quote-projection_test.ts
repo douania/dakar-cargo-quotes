@@ -162,3 +162,26 @@ Deno.test("projection does not mutate the saved snapshot", () => {
   projectClientQuote(clientQuoteSnapshot);
   assertEquals(JSON.stringify(clientQuoteSnapshot), before);
 });
+
+Deno.test("cargo basis: source traceability dropped, shorthand translated, cargo description kept", () => {
+  const units = clientQuoteSnapshot.operator_basis.scope.cargo_units;
+  const withBasis = (scenario_basis: string) => projectClientQuote({
+    ...clientQuoteSnapshot,
+    operator_basis: { ...clientQuoteSnapshot.operator_basis, scope: { ...clientQuoteSnapshot.operator_basis.scope, cargo_units: [{ ...units[0], scenario_basis }] } },
+  }).bases.find(b => b.startsWith("Lot 1 :")) ?? "";
+  const traced = withBasis(`Hypothèses à vérifier; e-mail 0a1b2c3d-1111-4222-8333-444455556666; SHA256 ${"ab".repeat(32)}; poids haut; Qté conteneurs source.`);
+  assertStringIncludes(traced, "base opérateur : poids retenu en hypothèse haute ; nombre de conteneurs selon la demande");
+  for (const banned of ["e-mail", "SHA", "Hypothèses à vérifier", "référence", "ab".repeat(8)]) assertFalse(traced.includes(banned), banned);
+  assertFalse(withBasis("Hypothèses à vérifier; e-mail source").includes("base opérateur"), "nothing left to say → no operator basis");
+  assertStringIncludes(withBasis("Wooden storage cabinets; 1 unité/conteneur."), "base opérateur : Wooden storage cabinets ; 1 unité/conteneur");
+});
+
+Deno.test("open points: the same place recorded as origin and origine is listed once", () => {
+  const snapshot = {
+    ...clientQuoteSnapshot,
+    operator_basis: { ...clientQuoteSnapshot.operator_basis, open_points: [{ code: "port_to_propose", key: "port_to_propose:origin", ref: "origin" }] },
+  };
+  const text = projectClientQuote(snapshot).conditions.join("\n");
+  assertStringIncludes(text, "lieu (origine)");
+  assertFalse(/\borigin\b/.test(text), "no English place reference");
+});

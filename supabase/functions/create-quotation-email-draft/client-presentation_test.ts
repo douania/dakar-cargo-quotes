@@ -33,3 +33,12 @@ Deno.test("historical e-mail keeps the recorded reservation and invents no exclu
   assertStringIncludes(body, "Poids enregistré : 10 (unité non précisée)");
   assertFalse(body.includes("Droits et taxes"));
 });
+
+Deno.test("e-mail wording agrees with the qualification: « Cette offre partielle », « Ce devis provisoire »", () => {
+  const snapshot = { ...clientQuoteSnapshot, inputs: { ...clientQuoteSnapshot.inputs, origin: "Dakar Port", destination: "N'Dioum", incoterm: "DAP" } };
+  assertStringIncludes(buildDeterministicBody(snapshot, 1, false, [], true, partial), "Cette offre partielle concerne votre expédition");
+  const provisional = buildDeterministicBody(snapshot, 1, true, ["  - Lot 1", "  - Lot 2"], true, { level: "provisional", reasons: [], firmTotalPolicy: "all_included" });
+  assertStringIncludes(provisional, "Ce devis provisoire concerne votre expédition");
+  assertStringIncludes(provisional, "Ce devis provisoire couvre 2 lots :");
+  assertFalse(buildDeterministicBody(snapshot, 1, false, [], true, partial).includes("Ce offre"));
+});

@@ -77,3 +77,15 @@ Deno.test("historical PDF: no invented status or exclusion, recorded reservation
   assertFalse(all.includes("Droits et taxes"));
   assert(all.includes("200 000"));
 });
+
+Deno.test("client PDF: a long line description is wrapped in its column (3 lines at most), not cut at 25 characters", async () => {
+  const long = "Transport 20hq → Ndioum, Podor, Saint-Louis, Sénégal — estimation kilométrique (lot-2)";
+  const veryLong = `${long} ${"avec une précision opérateur très longue ".repeat(6)}ZZFINZZ`;
+  const lines = clientQuoteSnapshot.lines.map((l: Record<string, unknown>, i: number) =>
+    i === 0 ? { ...l, description: long } : i === 1 ? { ...l, description: veryLong } : l);
+  const texts = (await pdfTexts(await generateDraftPdf({ ...clientQuoteSnapshot, lines }, "SYNTHETIC"))).map(t => t.trim());
+  const all = texts.join(" ");
+  assert(all.includes("estimation kilometrique (lot 2)"), "the end of the description is printed, with the client lot label");
+  assertFalse(all.includes("ZZFINZZ"), "beyond three lines the description is shortened");
+  assert(texts.some(t => t.endsWith(" ...")), "a shortened description says so");
+});

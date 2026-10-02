@@ -181,6 +181,25 @@ function operatorWording(value: unknown, limit = 140): string {
   return text.length <= limit ? text : `${text.slice(0, limit).replace(/\s+\S*$/, "")} …`;
 }
 
+// Cargo-unit basis for the client: source traceability (e-mail, hash, record) and the generic
+// "to verify" marker are operator-only; known shorthand is translated, anything else kept as written.
+const BASIS_PROVENANCE = /^(?:e-?mail(?: source)?|référence|source|hypothèses? à vérifier)$/i;
+const BASIS_SHORTHAND: Record<string, string> = {
+  "poids haut": "poids retenu en hypothèse haute",
+  "qté conteneurs source": "nombre de conteneurs selon la demande",
+};
+function cargoBasisWording(value: unknown, limit = 120): string {
+  const text = operatorWording(value, 1000).replace(/\.$/, "").split(/\s*;\s*/)
+    .filter(segment => segment && !BASIS_PROVENANCE.test(segment))
+    .map(segment => BASIS_SHORTHAND[segment.toLowerCase()] ?? segment)
+    .join(" ; ");
+  return text.length <= limit ? text : `${text.slice(0, limit).replace(/\s+\S*$/, "")} …`;
+}
+/** Place references of open points in French, so "origin" and "origine" are one entry. */
+function placeRef(ref: string): string {
+  return ref === "origin" ? "origine" : ref;
+}
+
 const STAY_DAY_LABELS: Record<string, string> = {
   storage_days: "magasinage", demurrage_days: "surestaries", detention_days: "détention", free_days: "franchise",
 };
@@ -306,7 +325,7 @@ function unitBasis(cargo: Row): string | null {
     : cargo.dangerous_goods === false ? "non dangereux selon la base retenue" : "statut dangereux non confirmé";
   const parts = [quantity !== null && equipment ? `${fr(quantity)} × ${equipment}` : equipment || null,
     ownership ? (ownership === "SOC" || ownership === "COC" ? ownership : `propriété ${ownership}`) : null, weightText, danger];
-  const operator = operatorWording(cargo.scenario_basis, 120);
+  const operator = cargoBasisWording(cargo.scenario_basis);
   if (operator) parts.push(`base opérateur : ${operator}`);
   return ref ? `${capitalize(ref)} : ${parts.filter(Boolean).join(", ")}` : null;
 }
@@ -452,14 +471,14 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
       const reason = str(r.reason);
       if (OPEN_POINT_TEXT[reason]) {
         const set = openPoints.get(OPEN_POINT_TEXT[reason]) ?? new Set<string>();
-        if (ref) set.add(ref === "origin" ? "origine" : ref);
+        if (ref) set.add(placeRef(ref));
         openPoints.set(OPEN_POINT_TEXT[reason], set);
       } else recorded.push(str(r.message) || reason || "Point ouvert à examiner");
       continue;
     }
     if (OPEN_POINT_TEXT[code]) {
       const set = openPoints.get(OPEN_POINT_TEXT[code]) ?? new Set<string>();
-      if (ref) set.add(ref);
+      if (ref) set.add(placeRef(ref));
       openPoints.set(OPEN_POINT_TEXT[code], set);
       continue;
     }
