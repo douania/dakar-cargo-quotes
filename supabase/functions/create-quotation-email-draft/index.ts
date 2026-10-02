@@ -19,6 +19,7 @@ import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import { isToConfirmLine } from "../_shared/quotation-line-status.ts";
+import { projectClientQuote } from "../_shared/client-quote-projection.ts";
 import {
   buildScenarioEmailBody,
   buildScenarioEmailSubject,
@@ -145,18 +146,6 @@ function formatAmountFR(amount: number): string {
   return new Intl.NumberFormat('fr-FR').format(amount);
 }
 
-function buildReserveBlock(qualification: QuoteQualification): string[] {
-  if (qualification.reasons.length === 0) return [];
-  const lines: string[] = [];
-  lines.push("");
-  lines.push("Éléments sous réserve :");
-  for (const r of qualification.reasons.slice(0, 5)) {
-    const label = REASON_LABELS[r.code] || r.message || r.code;
-    lines.push(`  - ${label}`);
-  }
-  return lines;
-}
-
 /**
  * Per-lot summary of a multi-lot snapshot. A lot still holding lines to confirm is qualified
  * individually ("partiel, hors N postes à confirmer"): its amount covers priced lines only and is
@@ -275,10 +264,13 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
     }
   }
 
-  parts.push(...operatorNotices);
-  // Reserve block
-  parts.push(...buildReserveBlock(qualification));
-  if (weightNotices.length) parts.push("", "Bases de poids retenues — cotation révisable :", ...weightNotices);
+  // Same client projection as the PDF and the screen: bases, particular then general conditions.
+  // Reads the saved snapshot only; recorded wording is kept for unknown codes.
+  const projection = projectClientQuote(snapshot);
+  const bullets = (title: string, values: string[]) => values.length ? ["", title, ...values.map((v) => `  - ${v}`)] : [];
+  parts.push(...bullets("Bases de cotation :", projection.bases));
+  parts.push(...bullets("Conditions particulières :", projection.conditions));
+  parts.push(...bullets("Conditions générales :", projection.general));
 
   // Multi-lot summary
   if (isMultiLot && lotSummaryLines.length > 0) {

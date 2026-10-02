@@ -19,6 +19,7 @@ import { handleCors } from "../_shared/cors.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import { isToConfirmLine, lotSubtotalLabel } from "../_shared/quotation-line-status.ts";
+import { classifyClientLine, createRawLineLookup, projectClientQuote } from "../_shared/client-quote-projection.ts";
 import {
   isScenarioOutputSnapshot,
   readScenarioOutputContext,
@@ -286,6 +287,11 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   const lotBg = rgb(0.93, 0.95, 0.98);
   const operatorNotices = operatorBasisText(snapshot.operator_basis);
   const scenarioContext = readScenarioOutputContext(snapshot);
+  // Client quotation versions use the shared client projection; scenario work outputs keep
+  // their documented working layout. Amounts, totals and the snapshot are read unchanged.
+  const projection = scenarioContext ? null : projectClientQuote(snapshot);
+  // Lines are matched to their raw line by content (lots[].lines are separate objects after JSON).
+  const rawLineFor = projection ? createRawLineLookup(snapshot) : null;
 
   // Column positions for services table
   const colService = margin;
@@ -345,17 +351,61 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     // Lot 4-A: detect "À confirmer" / reserve lines and never render "0 FCFA" for them.
     // Covers canonical TO_CONFIRM (Lot 3D) + provisional_reserve / CUSTOMS_RESERVE (Lot 4 DDP guard).
     const isToConfirm = isToConfirmLine(line);
+    // Status read from this saved line and its recorded qualification (raw line matched by content).
+    const status = projection && rawLineFor ? classifyClientLine(line, rawLineFor(line)) : null;
+    const statusNote = status && !["firm", "to_confirm", "unqualified"].includes(status.status)
+      ? status.label : ""; // same wording as the screen and the e-mail
+    if (statusNote) ensureSpace(lineHeight + 15);
     currentPage.drawText(serviceText, { x: colService, y, size: 9, font, color: black });
     currentPage.drawText(descText, { x: colDesc, y, size: 9, font, color: black });
     currentPage.drawText((line.quantity || 1).toString(), { x: colQty, y, size: 9, font, color: black });
     if (isToConfirm) {
       currentPage.drawText(sanitize('—'), { x: colRate, y, size: 9, font, color: gray });
       currentPage.drawText(sanitize('À confirmer'), { x: colAmount, y, size: 9, font, color: gray });
+    } else if (status?.amountText) {
+      // A zero always states its meaning (franchise, SOC without return, client obligation).
+      currentPage.drawText(sanitize('—'), { x: colRate, y, size: 9, font, color: gray });
+      currentPage.drawText(sanitize(status.amountText), { x: colAmount, y, size: 9, font, color: gray });
     } else {
       currentPage.drawText(formatAmount(line.unit_price || 0), { x: colRate, y, size: 9, font, color: black });
       currentPage.drawText(formatAmount(amount), { x: colAmount, y, size: 9, font, color: black });
     }
     y -= lineHeight;
+    if (statusNote) {
+      currentPage.drawText(sanitize(statusNote).substring(0, 75), { x: colDesc, y: y + 6, size: 7, font, color: gray });
+      y -= 8;
+    }
+  }
+
+  /** Client sections after the price table: bases, particular conditions, general conditions. */
+  function drawClientSection(heading: string, values: string[]) {
+    if (values.length === 0) return;
+    ensureSpace(lineHeight * 3);
+    currentPage.drawText(sanitize(heading), { x: margin, y, size: 10, font: fontBold, color: primary });
+    y -= lineHeight;
+    // Wrapped with the real font width (a long word is split), so no text crosses the margins.
+    const width = PAGE_W - 2 * margin - 10;
+    const measure = (text: string) => font.widthOfTextAtSize(text, 9);
+    const splitLongWords = (text: string) => text.split(/\s+/).flatMap(word => {
+      const chunks: string[] = [];
+      let current = "";
+      for (const char of word) {
+        if (current && measure(current + char) > width) { chunks.push(current); current = ""; }
+        current += char;
+      }
+      if (current) chunks.push(current);
+      return chunks;
+    }).join(" ");
+    for (const value of values) {
+      const wrapped = wrapToWidth(splitLongWords(sanitize(`- ${value}`)), measure, width);
+      ensureSpace(lineHeight * Math.min(wrapped.length, 3));
+      wrapped.forEach((text, i) => {
+        ensureSpace(lineHeight);
+        currentPage.drawText(i === 0 ? text : `  ${text}`, { x: margin, y, size: 9, font, color: black });
+        y -= 14;
+      });
+    }
+    y -= sectionGap / 2;
   }
 
   // === HEADER ===
@@ -429,9 +479,11 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     y -= lineHeight;
     currentPage.drawText('Certaines composantes restent sous reserve :', { x: margin + 5, y, size: 9, font, color: amberColor });
     y -= lineHeight;
-    const reasonTexts = qualification.reasons.slice(0, 3).map(
-      (r: { code: string; message: string }) => REASON_LABELS[r.code] || r.message || r.code
-    );
+    const reasonTexts = projection
+      ? ['voir les conditions particulieres apres le detail des prix']
+      : qualification.reasons.slice(0, 3).map(
+        (r: { code: string; message: string }) => REASON_LABELS[r.code] || r.message || r.code
+      );
     currentPage.drawText(sanitize(reasonTexts.join(' / ')), { x: margin + 10, y, size: 8, font, color: amberColor });
     y -= sectionGap;
   } else if (qualification.level === "partial") {
@@ -483,7 +535,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     y -= sectionGap / 2;
   }
 
-  if (operatorNotices.length) {
+  if (!projection && operatorNotices.length) {
     ensureSpace(lineHeight * 3);
     currentPage.drawText('BASES RETENUES - COTATION REVISABLE', { x: margin, y, size: 10, font: fontBold, color: primary });
     y -= lineHeight;
@@ -508,7 +560,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     ensureSpace(lineHeight * 6);
   }
   const weightNotices = quotationWeightNotices(Array.isArray(snapshot.raw_lines) ? snapshot.raw_lines : []);
-  if (weightNotices.length) {
+  if (!projection && weightNotices.length) {
     ensureSpace(lineHeight * 3);
     currentPage.drawText('BASES DE POIDS RETENUES - COTATION REVISABLE', { x: margin, y, size: 10, font: fontBold, color: amberColor });
     y -= lineHeight;
@@ -706,6 +758,13 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     currentPage.drawText(totalText, { x: margin, y, size: 14, font: fontBold, color: primary });
   }
   y -= sectionGap;
+
+  // === CLIENT CONDITIONS (projection of the saved snapshot) ===
+  if (projection) {
+    drawClientSection('BASES DE COTATION', projection.bases);
+    drawClientSection('CONDITIONS PARTICULIERES', projection.conditions);
+    drawClientSection('CONDITIONS GENERALES', projection.general);
+  }
 
   // === DRAFT FOOTER ===
   ensureSpace(lineHeight * 5);

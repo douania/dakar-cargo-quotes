@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ReservationList } from "@/components/case/ReservationList";
 import { readableReservationText } from "@/lib/reservationPresentation";
+import { SourceText } from "@/components/SourceText";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatScenarioPricingAmount } from "@/lib/scenarioPricing";
 import type { QuotationPreparationSummary } from "@/components/puzzle/SendQuotationPanel";
@@ -83,6 +84,7 @@ export function CaseTodoCard({ status, action, quote, loading, error, missingIte
         <p className={`text-sm font-medium${quote.qualificationLevel === "firm" ? "" : " text-primary"}`}>{quote.qualification}</p>
         <p className="text-2xl font-semibold [overflow-wrap:anywhere]">{quote.amount
           ? formatScenarioPricingAmount(quote.amount.amount, quote.amount.currency) : "Montant non disponible"}</p>
+        {quote.projection?.totalNote && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{quote.projection.totalNote}</p>}
         {quote.pendingItems.length > 0 && <div className="space-y-1">
           <p className="text-sm font-medium">Postes à confirmer, exclus du total ({quote.pendingItems.length})</p>
           <ul className="list-disc space-y-1 pl-5 text-sm [overflow-wrap:anywhere]">
@@ -90,7 +92,23 @@ export function CaseTodoCard({ status, action, quote, loading, error, missingIte
               .map(([text, count]) => <li key={text}>{text}{count > 1 ? ` (×${count})` : ""}</li>)}
           </ul>
         </div>}
-        <ReservationList title="Réserves de cette version" texts={quote.reservations} />
+        {quote.projection ? <>
+          {quote.projection.bases.length > 0 && <div className="space-y-1">
+            <p className="text-sm font-medium">Bases de cotation</p>
+            <ul className="list-disc space-y-1 pl-5 text-sm [overflow-wrap:anywhere]">{quote.projection.bases.map(base => <li key={base}><SourceText text={base} /></li>)}</ul>
+          </div>}
+          {/* The pending list above already names the uncosted items. */}
+          <ReservationList title="Conditions particulières" noun={["condition", "conditions"]} visible={4}
+            texts={quote.projection.conditions.filter(condition => !condition.startsWith("Postes non chiffrés"))} />
+          {quote.projection.general.length > 0 && <details className="text-sm">
+            <summary className="cursor-pointer rounded-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Conditions générales ({quote.projection.general.length})</summary>
+            <ul className="mt-2 list-disc space-y-1 pl-5">{quote.projection.general.map(text => <li key={text}>{text}</li>)}</ul>
+          </details>}
+          {quote.reservations.length > 0 && <details className="text-sm">
+            <summary className="cursor-pointer rounded-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Détail opérateur : réserves enregistrées ({quote.reservations.length})</summary>
+            <div className="mt-2"><ReservationList texts={quote.reservations} visible={Number.POSITIVE_INFINITY} /></div>
+          </details>}
+        </> : <ReservationList title="Réserves de cette version" texts={quote.reservations} />}
         <p className="text-sm text-muted-foreground">Vérifiez la version, le PDF, le destinataire et le message avant l’envoi manuel.</p>
         <section aria-label="Préparation de la version sélectionnée" className="space-y-2 border-t pt-3 text-sm [overflow-wrap:anywhere]">
           {!preparation ? <p role="status">Éléments de cette version à vérifier dans « Devis ».</p>

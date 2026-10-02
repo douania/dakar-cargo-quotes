@@ -10,6 +10,7 @@ import {
   type SeaFreightPartnerActionSpec,
 } from "@/lib/seaFreightPartnerAction";
 import { FACT_LABELS, STATUS_LABELS } from "./constants";
+import { projectClientQuote, type ClientQuoteProjection } from "../../../supabase/functions/_shared/client-quote-projection.ts";
 import { scenarioPricingCodeMessage } from "@/lib/scenarioPricing";
 
 export type PilotageActionKind =
@@ -283,6 +284,8 @@ export interface GuidedQuoteSummary {
   qualificationLevel: "partial" | "provisional" | "firm" | "unknown";
   reservations: string[];
   pendingItems: string[];
+  /** Same client projection as the PDF and e-mail; null when the saved bases cannot be read. */
+  projection: ClientQuoteProjection | null;
 }
 
 // Read the selected snapshot, never a live estimate or a recomputed total.
@@ -335,7 +338,13 @@ export function readGuidedQuote(state: Pick<CockpitState, "hasSelectedVersion" |
     versionNumber: state.selectedVersionNumber,
     amount: readConfirmedQuote(state), qualification: label, qualificationLevel,
     reservations: [...new Set(reservations)], pendingItems,
+    projection: safeProjection(snapshot),
   };
+}
+
+function safeProjection(snapshot: unknown): ClientQuoteProjection | null {
+  // Invalid historical bases keep the recorded reservations shown above; never a guessed summary.
+  try { return projectClientQuote(snapshot); } catch { return null; }
 }
 
 export function guidedSituation(status: string, action: PilotageAction | null): string {

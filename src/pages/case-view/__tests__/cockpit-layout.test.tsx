@@ -348,10 +348,16 @@ it('keeps snapshot reservations readable on the home while preserving the origin
   const before=JSON.stringify(cockpitOverrides);
   mount();
   const region=screen.getByRole('region',{name:'Document destiné au client'});
-  expect(within(region).getByText('Danger à confirmer; e-mail de référence; supplément IMO non compris')).toBeVisible();
-  expect(within(region).getByText(original)).not.toBeVisible();
-  await userEvent.click(within(region).getByText('Détails techniques de la source'));
-  expect(within(region).getByText(original)).toBeVisible();
+  const conditions=within(region).getByRole('region',{name:'Conditions particulières'});
+  // Client wording: machine references removed by the shared projection (same text as PDF/e-mail).
+  expect(within(conditions).getByText('Danger à confirmer; e-mail source; supplément IMO non compris')).toBeVisible();
+  expect(conditions).not.toHaveTextContent('aaaaaaaa-bbbb');
+  // The exact recorded reservation stays in the folded operator detail.
+  const detail=within(region).getByText('Détail opérateur : réserves enregistrées (1)').closest('details')!;
+  expect(detail).not.toHaveAttribute('open');
+  await userEvent.click(within(region).getByText('Détail opérateur : réserves enregistrées (1)'));
+  await userEvent.click(within(detail).getByText('Détails techniques de la source'));
+  expect(within(detail).getByText(original)).toBeVisible();
   expect(region).toHaveTextContent('Total partiel');
   expect(region.textContent?.replace(/\s/g,'')).toContain('1200000');
   expect(JSON.stringify(cockpitOverrides)).toBe(before);
@@ -371,17 +377,48 @@ it('keeps the home quote card short: pending items once, three reservations open
   expect(region).toHaveTextContent('Postes à confirmer, exclus du total (2)');
   expect(within(region).getAllByText('Magasinage — lot 1 — à confirmer (×2)')).toHaveLength(1);
   expect(region).not.toHaveTextContent('à confirmer — à confirmer');
-  expect(region).toHaveTextContent('Réserves de cette version (5)');
-  expect(within(region).getByText('Lot 1, lot 2, lot 3 : Classification marchandise inconnue')).toBeVisible();
-  expect(within(region).getByText('Classification marchandise inconnue')).toBeVisible();
-  const generic=within(region).getByText('Cotation sur bases opérateur explicites et révisables.');expect(generic).not.toBeVisible();
+  const conditions=within(region).getByRole('region',{name:'Conditions particulières'});
+  expect(conditions).toHaveTextContent('Conditions particulières (5)');
+  expect(within(conditions).getByText('Lot 1, lot 2, lot 3 : Classification marchandise inconnue')).toBeVisible();
+  expect(within(conditions).getByText('Classification marchandise inconnue')).toBeVisible();
+  expect(within(conditions).getByText('Magasinage — lot 1 — à confirmer.')).toBeVisible();
+  expect(within(conditions).getByText('Cotation sur bases opérateur explicites et révisables.')).toBeVisible();
   expect(region).not.toHaveTextContent('commodity_classification_unknown');
-  const last=within(region).getByText('Réserve finale à relire');expect(last).not.toBeVisible();
-  expect(within(region).getByText('Magasinage — lot 1 — à confirmer.')).toBeVisible();
-  await userEvent.click(within(region).getByText('Voir les 2 autres réserves'));
-  expect(last).toBeVisible();expect(generic).toBeVisible();
-  expect(within(region).getByText('Lire la suite')).toBeVisible();
+  const last=within(conditions).getByText('Réserve finale à relire');expect(last).not.toBeVisible();
+  await userEvent.click(within(conditions).getByText('Voir l’autre condition'));
+  expect(last).toBeVisible();
+  expect(within(conditions).getByText('Lire la suite')).toBeVisible();
+  // No general clause applies here: no blanket 'non citées' exclusion is printed.
+  expect(within(region).queryByText(/^Conditions générales/)).toBeNull();
+  expect(within(region).getByText('Détail opérateur : réserves enregistrées (7)').closest('details')).not.toHaveAttribute('open');
   expect(region.textContent?.replace(/\s/g,'')).toContain('48024930');
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it('shows the same client projection as the PDF and e-mail, with the recorded detail folded for the operator',async()=>{
+  const { clientQuoteSnapshot } = await import('../../../../supabase/functions/_tests/client-quote-fixture.ts');
+  localStorage.removeItem(CASE_PRESENTATION_KEY);status='QUOTED_VERSIONED';
+  cockpitOverrides={hasSelectedVersion:true,selectedVersionNumber:1,selectedVersionSnapshot:clientQuoteSnapshot};
+  const before=JSON.stringify(clientQuoteSnapshot);
+  mount();const region=screen.getByRole('region',{name:'Document destiné au client'});
+  expect(within(region).getByText('Lot 1 : 39 × 20HQ, SOC, 55 000 kg par conteneur, dangereux (UN3536, classe 9)')).toBeVisible();
+  expect(within(region).getByText('Distance routière retenue : 480,9 km (lots 2, 3)')).toBeVisible();
+  const conditions=within(region).getByRole('region',{name:'Conditions particulières'});
+  expect(within(conditions).getByText('Droits et taxes et calcul CAF non compris : périmètre DAP.')).toBeInTheDocument();
+  // Stay and transport conditions recorded per lot stay reachable on screen (folded when long).
+  expect(conditions).toHaveTextContent('détention après sortie et TVA fournisseur éventuelle exclus');
+  expect(conditions).toHaveTextContent('montant transport TTC, TVA fournisseur incluse');
+  expect(conditions).not.toHaveTextContent('Choisir et relier');
+  expect(region).toHaveTextContent('Hypothèse : Séjour retenu — lot 1 : magasinage 15 jours, surestaries à confirmer');
+  expect(conditions).not.toHaveTextContent('Postes non chiffrés');
+  for (const banned of ['SCENARIO_','OPEN_POINT','TO_CONFIRM','commodity_classification','http','per_unit']) expect(conditions).not.toHaveTextContent(banned);
+  expect(within(region).getByText('Conditions générales (6)').closest('details')).not.toHaveAttribute('open');
+  expect(within(region).getByText('Sous-total avant TVA SODATRA : 47 925 930 XOF ; TVA SODATRA sur honoraires : 99 000 XOF.')).toBeVisible();
+  expect(region).not.toHaveTextContent('non citées');
+  const detail=within(region).getByText(/^Détail opérateur : réserves enregistrées/).closest('details')!;
+  expect(detail).not.toHaveAttribute('open');
+  expect(region.textContent?.replace(/\s/g,'')).toContain('48024930');
+  expect(JSON.stringify(clientQuoteSnapshot)).toBe(before);
   expect(invoke).not.toHaveBeenCalled();
 });
 

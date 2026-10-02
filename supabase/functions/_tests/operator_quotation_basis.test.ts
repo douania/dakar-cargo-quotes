@@ -3,6 +3,7 @@ import { operatorBasisText, readOperatorBasis } from "../_shared/operator-quotat
 import { validateScenarioOutputRequest } from "../adopt-operator-quotation-basis/domain.ts";
 import { generateDraftPdf } from "../export-quotation-version-pdf/index.ts";
 import { buildDeterministicBody } from "../create-quotation-email-draft/index.ts";
+import { projectClientQuote } from "../_shared/client-quote-projection.ts";
 import { PDFDocument, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 
 const basis = {
@@ -47,7 +48,12 @@ Deno.test("client bases describe transport without internal JSON and keep scoped
 Deno.test("canonical email preserves bases and reservations and never labels assumed total firm", () => {
   const before = JSON.stringify(snapshot);
   const body = buildDeterministicBody(snapshot, 2, false, [], true, { level: "provisional", reasons: [], firmTotalPolicy: "excludes_reserved_items" });
-  for (const notice of operatorBasisText(basis)) assert(body.includes(notice));
+  // Client projection (GO 2026-10-02): every base and reservation stays, shortened, in the same
+  // words as the PDF; the former verbatim operator notices are no longer printed for the client.
+  const projection = projectClientQuote(snapshot);
+  for (const line of [...projection.bases, ...projection.conditions, ...projection.general]) assert(body.includes(line), line);
+  for (const term of ["55 000 kg par conteneur", "SOC", "20HQ", "base opérateur : Allocation supposée par opérateur, tare non précisée",
+    "Hypothèse : Distance routière supposée — 30", "Faisabilité transport lourd réservée", "Fret exclu", "Danger à préciser"]) assert(body.includes(term), term);
   assert(!/HT ferme|TTC ferme|confirmation.*avant/i.test(body));
   assertEquals(JSON.stringify(snapshot), before);
 });
@@ -84,7 +90,9 @@ Deno.test("canonical PDF renders multipage bases, preserves history, rejects mal
   const bytes = await generateDraftPdf(long, "SYNTHETIC");
   assert((await PDFDocument.load(bytes)).getPageCount() >= 3);
   const rendered = await pdfText(bytes);
-  for (const term of ["55000", "SOC", "20HQ", "BASES RETENUES", "79", "TRUCKING", "SEA_FREIGHT", "118 XOF"]) assert(rendered.includes(term), term);
+  // Client projection: bases and every recorded reservation remain (shortened, scoped to their lot),
+  // technical service keys are no longer printed.
+  for (const term of ["55 000", "SOC", "20HQ", "BASES DE COTATION", "CONDITIONS PARTICULIERES", "numero 79", "Faisabilite transport lourd reservee", "Fret exclu", "118 XOF"]) assert(rendered.includes(term), term);
   assert(!/TOTAL HT FERME/i.test(rendered));
   assertEquals(JSON.stringify(long), before);
   await assertRejects(() => generateDraftPdf({ ...snapshot, operator_basis: {} }, "SYNTHETIC"));

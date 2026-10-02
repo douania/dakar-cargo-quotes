@@ -74,7 +74,9 @@ Deno.test("mono-lot PDF: generic LINE_n replaced, real codes kept, unknown vs ge
   assertEquals(texts.slice(i, i + 5), ["SEA_FREIGHT", "Fret maritime", "1", "-", "À confirmer"]);
   const z = texts.indexOf("DTHC");
   assertEquals(texts.slice(z + 3, z + 5), ["0", "0"]);
-  // A line with neither category nor canonical key (older snapshot) keeps an empty cell: its description follows the previous amount.
+  // A zero without a recorded meaning is never presented as free: the client projection says so under the line.
+  assertEquals(texts[z + 5], "Montant nul : signification a verifier");
+  // A line with neither category nor canonical key (older snapshot) keeps an empty cell: its description follows the previous line.
   const h = texts.indexOf("Honoraires");
-  assertEquals(texts[h - 1], "0");
+  assertEquals(texts[h - 1], "Montant nul : signification a verifier");
 });
