@@ -89,3 +89,30 @@ Deno.test("client PDF: a long line description is wrapped in its column (3 lines
   assertFalse(all.includes("ZZFINZZ"), "beyond three lines the description is shortened");
   assert(texts.some(t => t.endsWith(" ...")), "a shortened description says so");
 });
+
+Deno.test("client PDF, older multi-lot read back from JSON: empty return stated as client charge, bases per lot", async () => {
+  const empty = { label: "Retour conteneur vide", category: "EMPTY_RETURN", amount: 0, quantity: 1, source: { type: "business_rule", reference: "P5" } };
+  const lot = (index: number, type: string) => ({
+    display: [
+      { description: `Transport ${type}`, category: "Transport", amount: 82600, quantity: 1, unit_price: 82600, source: { type: "OFFICIAL", reference: "TARIFS" } },
+      { ...empty, description: "Retour conteneur vide" },
+    ],
+    raw: [
+      { description: `Transport ${type}`, category: "Transport", containerType: type, amount: 82600, lot_index: index, source: { type: "OFFICIAL", reference: "TARIFS" } },
+      { ...empty, lot_index: index, explanation: "EMPTY_RETURN: Obligation contractuelle client, non facturé en import SN" },
+    ],
+  });
+  const one = lot(1, "40HC"), two = lot(2, "20DV");
+  const snapshot = JSON.parse(JSON.stringify({
+    is_multi_lot: true, lines: [...one.display, ...two.display], raw_lines: [...one.raw, ...two.raw],
+    lots: [{ lot_index: 1, label: "Lot 1 - Synthetic A", lines: one.display, totals: {} }, { lot_index: 2, label: "Lot 2 - Synthetic B", lines: two.display, totals: {} }],
+    inputs: { origin: "Ningbo", destination: "Dakar", incoterm: "DAP", cargo_weight: 18, containers: [{ quantity: 1, type: "20DV" }] },
+    meta: {}, totals: { total_payable: 165200, currency: "XOF" }, client: {},
+  }));
+  const all = (await pdfTexts(await generateDraftPdf(snapshot, "SYNTHETIC"))).map(t => t.trim()).join(" ");
+  assertEquals(all.split("À la charge du client, non facture par SODATRA").length - 1, 2, "client obligation stated on each lot line");
+  assertFalse(all.includes("signification a verifier"));
+  assertFalse(/\bP5\b/.test(all), "no bare rule reference");
+  assert(all.includes("Lot 1 - Synthetic A : conteneur 40HC") && all.includes("Lot 2 - Synthetic B : conteneur 20DV"));
+  assertFalse(all.includes("Conteneurs : 1"), "the single container of the inputs is not presented as the dossier");
+});

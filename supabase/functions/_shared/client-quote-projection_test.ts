@@ -185,3 +185,53 @@ Deno.test("open points: the same place recorded as origin and origine is listed 
   assertStringIncludes(text, "lieu (origine)");
   assertFalse(/\borigin\b/.test(text), "no English place reference");
 });
+
+// Older multi-lot version shape (no operator basis): single container in inputs, types on the lines.
+const olderMultiLot = () => {
+  const raw = (lot: number, extra: Record<string, unknown>) => ({ lot_index: lot, lot_label: `Lot ${lot} - Synthetic ${lot}`, ...extra });
+  const rawLines = [
+    raw(1, { category: "Terminal (DPW)", containerType: "40HC", source: { type: "TO_CONFIRM" } }),
+    raw(1, { label: "Retour conteneur vide", category: "EMPTY_RETURN", amount: 0, source: { type: "business_rule", reference: "P5" },
+      explanation: "EMPTY_RETURN: Obligation contractuelle client, non facturé en import SN" }),
+    raw(2, { category: "Transport", containerType: "20dv", amount: 82600, source: { type: "OFFICIAL" } }),
+    raw(2, { label: "Retour conteneur vide", category: "EMPTY_RETURN", amount: 0, source: { type: "business_rule", reference: "P5" } }),
+  ];
+  const lines = [
+    { description: "THC IMPORT 40HC", category: "Terminal (DPW)", amount: null, source: { type: "TO_CONFIRM" } },
+    { description: "Retour conteneur vide", category: "EMPTY_RETURN", amount: 0, source: { type: "business_rule", reference: "P5" } },
+    { description: "Transport 20DV", category: "Transport", amount: 82600, source: { type: "OFFICIAL" } },
+    { description: "Retour conteneur vide", category: "EMPTY_RETURN", amount: 0, source: { type: "business_rule", reference: "P5" } },
+  ];
+  return {
+    is_multi_lot: true, lines, raw_lines: rawLines,
+    lots: [{ lot_index: 1, label: "Lot 1 - Synthetic 1", lines: lines.slice(0, 2) }, { lot_index: 2, label: "Lot 2 - Synthetic 2", lines: lines.slice(2) }],
+    inputs: { origin: "Ningbo", destination: "Dakar", incoterm: "DAP", cargo_weight: 18, containers: [{ quantity: 1, type: "20DV", coc_soc: null }] },
+    meta: {}, totals: {},
+  };
+};
+
+Deno.test("older empty return at zero: a recorded client obligation is stated, a bare rule reference never is", () => {
+  const p = projectClientQuote(olderMultiLot());
+  assertEquals([p.lines[1].status, p.lines[1].label, p.lines[1].amountText], ["client_charge", "À la charge du client, non facturé par SODATRA", "Non facturé"]);
+  assertEquals(p.lines[3].status, "zero_unexplained", "without a recorded explanation the zero stays to verify");
+  const text = p.conditions.join("\n");
+  assertStringIncludes(text, "Retour conteneur vide : montant nul, signification non enregistrée");
+  assertFalse(/\bP5\b/.test(text), "no bare rule reference");
+  const explained = olderMultiLot();
+  (explained.raw_lines[3] as Record<string, unknown>).explanation = "EMPTY_RETURN: Restitution organisée par le transporteur";
+  assertStringIncludes(projectClientQuote(explained).conditions.join("\n"), "Retour conteneur vide : Restitution organisée par le transporteur");
+});
+
+Deno.test("older multi-lot bases: equipment per lot from its own lines, dossier weight not spread over lots", () => {
+  const bases = projectClientQuote(olderMultiLot()).bases;
+  assertEquals(bases.slice(0, 4), [
+    "Trajet : Ningbo → Dakar (DAP)",
+    "Lot 1 - Synthetic 1 : conteneur 40HC",
+    "Lot 2 - Synthetic 2 : conteneur 20DV",
+    "Poids enregistré au dossier, non réparti par lot : 18 (unité non précisée)",
+  ]);
+  assertFalse(bases.join("\n").includes("1 × 20DV"), "the single container of the inputs is not presented as the whole dossier");
+  const untyped = olderMultiLot();
+  delete (untyped.raw_lines[2] as Record<string, unknown>).containerType;
+  assertStringIncludes(projectClientQuote(untyped).bases.join("\n"), "Conteneurs : 1 × 20DV", "a lot without a recorded type keeps the recorded inputs");
+});

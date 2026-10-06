@@ -69,6 +69,11 @@ function capitalize(text: string): string {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
+/** Explanation recorded with a line, without its leading rule code ("EMPTY_RETURN: …"). */
+function recordedExplanation(l: Row, r: Row): string {
+  return str(r.explanation ?? l.explanation).replace(/^[A-Z][A-Z0-9_]+\s*:\s*/, "").trim();
+}
+
 /** Status of one priced line, read from its own source and amount only. */
 export function classifyClientLine(line: unknown, raw: unknown, index = 0): ClientQuoteLine {
   const l = row(line);
@@ -103,6 +108,10 @@ export function classifyClientLine(line: unknown, raw: unknown, index = 0): Clie
         : "Compris sous franchise conditionnelle, au-delà facturé",
       amountText: "0 (franchise)",
     };
+  }
+  // Older business rules record the meaning of a zero in the raw line explanation, not as a code.
+  if (amount === 0 && /^EMPTY_RETURN/i.test(category) && /obligation contractuelle (?:du )?client/i.test(recordedExplanation(l, r))) {
+    return { index, status: "client_charge", label: "À la charge du client, non facturé par SODATRA", amountText: "Non facturé" };
   }
   if (amount === 0) {
     return { index, status: "zero_unexplained", label: "Montant nul : signification à vérifier", amountText: null };
@@ -274,7 +283,8 @@ function mergeLabels(labels: string[]): string {
 function lineKey(line: unknown): string {
   const l = row(line);
   const s = sourceOf(line);
-  return JSON.stringify([cleanLabel(str(l.description)), str(s.type).toUpperCase(), str(s.reference), str(s.unit_ref)]);
+  // Package lines keep their wording in `label` on the raw side and in `description` once displayed.
+  return JSON.stringify([cleanLabel(str(l.description) || str(l.label)), str(s.type).toUpperCase(), str(s.reference), str(s.unit_ref)]);
 }
 
 /**
@@ -330,7 +340,27 @@ function unitBasis(cargo: Row): string | null {
   return ref ? `${capitalize(ref)} : ${parts.filter(Boolean).join(", ")}` : null;
 }
 
-function legacyBases(inputs: Row): string[] {
+/**
+ * Equipment per lot of an older multi-lot version, read from the container type recorded on its
+ * own priced lines (no quantity is inferred). Empty when a lot has no recorded type.
+ */
+function legacyLotEquipment(snapshot: Row, rawLines: unknown[]): string[] {
+  const lots = list(snapshot.lots).map(row);
+  if (lots.length < 2) return [];
+  const out: string[] = [];
+  for (const lot of lots) {
+    const index = num(lot.lot_index);
+    const types = new Set(rawLines.map(row)
+      .filter(r => num(r.lot_index) === index)
+      .map(r => str(r.containerType ?? r.container_type).toUpperCase())
+      .filter(Boolean));
+    if (index === null || types.size === 0) return [];
+    out.push(`${str(lot.label) || `Lot ${index}`} : conteneur ${[...types].join(", ")}`);
+  }
+  return out;
+}
+
+function legacyBases(inputs: Row, lotEquipment: string[] = []): string[] {
   const out: string[] = [];
   const route = [str(inputs.origin), str(inputs.destination)].filter(Boolean).join(" → ");
   if (route || str(inputs.incoterm)) out.push(`Trajet : ${route || "non précisé"}${str(inputs.incoterm) ? ` (${str(inputs.incoterm)})` : ""}`);
@@ -338,11 +368,14 @@ function legacyBases(inputs: Row): string[] {
     num(c.quantity) !== null ? `${fr(num(c.quantity)!)} ×` : "", str(c.type).toUpperCase(), str(c.coc_soc).toUpperCase(),
     lotLabel(c.unit_ref) ? `(${lotLabel(c.unit_ref)})` : "",
   ].filter(Boolean).join(" ")).filter(Boolean);
-  if (containers.length) out.push(`Conteneurs : ${containers.join(" ; ")}`);
+  // Older multi-lot versions keep a single container in their inputs: the lots' own lines prevail.
+  if (lotEquipment.length) out.push(...lotEquipment);
+  else if (containers.length) out.push(`Conteneurs : ${containers.join(" ; ")}`);
   // Historical snapshots store weight without a unit: never invent one.
+  const scope = lotEquipment.length ? " au dossier, non réparti par lot" : "";
   const weight = num(inputs.cargoWeight);
-  if (weight !== null) out.push(`Poids retenu : ${fr(weight)} t`);
-  else if (num(inputs.cargo_weight) !== null) out.push(`Poids enregistré : ${fr(num(inputs.cargo_weight)!)} (unité non précisée)`);
+  if (weight !== null) out.push(`Poids retenu${scope} : ${fr(weight)} t`);
+  else if (num(inputs.cargo_weight) !== null) out.push(`Poids enregistré${scope} : ${fr(num(inputs.cargo_weight)!)} (unité non précisée)`);
   return out;
 }
 
@@ -379,7 +412,7 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
       if (value) bases.push(`Paramètre retenu sous hypothèse : ${o.fact_key === "routing.local_transport_estimate" ? "transport routier" : str(o.fact_key)} — ${value}`);
     }
   } else {
-    bases.push(...legacyBases(row(snapshot.inputs)));
+    bases.push(...legacyBases(row(snapshot.inputs), legacyLotEquipment(snapshot, rawLines)));
   }
   const distances = new Map<string, string[]>();
   for (const line of lines) {
@@ -516,7 +549,9 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
   }
   for (const l of projected.filter(l => l.status === "zero_unexplained")) {
     const r = row(rawFor[l.index]);
-    const original = str(r.notes) || str(sourceOf(lines[l.index]).reference);
+    // A bare rule reference ("P5") means nothing to a client: only recorded wording is shown.
+    const reference = str(sourceOf(lines[l.index]).reference);
+    const original = str(r.notes) || recordedExplanation(row(lines[l.index]), r) || (/\s/.test(reference) ? reference : "");
     const label = str(row(lines[l.index]).description) || str(r.description);
     if (l.status === "zero_unexplained" && label) conditions.push(`${cleanLabel(label)} : ${original || "montant nul, signification non enregistrée"}`);
   }
