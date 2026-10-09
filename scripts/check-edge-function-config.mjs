@@ -15,16 +15,19 @@
  *   - the same `[functions.x]` section twice         -> FAIL (last-wins ambiguity)
  *   - `verify_jwt` missing from a section            -> FAIL (implicit again)
  *   - `verify_jwt` not a TOML boolean                -> FAIL ("false" is not false)
- *   - `verify_jwt = true`                            -> FAIL (see below)
+ *   - `verify_jwt` contrary to the function policy   -> FAIL (see below)
  *
  * Why `verify_jwt = true` fails: the project signs with ES256 signing keys, which the
- * gateway-level JWT check does not accept, so EVERY function runs `verify_jwt = false`
+ * gateway-level JWT check does not accept, so active business functions run `verify_jwt = false`
  * and enforces auth in code via `requireUser`/`requireAdmin` (or inline `getUser` under
  * the caller JWT). That is the contract in docs/SECURITY_CONTRACT.md — `healthz` is the
  * single intentionally public endpoint, and its openness comes from its code, not from
  * this flag. A `true` here would therefore be a mistake, not a hardening: it would break
  * the function while changing nothing about its real authorization. If the doctrine ever
- * changes, update the contract and this gate together — never this gate alone.
+ * changes, update the contract and this gate together - never this gate alone.
+ * The five retired M26b endpoints are the explicit exception approved 2026-10-09:
+ * they MUST use `verify_jwt = true` and refuse every business operation in code.
+ * Rejecting even valid user tokens at their gateway does not remove a business path.
  *
  * This is a static configuration check. It does NOT verify that a function authenticates
  * its callers; that remains a code review responsibility.
@@ -45,8 +48,20 @@ import { fileURLToPath } from 'node:url';
  */
 const NON_FUNCTION_DIRS = new Set(['_shared', '_tests']);
 
-/** The single value `verify_jwt` may take under the current security contract. */
+/** Default policy for all active business functions. */
 const REQUIRED_VERIFY_JWT = false;
+/** Exact retired endpoints: no prefix rule and no exemption for another function. */
+const RETIRED_FUNCTIONS = new Set([
+  'calculate-duties',
+  'learn-from-contact',
+  'suggest-regime',
+  'generate-case-outputs',
+  'get-active-exchange-rate',
+]);
+
+function requiredVerifyJwt(name) {
+  return RETIRED_FUNCTIONS.has(name) ? true : REQUIRED_VERIFY_JWT;
+}
 
 const LABEL = '[edge-function-config]';
 
@@ -269,7 +284,7 @@ if (missing.length > 0) {
   problems.push({
     title: `${missing.length} deployable function(s) have no \`[functions.<name>]\` section`,
     details: missing.map((name) => `${name} (supabase/functions/${name}/index.ts)`),
-    hint: 'Add the section to supabase/config.toml with `verify_jwt = false`.',
+    hint: 'Add the section with the explicit policy: false for active business functions, true for the five retired endpoints.',
   });
 }
 
@@ -294,8 +309,8 @@ for (const name of order) {
     missingFlag.push(`${name} (section at line ${section.line})`);
   } else if (section.verifyJwt !== 'true' && section.verifyJwt !== 'false') {
     notBoolean.push(`${name}: verify_jwt = ${section.verifyJwt} (line ${section.verifyJwtLine})`);
-  } else if ((section.verifyJwt === 'true') !== REQUIRED_VERIFY_JWT) {
-    wrongValue.push(`${name}: verify_jwt = ${section.verifyJwt} (line ${section.verifyJwtLine})`);
+  } else if ((section.verifyJwt === 'true') !== requiredVerifyJwt(name)) {
+    wrongValue.push(`${name}: verify_jwt = ${section.verifyJwt}, expected ${requiredVerifyJwt(name)} (line ${section.verifyJwtLine})`);
   }
 }
 
@@ -303,7 +318,7 @@ if (missingFlag.length > 0) {
   problems.push({
     title: `${missingFlag.length} section(s) do not set \`verify_jwt\``,
     details: missingFlag,
-    hint: 'Every section must state the policy explicitly: `verify_jwt = false`.',
+    hint: 'Every section must state its policy explicitly: false for active business functions, true for the five retired endpoints.',
   });
 }
 if (notBoolean.length > 0) {
@@ -315,11 +330,12 @@ if (notBoolean.length > 0) {
 }
 if (wrongValue.length > 0) {
   problems.push({
-    title: `${wrongValue.length} section(s) set \`verify_jwt = true\``,
+    title: `${wrongValue.length} section(s) violate the explicit JWT policy`,
     details: wrongValue,
     hint:
       'The project signs with ES256 keys, so gateway JWT verification rejects valid tokens; ' +
-      'auth is enforced in code (docs/SECURITY_CONTRACT.md). Set `verify_jwt = false` — do not ' +
+      'active business auth is enforced in code (docs/SECURITY_CONTRACT.md). Use `false` there; ' +
+      'the five retired endpoints must use `true`. Do not ' +
       'relax the in-code `requireUser`/`requireAdmin` check instead.',
   });
 }
@@ -346,5 +362,6 @@ if (problems.length > 0) {
 
 console.log(
   `${LABEL} OK — ${deployable.length} deployable function(s), each with exactly one ` +
-    `\`[functions.<name>]\` section and \`verify_jwt = ${REQUIRED_VERIFY_JWT}\`.`
+    `\`[functions.<name>]\` section and the explicit JWT policy ` +
+    `(false for active business functions; true for the five retired endpoints).`
 );

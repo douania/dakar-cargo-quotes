@@ -16,7 +16,15 @@ Pattern: `verify_jwt = false` + `requireUser` (centralized auth helper in `_shar
 - `requireUser(req)` → validates JWT, returns `AuthResult` or `401 Response`
 - `requireAdmin(req)` → validates JWT + checks `ADMIN_EMAIL_ALLOWLIST`
 
-All Edge Functions set `verify_jwt = false` in `supabase/config.toml` for ES256 signing-keys compatibility.
+Active business Edge Functions set `verify_jwt = false` in `supabase/config.toml` for ES256 signing-keys compatibility.
+
+Exception approved 2026-10-09: the five retired M26b endpoints `calculate-duties`,
+`learn-from-contact`, `suggest-regime`, `generate-case-outputs` and
+`get-active-exchange-rate` must set `verify_jwt = true`. Their replacement handlers
+refuse every business operation with HTTP 410 (empty OPTIONS preflight only).
+They do not read identity, request bodies, credentials or business data, and do not
+call any service. A gateway 401 is not evidence that the refusal handler ran;
+ES256 rejection on these retired paths is acceptable. No other function policy changes.
 
 ---
 

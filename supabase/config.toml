@@ -307,3 +307,20 @@ verify_jwt = false
 
 [functions.adopt-operator-quotation-basis]
 verify_jwt = false
+
+# Retired Cloud endpoints: JWT gateway enabled and unconditional business refusal.
+
+[functions.calculate-duties]
+verify_jwt = true
+
+[functions.learn-from-contact]
+verify_jwt = true
+
+[functions.suggest-regime]
+verify_jwt = true
+
+[functions.generate-case-outputs]
+verify_jwt = true
+
+[functions.get-active-exchange-rate]
+verify_jwt = true
