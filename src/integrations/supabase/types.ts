@@ -1562,7 +1562,8 @@ export type Database = {
           is_active: boolean | null
           last_sync_at: string | null
           name: string
-          password_encrypted: string
+          password_encrypted: string | null
+          password_secret_id: string | null
           port: number
           use_ssl: boolean | null
           username: string
@@ -1575,7 +1576,8 @@ export type Database = {
           is_active?: boolean | null
           last_sync_at?: string | null
           name: string
-          password_encrypted: string
+          password_encrypted?: string | null
+          password_secret_id?: string | null
           port?: number
           use_ssl?: boolean | null
           username: string
@@ -1588,7 +1590,8 @@ export type Database = {
           is_active?: boolean | null
           last_sync_at?: string | null
           name?: string
-          password_encrypted?: string
+          password_encrypted?: string | null
+          password_secret_id?: string | null
           port?: number
           use_ssl?: boolean | null
           username?: string
@@ -1661,6 +1664,66 @@ export type Database = {
             columns: ["quotation_version_id"]
             isOneToOne: false
             referencedRelation: "quotation_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_imap_identities: {
+        Row: {
+          account: Json
+          config_id: string
+          email_id: string
+          evidence_ref: string | null
+          imap_uid: number
+          legacy_message_id: string | null
+          mailbox: string
+          message_id: string
+          root_message_id: string
+          source: string
+          uid_validity: number
+          verified_at: string
+        }
+        Insert: {
+          account: Json
+          config_id: string
+          email_id: string
+          evidence_ref?: string | null
+          imap_uid: number
+          legacy_message_id?: string | null
+          mailbox: string
+          message_id: string
+          root_message_id: string
+          source: string
+          uid_validity: number
+          verified_at?: string
+        }
+        Update: {
+          account?: Json
+          config_id?: string
+          email_id?: string
+          evidence_ref?: string | null
+          imap_uid?: number
+          legacy_message_id?: string | null
+          mailbox?: string
+          message_id?: string
+          root_message_id?: string
+          source?: string
+          uid_validity?: number
+          verified_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_imap_identities_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "email_configs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_imap_identities_email_id_fkey"
+            columns: ["email_id"]
+            isOneToOne: false
+            referencedRelation: "emails"
             referencedColumns: ["id"]
           },
         ]
@@ -8302,6 +8365,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      create_mailbox_config: {
+        Args: { p_config: Json; p_password: string }
+        Returns: Json
+      }
       create_scenario_quotation_version: {
         Args: {
           p_actor_user_id: string
@@ -8430,6 +8497,7 @@ export type Database = {
       has_pad_admin_role: { Args: never; Returns: boolean }
       has_role_admin_role: { Args: never; Returns: boolean }
       has_tariff_admin_role: { Args: never; Returns: boolean }
+      has_workspace_access: { Args: never; Returns: boolean }
       insert_historical_quotation_atomic: {
         Args: { p_lines: Json; p_metadata?: Json; p_quotation: Json }
         Returns: string
@@ -8488,11 +8556,23 @@ export type Database = {
         }
         Returns: Json
       }
+      migrate_legacy_imap_secrets: { Args: never; Returns: number }
       migrate_legacy_quotations: {
         Args: { owner_user_id: string }
         Returns: string
       }
       normalize_carrier_code: { Args: { p_carrier: string }; Returns: string }
+      persist_imap_import_batch: {
+        Args: {
+          p_account: Json
+          p_config_id: string
+          p_mailbox: string
+          p_messages: Json
+          p_root_message_id: string
+          p_uid_validity: number
+        }
+        Returns: Json
+      }
       promote_scenario_assumption: {
         Args: {
           p_actor_user_id: string
@@ -8599,6 +8679,7 @@ export type Database = {
         Args: { p_case_id: string }
         Returns: Json
       }
+      read_mailbox_secret: { Args: { p_config_id: string }; Returns: string }
       read_maritime_fee_case_context: {
         Args: { p_case_id: string }
         Returns: Json
@@ -8657,6 +8738,10 @@ export type Database = {
         Args: { p_attachment_id: string; p_claim_ts: string }
         Returns: undefined
       }
+      replace_mailbox_secret: {
+        Args: { p_config_id: string; p_password: string }
+        Returns: undefined
+      }
       replace_quote_request_lines: {
         Args: { p_case_id: string; p_lines: Json }
         Returns: number
@@ -8679,6 +8764,10 @@ export type Database = {
           p_workflow_key: string
         }
         Returns: Json
+      }
+      set_mailbox_secret: {
+        Args: { p_config_id: string; p_password: string }
+        Returns: undefined
       }
       supersede_fact: {
         Args: {
