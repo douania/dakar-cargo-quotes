@@ -1,6 +1,6 @@
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
-import { partialServiceSource } from '../_shared/selected-tariff-reference.ts';
+import { partialServiceSource, tariffReferenceNotice } from '../_shared/selected-tariff-reference.ts';
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
 import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
 import { loadPadGroupState, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
@@ -4890,6 +4890,19 @@ ${JSON.stringify(refPayload)}`;
         firmTotalPolicy: 'excludes_reserved_items',
       };
     }
+    if (partialDestination) {
+      const tariffNotices = [...new Set<string>(tariffLines.map((line: { source?: unknown }) => tariffReferenceNotice(line.source))
+        .filter((message: string | null): message is string => message !== null))];
+      if (tariffNotices.length) {
+        const qualifiedOutputs = outputsJson as { quoteQualification?: { level?: string; reasons?: Array<{ code: string; message: string }>; firmTotalPolicy?: string } };
+        const previous = qualifiedOutputs.quoteQualification;
+        qualifiedOutputs.quoteQualification = {
+          level: previous?.level === 'partial' ? 'partial' : 'provisional',
+          reasons: [...(previous?.reasons ?? []), ...tariffNotices.map(message => ({ code: 'TARIFF_VALIDATION_UNCONFIRMED', message }))],
+          firmTotalPolicy: previous?.firmTotalPolicy ?? 'all_included',
+        };
+      }
+    }
 
     const weightNotices = quotationWeightNotices(tariffLines);
     if (weightNotices.length) {
@@ -5010,7 +5023,8 @@ ${JSON.stringify(refPayload)}`;
         lines_count: tariffLines.length,
         duration_ms: durationMs,
         tariff_sources_count: tariffSources.length,
-        ...(partialDestination && partialQualification?.level === 'partial' ? { quoteQualification: partialQualification, partial_mode: true } : {}),
+        ...(partialDestination && ['partial', 'provisional'].includes(partialQualification?.level ?? '')
+          ? { quoteQualification: partialQualification, ...(partialQualification?.level === 'partial' ? { partial_mode: true } : {}) } : {}),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

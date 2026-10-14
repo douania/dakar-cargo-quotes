@@ -429,3 +429,23 @@ Deno.test('partial pricing: selected provisional fee IDs and rule state survive 
   assertEquals(JSON.stringify(snap), frozen); assertEquals(JSON.stringify(run), capturedRun);
   assertEquals(JSON.stringify(state.tables.quote_facts), originalFacts);
 }));
+
+Deno.test('eligible AIR destination: fully known quantities do not make provisional fees firm in the run or version', async () => fixture(async state => {
+  state.tables.quote_gaps = [];
+  state.tables.quote_facts.push(fact('cargo.hs_code', '1234567890'), fact('cargo.value', 10000), fact('cargo.value_currency', 'XOF'), fact('customs.regime_code', 'TEST'));
+  state.tables.hs_codes.push({ code_normalized: '1234567890' });
+  state.tables.service_quantity_rules.find(r => r.service_key === 'AIR_HANDLING')!.requires_fact_key = 'cargo.weight_kg';
+  state.tables.fee_rules.forEach(r => { r.label = 'SYNTHETIC forfait provisoire'; });
+  state.engineResponse = { lines: [], totals: { honoraires: 0, debours: 0, operationnel: 0 }, currency: 'XOF', duty_breakdown: [] };
+  const result = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: true });
+  assertEquals(result.status, 200, JSON.stringify(result.body)); assertEquals(state.engineCalls, 1);
+  const run = state.tables.pricing_runs[0];
+  assertEquals(run.tariff_lines.some((l: Row) => l.source.type === 'TO_CONFIRM'), false);
+  assertEquals(result.body.quoteQualification.level, 'provisional');
+  assertEquals(run.outputs_json.quoteQualification.level, 'provisional');
+  assertEquals(run.tariff_lines.find((l: Row) => l.category === 'CUSTOMS_DAKAR').amount, 300);
+  assertEquals(run.tariff_lines.find((l: Row) => l.category === 'AGENCY').amount, 400);
+  const version = await state.invoke('generate-quotation-version', { case_id: 'fixture-case', pricing_run_id: run.id });
+  assertEquals(version.status, 200);
+  assertEquals(state.tables.quotation_versions[0].snapshot.meta.quoteQualification.level, 'provisional');
+}));
