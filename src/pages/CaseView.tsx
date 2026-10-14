@@ -1,5 +1,7 @@
 import { useQuoteRequestCargoBasis } from "@/hooks/useQuoteRequestCargoBasis";
 import { quotationCargoBasisText } from "../../supabase/functions/_shared/quotation-cargo-basis";
+import { partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from "../../supabase/functions/_shared/partial-destination-quote";
+import { readOverridesFromFacts, resolveEffectiveServiceKeys } from "../../supabase/functions/_shared/service-scope";
 import React, { useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
@@ -376,7 +378,7 @@ export default function CaseView() {
   });
 
   // ── Fetch quote_facts (current only) ──
-  const { data: facts = [], refetch: refetchFacts } = useQuery({
+  const { data: facts = [], refetch: refetchFacts, isFetching: factsFetching, error: factsError } = useQuery({
     queryKey: ["case-facts", caseId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -393,7 +395,7 @@ export default function CaseView() {
   });
 
   // ── Fetch timeline events ──
-  const { data: events = [], refetch: refetchEvents } = useQuery({
+  const { data: events = [], refetch: refetchEvents, isFetching: eventsFetching, error: eventsError } = useQuery({
     queryKey: ["case-timeline", caseId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -461,7 +463,7 @@ export default function CaseView() {
   });
 
   // P1a — Multi-lot line count (lightweight count query)
-  const { data: multiLotLineCount = 0 } = useQuery({
+  const { data: multiLotLineCount, isFetching: lotCountFetching, error: lotCountError } = useQuery({
     queryKey: ["quote-request-lines-count", caseId],
     queryFn: async () => {
       const { count, error } = await supabase
@@ -469,12 +471,12 @@ export default function CaseView() {
         .select("*", { count: "exact", head: true })
         .eq("case_id", caseId!);
       if (error) throw error;
-      return count ?? 0;
+      return count;
     },
     enabled: !!caseId,
     staleTime: 60000,
   });
-  const isMultiLot = multiLotLineCount >= 2;
+  const isMultiLot = (multiLotLineCount ?? 0) >= 2;
   const requestCargo = useQuoteRequestCargoBasis(caseId);
 
   // ── M9b: Output pipeline stepper data ──
@@ -1553,6 +1555,8 @@ export default function CaseView() {
           // P4: Skip global prechecks for multi-lot — run-pricing resolves per-line
           // Lot 4.1: hoisted out of the gate so canProvisionalDdp can drive rendering
           const prechecks: PricingPrecheck[] = [];
+          const currentFacts = facts.filter(f => f.is_current);
+          const packageKey = String(currentFacts.find(f => f.fact_key === "service.package")?.value_text ?? "").trim().toUpperCase();
 
           if (!isMultiLot) {
             const getFact = (key: string) => facts.find((f: any) => f.fact_key === key && f.is_current);
@@ -1614,10 +1618,23 @@ export default function CaseView() {
             }
           }
 
-          // Lot 4: canProvisionalDdp — true only if CARGO_VALUE_REQUIRED is the sole blocker
-          // prechecks is empty for multi-lot, so canProvisionalDdp will be false (correct)
-          const canProvisionalDdp = prechecks.length > 0
-            && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED");
+          const scopeEvent = events.filter(e => e.event_type === "service_scope_v1")
+            .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+          const provisionalReadsReady = !factsFetching && !factsError && !eventsFetching && !eventsError
+            && !gapsFetching && !gapsError && !lotCountFetching && !lotCountError && multiLotLineCount != null;
+          const partialDestination = provisionalReadsReady
+            && prechecks.length > 0
+            && prechecks.every(p => PARTIAL_CUSTOMS_GAP_KEYS.has(p.key))
+            && blockingGaps.every(g => PARTIAL_CUSTOMS_GAP_KEYS.has(g.gap_key))
+            && partialDestinationDdpEligible({
+              allowProvisional: true, packageKey, requestType: String(caseData.request_type ?? "").toUpperCase(),
+              lotCount: lotCountFetching || lotCountError ? null : multiLotLineCount ?? null,
+              scopeEvent: scopeEvent ? { actor_type: scopeEvent.actor_type ?? undefined, event_data: scopeEvent.event_data } : null,
+              serviceKeys: resolveEffectiveServiceKeys(packageKey, readOverridesFromFacts(currentFacts)),
+            });
+          // Keep the existing value-only provisional path for other eligible cases.
+          const canProvisionalDdp = provisionalReadsReady && (partialDestination || (prechecks.length > 0
+            && prechecks.every(p => p.code === "CARGO_VALUE_REQUIRED")));
 
           // Reprise manuelle autorisée après versionnement, jamais après envoi/clôture.
           // L'exception DDP provisoire ne contourne pas ces verrous de statut.
@@ -1660,6 +1677,7 @@ export default function CaseView() {
                 })()}
                 pricingPrechecks={prechecks}
                 canProvisionalDdp={canProvisionalDdp}
+                partialDestination={partialDestination}
               />
               {/* PRICING-GUARD: Communication warnings — queried locally */}
               <details className="mt-2 rounded border p-3"><summary className="cursor-pointer text-sm">Collecte partenaires et contrôles du devis confirmé</summary>

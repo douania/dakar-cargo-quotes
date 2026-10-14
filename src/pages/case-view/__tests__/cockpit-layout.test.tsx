@@ -27,14 +27,21 @@ const run: NonNullable<SelectedScenarioEstimate['run']> = { id:'r', scenario_id:
   reservations:['SCENARIO_DG_UNKNOWN'],blockers:[] };
 const initialGaps = [{id:'g',gap_key:'cargo.pad_category',status:'open',is_blocking:true,question_fr:'Catégorie PAD à préciser'}];
 let gaps = initialGaps;
-const facts = [{id:'f',fact_key:'service.package',value_text:'DAP',is_current:true}];
+type FactFixture = {id:string;fact_key:string;value_text?:string;value_number?:number;value_json?:unknown;is_current:boolean};
+const initialFacts: FactFixture[] = [{id:'f',fact_key:'service.package',value_text:'DAP',is_current:true}];
+let facts = initialFacts, requestType = 'SEA_FCL_IMPORT';
+let lotCount: number | null = 0;
+let readPending: string | null = null, readFailed: string | null = null;
+type EventFixture = {event_type:string;created_at:string;actor_type:string;event_data:Record<string,unknown>};
+let timeline: EventFixture[] = [];
 vi.doMock('react-router-dom',()=>({useParams:()=>({caseId}),useNavigate:()=>vi.fn()}));
 vi.doMock('@/integrations/supabase/client',()=>({supabase:{functions:{invoke},from:vi.fn()}}));
 vi.doMock('@tanstack/react-query',async()=>({
   ...await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query'),
-  useQuery:({queryKey}:{queryKey:string[]})=>({isLoading:false,error:queryKey[0]==='cockpit-state'?cockpitError:null,isFetching:queryKey[0]==='cockpit-state'&&cockpitFetching,refetch:vi.fn(),
-    data: queryKey[0]==='case-view' ? {id:caseId,status,request_type:'SEA_FCL_IMPORT',puzzle_completeness:70}
+  useQuery:({queryKey}:{queryKey:string[]})=>({isLoading:queryKey[0]===readPending,error:queryKey[0]===readFailed?new Error('Read refused'):queryKey[0]==='cockpit-state'?cockpitError:null,isFetching:queryKey[0]===readPending||(queryKey[0]==='cockpit-state'&&cockpitFetching),refetch:vi.fn(),
+    data: queryKey[0]==='case-view' ? {id:caseId,status,request_type:requestType,puzzle_completeness:70}
       : queryKey[0]==='case-facts' ? facts : queryKey[0]==='case-gaps' ? gaps
+      : queryKey[0]==='case-timeline' ? timeline : queryKey[0]==='quote-request-lines-count' ? lotCount
       : queryKey[0]==='cockpit-state' ? {status,totalPartnerRequests,closedPartnerRequests,blockingGapsCount:0,padReviewCount:0,...cockpitOverrides}
       : queryKey[0].includes('count') || queryKey[0]==='pricing-provisional-check' ? 0
       : queryKey[0]==='pricing-run-recovery' ? null : empty}),
@@ -73,9 +80,83 @@ const CaseView = (await import('../../CaseView')).default;
 let client: QueryClient;
 beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPartnerRequests=0;closedPartnerRequests=0;invoke.mockReset();estimateAction.mockReset();
   localStorage.setItem(CASE_PRESENTATION_KEY,'previous');cockpitOverrides={};cockpitError=null;cockpitFetching=false;versionMounts=0;preparationFixture=null;gaps=initialGaps;
+  facts=initialFacts;requestType='SEA_FCL_IMPORT';lotCount=0;readPending=null;readFailed=null;timeline=[];
   panelMounts={};client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{cleanup();client.clear();localStorage.clear();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+
+const partialCta = 'Générer une offre partielle à destination';
+function destinationPartialFixture() {
+  status='NEED_INFO';requestType='AIR_IMPORT';hasSelection=false;
+  facts=[{id:'pkg',fact_key:'service.package',value_text:'AIR_IMPORT_DDP',is_current:true},
+    {id:'gross',fact_key:'cargo.weight_kg',value_number:190,is_current:true},
+    {id:'net',fact_key:'cargo.weight_net_kg',value_number:151,is_current:true},
+    {id:'pieces',fact_key:'cargo.pieces',value_number:30,is_current:true},
+    {id:'dimensions',fact_key:'cargo.dimensions_evidence',value_json:{conflict:true},is_current:true}];
+  gaps=[{id:'hs',gap_key:'cargo.hs_code',status:'open',is_blocking:true,question_fr:'HS requis'},
+    {id:'value',gap_key:'cargo.value',status:'open',is_blocking:true,question_fr:'Valeur requise'}];
+  timeline=[{event_type:'service_scope_v1',created_at:'2026-10-14T12:33:57Z',actor_type:'system',
+    event_data:{freight_scope:false,customs_scope:true,request_evidence:{mode:'destination'}}}];
+}
+async function openQuotePresentation(guided:boolean) {
+  if(guided) await userEvent.click(within(screen.getByRole('navigation',{name:'Navigation du dossier'})).getByRole('button',{name:'Devis'}));
+  else await userEvent.click(screen.getByRole('tab',{name:'Devis & offre'}));
+}
+it.each([false,true])('exposes the destination partial action with HS and value missing in guided=%s',async(guided)=>{
+  destinationPartialFixture();if(guided)localStorage.removeItem(CASE_PRESENTATION_KEY);
+  const originalFacts=structuredClone(facts);mount();await openQuotePresentation(guided);
+  expect(screen.getByRole('button',{name:partialCta})).toBeVisible();
+  expect(screen.getByRole('button',{name:partialCta})).toBeEnabled();
+  expect(screen.getByRole('button',{name:'Calculer le devis confirmé'})).toBeDisabled();
+  expect(facts).toEqual(originalFacts);expect(invoke).not.toHaveBeenCalled();
+});
+it.each(['cargo.weight_kg','routing.destination_city','cargo.imo_goods_scope_confirmation','service.package'])('retains other blocking gap %s',async(key)=>{
+  destinationPartialFixture();gaps.push({id:'other',gap_key:key,status:'open',is_blocking:true,question_fr:'Autre contrôle'});
+  mount();await openQuotePresentation(false);expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it.each(['freight-scope','freight-override','non-ddp','non-air','multi-lot','missing-scope','malformed-scope','latest-scope-freight'])('does not extend the destination exception to %s',async(kind)=>{
+  destinationPartialFixture();
+  if(kind==='freight-scope')timeline[0].event_data.freight_scope=true;
+  if(kind==='freight-override')facts.push({id:'override',fact_key:'service.overrides',value_json:{add:['AIR_FREIGHT'],remove:[]},is_current:true});
+  if(kind==='non-ddp')facts[0].value_text='AIR_IMPORT_DAP';
+  if(kind==='non-air')requestType='SEA_FCL_IMPORT';
+  if(kind==='multi-lot')lotCount=2;
+  if(kind==='missing-scope')timeline=[];
+  if(kind==='malformed-scope')timeline[0].event_data={freight_scope:'false',request_evidence:{mode:'destination'}};
+  if(kind==='latest-scope-freight')timeline.push({...timeline[0],created_at:'2026-10-14T13:00:00Z',event_data:{freight_scope:true,customs_scope:true,request_evidence:{mode:'destination'}}});
+  mount();await openQuotePresentation(false);expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it.each(['quote-request-lines-count','case-facts','case-timeline','case-gaps'])('fails closed for pending and failed %s reads even with cached data',async(key)=>{
+  destinationPartialFixture();readPending=key;const {rerender}=mount();await openQuotePresentation(false);
+  expect(screen.queryByRole('button',{name:partialCta})).toBeNull();readPending=null;readFailed=key;
+  rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+  expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it('fails closed for an unknown lot count',async()=>{
+  destinationPartialFixture();lotCount=null;mount();await openQuotePresentation(false);
+  expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it.each(['quote-request-lines-count','case-facts','case-timeline','case-gaps'])('does not fall back to value-only provisional during pending or failed %s reads',async(key)=>{
+  destinationPartialFixture();facts.push({id:'hs',fact_key:'cargo.hs_code',value_text:'3004909900',is_current:true});gaps=gaps.filter(g=>g.gap_key==='cargo.value');
+  readPending=key;const {rerender}=mount();await openQuotePresentation(false);
+  expect(screen.queryByRole('button',{name:/Générer (une offre partielle|un devis provisoire)/})).toBeNull();
+  readPending=null;readFailed=key;rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+  expect(screen.queryByRole('button',{name:/Générer (une offre partielle|un devis provisoire)/})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it.each(['SENT','ACCEPTED','REJECTED','PRICING_RUNNING'])('retains the %s status lock for destination partial pricing',async(locked)=>{
+  destinationPartialFixture();status=locked;mount();await openQuotePresentation(false);
+  expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it('retains the latest commercial intent lock',async()=>{
+  destinationPartialFixture();timeline.push({event_type:'thread_intent_v1',created_at:'2026-10-14T13:00:00Z',actor_type:'system',event_data:{intent:{pricing_gate:false,intent_type:'opportunity_check'}}});
+  mount();await openQuotePresentation(false);expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it('preserves the existing value-only provisional path outside destination AIR',async()=>{
+  status='NEED_INFO';hasSelection=false;facts=[{id:'pkg',fact_key:'service.package',value_text:'DDP',is_current:true},{id:'hs',fact_key:'cargo.hs_code',value_text:'3004909900',is_current:true}];
+  gaps=[{id:'value',gap_key:'cargo.value',status:'open',is_blocking:true,question_fr:'Valeur requise'}];
+  mount();await openQuotePresentation(false);expect(screen.getByRole('button',{name:'Générer un devis provisoire (hors droits & taxes)'})).toBeEnabled();
+  expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
 
 it('confirms commercial outcomes, blocks repeated clicks and retains server errors',async()=>{
   status='SENT'; mount();

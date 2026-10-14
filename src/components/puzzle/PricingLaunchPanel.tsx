@@ -60,11 +60,12 @@ interface PricingLaunchPanelProps {
   pricingPrechecks?: PricingPrecheck[];
   isRerun?: boolean;
   canProvisionalDdp?: boolean;
+  partialDestination?: boolean;
   onEstimate?: () => void;
   isEstimating?: boolean;
 }
 
-export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false, onEstimate, isEstimating = false, estimateResult, estimateAvailable = false, onReview }: PricingLaunchPanelProps) {
+export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricingPrechecks = [], isRerun = false, canProvisionalDdp = false, partialDestination = false, onEstimate, isEstimating = false, estimateResult, estimateAvailable = false, onReview }: PricingLaunchPanelProps) {
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -235,10 +236,10 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Calculator className="h-5 w-5 text-warning-foreground" />
-            <CardTitle className="text-base">{onEstimate ? 'Estimation du dossier' : isRerun ? "Recalculer le devis" : "Calculer le devis"}</CardTitle>
+            <CardTitle className="text-base">{partialDestination ? 'Offre partielle à destination' : onEstimate ? 'Estimation du dossier' : isRerun ? "Recalculer le devis" : "Calculer le devis"}</CardTitle>
           </div>
           <CardDescription>
-          {onEstimate ? 'Un montant indicatif, les postes restant à compléter et vos hypothèses de travail.' : isRerun
+          {partialDestination ? 'Les prestations chiffrables à destination ; les postes réservés restent exclus du total.' : onEstimate ? 'Un montant indicatif, les postes restant à compléter et vos hypothèses de travail.' : isRerun
               ? "Un calcul existe déjà. Vous pouvez recalculer le devis avec les informations à jour."
               : 'Toutes les décisions sont validées. Vous pouvez maintenant lancer le calcul de prix.'}
           </CardDescription>
@@ -272,9 +273,9 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               <p className="w-full text-xs text-muted-foreground">Sans scénario sélectionné, ce bouton propose les groupes depuis les e-mails. Aucun fait confirmé ni tarif n’est modifié.</p>
             </div>
           )}
-          <details open={onEstimate ? undefined : true} className={onEstimate ? "rounded border p-3" : ""}>
-            <summary className={onEstimate ? "cursor-pointer font-medium text-sm" : "hidden"}>Étape distincte — devis confirmé</summary>
-            {onEstimate && <p className="my-2 text-sm text-muted-foreground">Les contrôles ci-dessous concernent uniquement le devis confirmé, pas l’estimation ci-dessus.</p>}
+          <details open={onEstimate && !partialDestination ? undefined : true} className={onEstimate ? "rounded border p-3" : ""}>
+            <summary className={onEstimate ? "cursor-pointer font-medium text-sm" : "hidden"}>{partialDestination ? 'Étape distincte — offre partielle à destination' : 'Étape distincte — devis confirmé'}</summary>
+            {onEstimate && <p className="my-2 text-sm text-muted-foreground">{partialDestination ? 'Les contrôles restent requis pour un devis confirmé. L’offre partielle conserve les réserves ci-dessous.' : 'Les contrôles ci-dessous concernent uniquement le devis confirmé, pas l’estimation ci-dessus.'}</p>}
           {pricingPrechecks.length > 0 && (
             <Alert className="border-orange-300 bg-orange-50 dark:bg-orange-950/30">
               <AlertTriangle className="h-4 w-4 text-orange-600" />
@@ -296,8 +297,8 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               Le calcul peut prendre plusieurs secondes.
             </AlertDescription>
           </Alert>
-          {onEstimate && error && <Alert variant="destructive" aria-label="Blocage du devis confirmé"><AlertDescription>
-            Devis confirmé uniquement : {error === 'IMO goods scope requires clarification' ? 'Le rattachement des marchandises dangereuses aux groupes n’est pas établi dans les faits du dossier.' : error}
+          {onEstimate && error && <Alert variant="destructive" aria-label={partialDestination ? 'Blocage de l’offre partielle' : 'Blocage du devis confirmé'}><AlertDescription>
+            {partialDestination ? 'Offre partielle à destination : ' : 'Devis confirmé uniquement : '}{error === 'IMO goods scope requires clarification' ? 'Le rattachement des marchandises dangereuses aux groupes n’est pas établi dans les faits du dossier.' : error}
             {' '}Ce refus ne décrit pas le résultat de l’estimation par scénario ci-dessus.
           </AlertDescription></Alert>}
           <Button
@@ -319,7 +320,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
             )}
           </Button>
 
-          {/* Lot 4: Bouton provisoire DDP — visible uniquement si CARGO_VALUE_REQUIRED est le seul blocker */}
+          {/* Provisoire existant ou offre partielle destination éligible ; l’intention reste bloquante. */}
           {canProvisionalDdp && !blockedByIntent && (
             <Button
               onClick={() => setProvisionalConfirmOpen(true)}
@@ -335,7 +336,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
               ) : (
                 <>
                   <ShieldAlert className="h-4 w-4" />
-                  Générer un devis provisoire (hors droits &amp; taxes)
+                  {partialDestination ? 'Générer une offre partielle à destination' : 'Générer un devis provisoire (hors droits & taxes)'}
                 </>
               )}
             </Button>
@@ -389,12 +390,13 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
       <AlertDialog open={provisionalConfirmOpen} onOpenChange={setProvisionalConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Générer un devis provisoire ?</AlertDialogTitle>
+            <AlertDialogTitle>{partialDestination ? 'Générer une offre partielle à destination ?' : 'Générer un devis provisoire ?'}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
-                <p>Ce devis sera qualifié <strong>provisoire</strong> car la valeur marchandise n'est pas encore disponible.</p>
+                {partialDestination ? <p>Cette offre restera <strong>partielle</strong>. Les données douanières et les postes non chiffrables restent à confirmer.</p>
+                  : <p>Ce devis sera qualifié <strong>provisoire</strong> car la valeur marchandise n'est pas encore disponible.</p>}
                 <ul className="list-disc list-inside text-sm space-y-1">
-                  <li>Les frais fixes seront calculés normalement</li>
+                  <li>{partialDestination ? 'Seules les prestations chiffrables seront incluses dans le total' : 'Les frais fixes seront calculés normalement'}</li>
                   <li>Les droits et taxes seront <strong>exclus</strong> du calcul</li>
                   <li>Une réserve structurée sera ajoutée au devis</li>
                 </ul>
@@ -402,7 +404,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
                   <ShieldAlert className="h-4 w-4 text-amber-600 mt-0.5" />
                   <p className="text-sm text-amber-800 dark:text-amber-200">
                     Le total du devis ne comprendra pas les droits et taxes. 
-                    Ceux-ci seront à confirmer après réception de la valeur marchandise.
+                    {partialDestination ? ' Les poids brut et net ne valident pas le poids taxable. Les contradictions de dimensions et les autres réserves restent visibles.' : ' Ceux-ci seront à confirmer après réception de la valeur marchandise.'}
                   </p>
                 </div>
               </div>
@@ -421,7 +423,7 @@ export function PricingLaunchPanel({ caseId, onComplete, blockedByIntent, pricin
                   Calcul...
                 </>
               ) : (
-                'Confirmer le devis provisoire'
+                partialDestination ? 'Confirmer l’offre partielle' : 'Confirmer le devis provisoire'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

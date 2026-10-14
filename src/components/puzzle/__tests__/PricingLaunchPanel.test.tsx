@@ -78,6 +78,54 @@ afterEach(() => {
 });
 
 describe('versioned-case manual pricing and latest-run recovery', () => {
+  it('confirms partial destination reservations before invoking the existing provisional payload once', async () => {
+    const user=userEvent.setup();
+    let finish!:(value:{data:{lines_count:number};error:null})=>void;
+    invokeMock.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+    renderPanel({partialDestination:true,canProvisionalDdp:true,onEstimate:vi.fn(),pricingPrechecks:[
+      {code:'HS_CODE_REQUIRED',key:'cargo.hs_code',label:'HS manquant'},
+      {code:'CARGO_VALUE_REQUIRED',key:'cargo.value',label:'Valeur manquante'},
+    ]});
+    const launch=screen.getByRole('button',{name:'Générer une offre partielle à destination'});
+    expect(launch).toBeVisible();expect(launch.closest('details')).toHaveAttribute('open');
+    expect(screen.getByRole('button',{name:'Calculer le devis confirmé'})).toBeDisabled();
+    await user.click(launch);const dialog=await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Cette offre restera partielle');
+    expect(dialog).toHaveTextContent('Les droits et taxes seront exclus');
+    expect(dialog).toHaveTextContent('Les poids brut et net ne valident pas le poids taxable');
+    expect(dialog).toHaveTextContent('Les contradictions de dimensions');
+    expect(invokeMock).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button',{name:'Annuler'}));expect(invokeMock).not.toHaveBeenCalled();
+    await user.click(launch);const confirm=await screen.findByRole('button',{name:'Confirmer l’offre partielle'});
+    await user.dblClick(confirm);
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith('run-pricing',{body:{case_id:'case-a',allow_provisional:true}});
+    expect(screen.getAllByRole('button',{name:/Calcul en cours/}).every(b=>b.hasAttribute('disabled'))).toBe(true);
+    finish({data:{lines_count:4},error:null});await waitFor(()=>expect(screen.queryByRole('alertdialog')).toBeNull());
+  });
+  it('retains server refusal and permits an explicit retry for a partial destination quote',async()=>{
+    vi.spyOn(console,'error').mockImplementation(()=>undefined);
+    invokeMock.mockResolvedValue({data:null,error:new Error('Partial quote refused')});
+    const user=userEvent.setup();renderPanel({partialDestination:true,canProvisionalDdp:true,onEstimate:vi.fn()});
+    await user.click(screen.getByRole('button',{name:'Générer une offre partielle à destination'}));
+    await user.click(await screen.findByRole('button',{name:'Confirmer l’offre partielle'}));
+    const refusal=await screen.findByLabelText('Blocage de l’offre partielle');
+    expect(refusal).toHaveTextContent('Partial quote refused');
+    expect(refusal).toHaveTextContent('Offre partielle à destination');
+    expect(screen.getByRole('button',{name:'Générer une offre partielle à destination'})).toBeEnabled();
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith('run-pricing',{body:{case_id:'case-a',allow_provisional:true}});
+  });
+  it('keeps the partial destination action hidden under an intent guard',()=>{
+    renderPanel({partialDestination:true,canProvisionalDdp:true,blockedByIntent:'opportunity_check'});
+    expect(screen.queryByRole('button',{name:'Générer une offre partielle à destination'})).toBeNull();expect(invokeMock).not.toHaveBeenCalled();
+  });
+  it('preserves the existing value-only provisional confirmation and payload',async()=>{
+    invokeMock.mockResolvedValue({data:{lines_count:4},error:null});
+    const user=userEvent.setup();renderPanel({canProvisionalDdp:true});
+    await user.click(screen.getByRole('button',{name:'Générer un devis provisoire (hors droits & taxes)'}));
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent("la valeur marchandise n'est pas encore disponible");
+    await user.click(screen.getByRole('button',{name:'Confirmer le devis provisoire'}));
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith('run-pricing',{body:{case_id:'case-a',allow_provisional:true}});
+  });
   it('prioritizes a recorded estimate, keeps firm controls collapsed, and reviews without mutation', async () => {
     const estimate = vi.fn(), review = vi.fn();
     const user = userEvent.setup();
