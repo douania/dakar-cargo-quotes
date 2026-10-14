@@ -8,6 +8,7 @@
  */
 
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
+import { tariffReferenceNotice } from "../_shared/selected-tariff-reference.ts";
 export type QQLevel = "firm" | "provisional" | "partial";
 export type QQReason = { code: string; message: string; field?: string };
 export type QQ = {
@@ -56,7 +57,14 @@ export function resolveSnapshotQualification(
   outputsQQ: any,
   tariffLines: any[],
 ): QQ {
-  const notices = quotationWeightNotices(Array.isArray(tariffLines) ? tariffLines : []);
+  const lines = Array.isArray(tariffLines) ? tariffLines : [];
+  const tariffNotices = [...new Set(lines.map(l => tariffReferenceNotice(l?.source)).filter((v): v is string => v !== null))];
+  if (tariffNotices.length) outputsQQ = {
+    ...outputsQQ, level: outputsQQ?.level === "partial" ? "partial" : "provisional",
+    reasons: [...(Array.isArray(outputsQQ?.reasons) ? outputsQQ.reasons.filter((r: QQReason) => r.code !== "TARIFF_VALIDATION_UNCONFIRMED") : []),
+      ...tariffNotices.map(message => ({ code: "TARIFF_VALIDATION_UNCONFIRMED", message }))],
+  };
+  const notices = quotationWeightNotices(lines);
   if (notices.length) outputsQQ = {
     ...outputsQQ, level: outputsQQ?.level === "partial" ? "partial" : "provisional",
     reasons: [...(Array.isArray(outputsQQ?.reasons) ? outputsQQ.reasons.filter((r: QQReason) => r.code !== "PROVISIONAL_WEIGHT_BASIS") : []),

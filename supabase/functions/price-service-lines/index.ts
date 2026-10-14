@@ -22,7 +22,8 @@
  */
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { partialKgQuantity, partialDestinationDdpEligible, type PartialQuoteFact } from '../_shared/partial-destination-quote.ts';
+import { partialKgQuantity, partialDestinationDdpEligible, partialAirDeliveryCardApplicable, type PartialQuoteFact } from '../_shared/partial-destination-quote.ts';
+import { selectedTariffReference } from '../_shared/selected-tariff-reference.ts';
 import { readOverridesFromFacts, resolveEffectiveServiceKeys } from '../_shared/service-scope.ts';
 import { handleCors } from "../_shared/cors.ts";
 import { collectFeeLineCodes, isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
@@ -178,6 +179,7 @@ interface PricedLine {
   unit_used: string;
   rule_id: string | null;
   conversion_used?: string;
+  tariff_reference?: import("../_shared/selected-tariff-reference.ts").SelectedTariffReference;
   accounting?: LocalTransportDeboursAccounting;
 }
 
@@ -1201,12 +1203,22 @@ Deno.serve(async (req) => {
       const fixedQuantityTariff = !isInternalFeeServiceKey(serviceKey, feeLineCodes) &&
         (validQuantityOverride ? validQuantityOverride.pricing_mode === 'FIXED' : fixedQuantityCatalogue);
       const quantityKgCard = partialDestination && findBestRateCard(allCards, serviceKey, pricingCtx, 'KG', currency, isAirMode, isLCL);
-      const quantityForfaitCard = partialDestination && findBestRateCard(allCards, serviceKey, pricingCtx, 'FORFAIT', currency, isAirMode, isLCL);
+      const airDelivery = partialDestination && ['TRUCKING', 'ON_CARRIAGE'].includes(serviceKey);
+      const quantityForfaitCards = airDelivery ? allCards.filter(card => partialAirDeliveryCardApplicable(card, pricingCtx, currency)) : allCards;
+      const quantityForfaitCard = partialDestination && findBestRateCard(quantityForfaitCards, serviceKey, pricingCtx, 'FORFAIT', currency, isAirMode, isLCL);
       const kgTariffWithoutBasis = partialDestination && (!rule || rule.quantity_basis !== 'KG') && !fixedQuantityTariff &&
         ((quantityCatalogueApplies && quantityCatalogue.pricing_mode === 'UNIT_RATE' && normalizeUnit(quantityCatalogue.unit_type || '') === 'KG') ||
           (!quantityCatalogueApplies && !validQuantityOverride && quantityKgCard && !quantityForfaitCard));
-      const computed = partialDestination && fixedQuantityTariff
+      // A selected AIR forfait is independent of a maritime container quantity rule.
+      // Preserve resolver priority: the card is eligible only after override/catalogue are absent.
+      const fixedQuantityCard = partialDestination && !isInternalFeeServiceKey(serviceKey, feeLineCodes) &&
+        !validQuantityOverride && !quantityCatalogueApplies && quantityForfaitCard && normalizeCurrency(quantityForfaitCard.card.currency) === currency;
+      const airDeliveryBasisUnknown = partialDestination && ['TRUCKING', 'ON_CARRIAGE'].includes(serviceKey) &&
+        (!rule || ['COUNT', 'EVP'].includes(rule.quantity_basis)) && !fixedQuantityTariff && !fixedQuantityCard;
+      const computed = partialDestination && (fixedQuantityTariff || fixedQuantityCard)
         ? { quantity_used: 1, unit_used: 'FORFAIT', rule_id: rule?.id ?? null, conversion_used: 'partial_fixed_tariff' }
+        : airDeliveryBasisUnknown
+        ? { quantity_used: null, unit_used: 'voyage', rule_id: rule?.id ?? null, conversion_used: 'partial_air_delivery_basis:undocumented' }
         : kgTariffWithoutBasis
         ? { quantity_used: null, unit_used: line.unit, rule_id: null, conversion_used: 'partial_kg_basis:unspecified:KG_TARIFF_BASIS_UNSPECIFIED' }
         : computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode, isLCL);
@@ -1320,6 +1332,7 @@ Deno.serve(async (req) => {
                 rate: lineTotal,
                 currency: override.currency || currency,
                 source: `${modeLabel}${modSuffix}`,
+              ...(partialDestination ? { tariff_reference: selectedTariffReference('pricing_client_overrides', override, new Date().toISOString()) } : {}),
                 confidence: 1.0,
                 explanation: isPercentage
                   ? `client_override_percentage: client=${pricingCtx.client_code}, base_fallback=${Math.round(lineTotal * 100 / override.base_price)}, percent=${override.base_price}, raw=${Math.round(rawTotal)}, modifiers=[${appliedMods.join(",")}], min_price=${override.min_price}, final=${lineTotal}`
@@ -1353,6 +1366,7 @@ Deno.serve(async (req) => {
               unit_used: "forfait",
               rule_id: computed.rule_id,
               conversion_used: `fee_rule:${resolution.ruleId}`,
+              ...(partialDestination ? { tariff_reference: selectedTariffReference('fee_rules', feeRules.find(r => r.id === resolution.ruleId), new Date().toISOString()) } : {}),
             });
           } else if (resolution.status === "SKIPPED") {
             // H2-c2 : signal runtime lu par run-pricing, qui n'ajoute pas la ligne au devis.
@@ -1537,6 +1551,7 @@ Deno.serve(async (req) => {
               rate: lineTotal,
               currency: tier.currency || currency,
               source: `customs_tier${modSuffix}`,
+              ...(partialDestination ? { tariff_reference: selectedTariffReference('pricing_customs_tiers', tier, new Date().toISOString()) } : {}),
               confidence: 0.90,
               explanation: `customs_tier: mode=${transportMode_v2}, basis=CAF, caf=${caf}, percent=${tier.percent}, raw=${Math.round(rawTotal)}, min_price=${tier.min_price}, max_price=${tier.max_price}, modifiers=[${appliedMods.join(",")}], final=${lineTotal}`,
               quantity_used: computed.quantity_used ?? 1,
@@ -1597,6 +1612,7 @@ Deno.serve(async (req) => {
               rate: lineTotal,
               currency: weightTier.currency || currency,
               source: `customs_weight_tier${modSuffix}`,
+              ...(partialDestination ? { tariff_reference: selectedTariffReference('pricing_customs_tiers', weightTier, new Date().toISOString()) } : {}),
               confidence: 0.85,
               explanation: `customs_weight_tier: mode=${transportMode_v3}, weight=${weight}, tier=${tierRange}, raw=${Math.round(rawTotal)}, min_price=${weightTier.min_price}, max_price=${weightTier.max_price}, modifiers=[${appliedMods.join(",")}], final=${lineTotal}`,
               quantity_used: computed.quantity_used ?? 1,
@@ -1669,6 +1685,7 @@ Deno.serve(async (req) => {
           rate: lineTotal,
           currency: catalogueEntry.currency || currency,
           source: `catalogue_sodatra${modSuffix}`,
+          ...(partialDestination ? { tariff_reference: selectedTariffReference('pricing_service_catalogue', catalogueEntry, new Date().toISOString()) } : {}),
           confidence: 0.95,
           explanation: `catalogue:${serviceKey}, mode=${catalogueEntry.pricing_mode}, base=${catalogueEntry.base_price}, qty=${computed.quantity_used ?? 1}, modifiers=[${appliedMods.join(",")}], min_price=${catalogueEntry.min_price}, final=${lineTotal}`,
           quantity_used: computed.quantity_used ?? 1,
@@ -1680,7 +1697,7 @@ Deno.serve(async (req) => {
       }
 
       // ═══ P1-A: Progressive matching with scoring (fallback) ═══
-      const match = findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode, isLCL);
+      const match = fixedQuantityCard ? quantityForfaitCard : findBestRateCard(allCards, serviceKey, pricingCtx, lineUnit, currency, isAirMode, isLCL);
 
       if (match) {
         pricedLines.push({
@@ -1688,6 +1705,7 @@ Deno.serve(async (req) => {
           rate: match.card.value,
           currency: match.card.currency || currency,
           source: match.card.source,
+          ...(partialDestination ? { tariff_reference: selectedTariffReference('pricing_rate_cards', match.card, new Date().toISOString()) } : {}),
           confidence: match.score / 100,
           explanation: match.explanation,
           quantity_used: computed.quantity_used,
@@ -1863,6 +1881,9 @@ Deno.serve(async (req) => {
         const basisLabel = key === 'cargo.weight_kg' ? 'poids brut' : key === 'cargo.weight_net_kg' ? 'poids net'
           : key === 'cargo.chargeable_weight_kg' ? 'poids taxable' : 'base du tarif au kg non documentée';
         pl.explanation += ` — Base du tarif : ${basisLabel}${key === 'unspecified' ? ' (à confirmer)' : ` (${key})`}`;
+      }
+      if (partialDestination && pl.conversion_used?.startsWith('partial_air_delivery_basis:')) {
+        pl.explanation = 'Livraison locale AIR à confirmer : base applicable et tarif non documentés ; la règle maritime par conteneur est inapplicable. Aucun forfait ni voyage présumé.';
       }
       // Log the technical detail for debugging
       structuredLog({ level: "debug", service: FUNCTION_NAME, op: "human_explanation", correlationId,

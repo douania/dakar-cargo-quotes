@@ -43,3 +43,14 @@ export function partialKgQuantity(rule: { requires_fact_key?: string | null }, f
     ? { kg: value, factKey: key, reason: null }
     : { kg: null, factKey: key, reason: 'MISSING_REQUIRED_TARIFF_WEIGHT' };
 }
+
+/** The new AIR delivery forfait fallback cannot borrow a conflicting corridor/port/container rate. */
+export function partialAirDeliveryCardApplicable(card: unknown, context: unknown, currency: string): boolean {
+  const c = card as Record<string, unknown>, ctx = context as Record<string, unknown>;
+  const normalized = (v: unknown) => typeof v === 'string' ? v.trim().toUpperCase() : '';
+  if (!c || !ctx || c.container_type || normalized(c.currency) !== currency ||
+    /maritime|conteneur|\bSEA\b|20\s*['′]|40\s*['′]/i.test(String(c.notes ?? '')) ||
+    c.weight_min_kg != null || c.weight_max_kg != null) return false;
+  return ['corridor', 'origin_port', 'destination_port', 'origin_country', 'destination_country']
+    .every(key => !normalized(c[key]) || normalized(c[key]) === normalized(ctx[key]));
+}

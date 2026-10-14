@@ -190,6 +190,18 @@ Règles non négociables :
 - Preuves/diff/empreintes/retour arrière : task-3/request-scope-fix-20261013 ; copie work/0a86a21,70 fichiers staged antérieurs et dépôt original strictement préservés ; aucun commit/push/merge/déploiement/secret réel.
 - PASS_WITH_BASELINE local, runtime UNKNOWN. Publication/activation coordonnée Lovable et recette connectée restent sous GO distinct ; crypto Vault native NOT_RUN. Rollback : patch inverse du seul delta après --check, en conservant tous les lots précédents.
 
+### 2.11 Livraison AIR, provenance tarifaire et PDF - clôture locale du 14 octobre 2026
+
+- GO humain groupé du14/10 14:45 : corrections, tests, contre-revue, installation dans le même projet privé non publié et recette UI nouvelle version/PDF ; v1 à préserver. Aucun choix douanier, tarif, compte, secret ou configuration de sécurité modifié.
+- STRUCTURAL_PATCH_ALLOWED justifié avant édition : manque de base livraison AIR et perte de provenance ; run-pricing/PSL bornés à partialDestination AIR_IMPORT_DDP destination mono-lot, sans modification des autres calculs/formules/priorités.
+- COUNT maritime inapplicable en AIR reste quantité inconnue ; forfait effectivement sélectionné indépendant, sans invention de voyage. Nouveau repli carte livraison refuse corridor/ports/pays contradictoires, conteneur, devise, notes maritimes et conditions de poids non attestées.
+- Référence sélectionnée capturée dans PSL, transmise au run et copiée au snapshot : table/ID, paramètres, dates et source ; aucune reconstruction depuis le catalogue actuel. Forfaits provisoires et validation non attestée restent inclus mais non fermes.
+- Présentation depuis les faits enregistrés du run : brut/net/colis séparés, contradictions de dimensions conservées, taxable extrait conflictuel non confirmé ; choix opérateur/validé conservé. Route sans étape inventée/dupliquée ; bloc cargo/réserves groupé et footer avec contenu utile.
+- 90 ciblés PASS ; contre-exécution indépendante24 tests PASS. CI finale exit0 :742 Vitest/59 fichiers,2049 Deno/0 échec/6 ignorés ; app/node/config/bundles/build PASS ; types Deno49/5, lint720/16. Audit delta12 fichiers :87 diagnostics avant/après, aucun introduit.
+- Deux blocages de contre-revue (corridor forfait et taxable conflictuel affiché) corrigés et repris ; aucun blocage local restant. Aucun changement DB/Auth/RLS/Storage/Vault, aucun secret ni donnée client dans le delta.
+- Base work/d176999 ; original et assemblage antérieur préservés. Preuves/diff/empreintes : task-3/dcq-activation-20261014/air-trace-pdf-lot. Runtime du delta et recette UI encore NOT_RUN à cette clôture locale ; CI GitHub/concordance de version à vérifier avant recette.
+- PASS_WITH_BASELINE local ; validité contractuelle des barèmes et classification/assiette/régime restent non attestés. Rollback : inverse du seul delta sous GO, redéployer les fonctions affectées ; ne pas réécrire les versions historiques.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

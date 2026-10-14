@@ -408,9 +408,10 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   }
 
   /** Client sections after the price table: bases, particular conditions, general conditions. */
-  function drawClientSection(heading: string, values: string[]) {
+  function drawClientSection(heading: string, values: string[], last = false) {
     if (values.length === 0) return;
-    ensureSpace(lineHeight * 3);
+    // Keep useful content with the last-page footer; never create a page for the footer alone.
+    ensureSpace(lineHeight * 3 + (last ? 64 : 0));
     currentPage.drawText(sanitize(heading), { x: margin, y, size: 10, font: fontBold, color: primary });
     y -= lineHeight;
     // Wrapped with the real font width (a long word is split), so no text crosses the margins.
@@ -428,9 +429,9 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     }).join(" ");
     for (const value of values) {
       const wrapped = wrapToWidth(splitLongWords(sanitize(`- ${value}`)), measure, width);
-      ensureSpace(lineHeight * Math.min(wrapped.length, 3));
+      ensureSpace(lineHeight * Math.min(wrapped.length, 3) + (last ? 64 : 0));
       wrapped.forEach((text, i) => {
-        ensureSpace(lineHeight);
+        ensureSpace(lineHeight + (last ? 64 : 0));
         currentPage.drawText(i === 0 ? text : `  ${text}`, { x: margin, y, size: 9, font, color: black });
         y -= 14;
       });
@@ -630,9 +631,8 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
   y -= 5;
   currentPage.drawText('ROUTE', { x: margin, y, size: 11, font: fontBold, color: primary });
   y -= lineHeight;
-  const routeParts = [
-    snapshot.inputs?.origin, 'Dakar', snapshot.inputs?.destination,
-  ].filter(Boolean);
+    const routeParts = [snapshot.inputs?.origin, snapshot.inputs?.destination].filter(Boolean)
+      .filter((place, i, places) => i === 0 || String(place).trim().toLowerCase() !== String(places[i - 1]).trim().toLowerCase());
   currentPage.drawText(sanitize(routeParts.join(' -> ') || 'Non specifie'), {
     x: margin, y, size: 10, font, color: black,
   });
@@ -791,13 +791,23 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
 
   // === CLIENT CONDITIONS (projection of the saved snapshot) ===
   if (projection) {
-    drawClientSection('BASES DE COTATION', projection.bases);
-    drawClientSection('CONDITIONS PARTICULIERES', projection.conditions);
-    drawClientSection('CONDITIONS GENERALES', projection.general);
+    // Detailed cargo and reservations form one readable block when they fit on a page.
+    // If they do not fit after the prices, move them together, not a lone footer/general note.
+    const detailLots = snapshot.inputs?.cargo_basis?.lots;
+    if (Array.isArray(detailLots) && detailLots.some((lot: { recorded_details?: unknown }) => lot.recorded_details)) {
+      const sections = [projection.bases, projection.conditions, projection.general].filter(v => v.length);
+      const measure = (text: string) => font.widthOfTextAtSize(text, 9);
+      const required = sections.reduce((height, values) => height + lineHeight + sectionGap / 2 + values.reduce(
+        (h, value) => h + 14 * wrapToWidth(sanitize(`- ${value}`), measure, PAGE_W - 2 * margin - 10).length, 0), 64);
+      if (required <= PAGE_H - 2 * margin - 2 * lineHeight) ensureSpace(required);
+    }
+    drawClientSection('BASES DE COTATION', projection.bases, !projection.conditions.length && !projection.general.length);
+    drawClientSection('CONDITIONS PARTICULIERES', projection.conditions, !projection.general.length);
+    drawClientSection('CONDITIONS GENERALES', projection.general, true);
   }
 
   // === DRAFT FOOTER ===
-  ensureSpace(lineHeight * 5);
+  ensureSpace(5 + lineHeight * 3); // exact footer height (59 pt), not a 90 pt overestimate
   currentPage.drawLine({
     start: { x: margin, y: y + 10 }, end: { x: PAGE_W - margin, y: y + 10 },
     thickness: 2, color: draftRed,

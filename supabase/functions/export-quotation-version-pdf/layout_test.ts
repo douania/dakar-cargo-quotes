@@ -125,3 +125,21 @@ Deno.test("mono-lot PDF stays inside both margins", async () => {
   assertWithinMargins(texts);
   assert(texts.some((t) => t.text === "AGENCY"));
 });
+
+Deno.test("client PDF uses only the saved route and keeps the last useful section with its footer", async () => {
+  for (const n of [1, 4, 12, 20, 28]) {
+    const texts = await drawnTexts(await generateDraftPdf(snapshot([], {
+      is_multi_lot: false, lots: undefined, inputs: { origin: "Karachi", destination: "Dakar", incoterm: "DDP" },
+      lines: Array.from({ length: n }, (_, i) => ({ ...line(`CAT_${i}`, 1000, i % 3 === 0), service_code: `LINE_${i}` })),
+    }), "SYNTHETIC"));
+    assertWithinMargins(texts);
+    assert(texts.some(t => t.text === "Karachi -> Dakar"));
+    assertEquals(texts.some(t => t.text.includes("Dakar -> Dakar")), false);
+    const lastPage = Math.max(...texts.map(t => t.page));
+    const last = texts.filter(t => t.page === lastPage);
+    assert(last.some(t => /BASES DE COTATION|CONDITIONS|TOTAL/.test(t.text)), `footer-only page: ${JSON.stringify(last)}`);
+    const footer = last.find(t => t.text.includes("DRAFT - DOCUMENT"))!;
+    assert(footer && footer.y >= MARGIN + 35);
+    assert(last.filter(t => /Non contractuel|Genere le/.test(t.text)).every(t => t.y >= MARGIN));
+  }
+});

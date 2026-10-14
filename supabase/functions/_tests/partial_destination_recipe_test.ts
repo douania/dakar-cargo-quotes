@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { generateDraftPdf } from '../export-quotation-version-pdf/index.ts';
+import { classifyClientLine } from '../_shared/client-quote-projection.ts';
 
 // Execute production handlers and renderer against an explicitly synthetic HTTP
 // boundary. No SQL/RLS/runtime/AI correctness is inferred from this fixture.
@@ -354,4 +355,77 @@ Deno.test('partial destination: failed scope reads do not become an empty safe s
   state.failTable = 'case_timeline_events';
   const result = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: true });
   assertEquals(result.status, 500); assertEquals(state.tables.pricing_runs.length, 0);
+}));
+
+Deno.test('partial AIR delivery: maritime COUNT or absent rule stays unknown, while the actually selected AIR forfait is independent', async () => fixture(async state => {
+  state.tables.pricing_service_catalogue = [];
+  const rule = state.tables.service_quantity_rules.find(r => r.service_key === 'TRUCKING')!;
+  rule.quantity_basis = 'COUNT'; rule.default_unit = 'voyage'; rule.requires_fact_key = 'cargo.containers';
+  const body = { case_id: 'fixture-case', service_lines: [{ ...airInput, id: 'delivery', service: 'TRUCKING' }], provisional_destination_quote: true };
+  const reserved = await state.invoke('price-service-lines', body);
+  assertEquals(reserved.status, 200);
+  assertEquals(reserved.body.data.priced_lines[0].rate, null);
+  assertEquals(reserved.body.data.priced_lines[0].quantity_used, null);
+  assertStringIncludes(reserved.body.data.priced_lines[0].explanation, 'maritime');
+  state.tables.service_quantity_rules = state.tables.service_quantity_rules.filter(r => r.service_key !== 'TRUCKING');
+  const absent = await state.invoke('price-service-lines', body);
+  assertEquals(absent.body.data.priced_lines[0].quantity_used, null);
+  state.tables.pricing_rate_cards = [{ id: 'synthetic-air-delivery-forfait', service_key: 'TRUCKING', scope: 'import', currency: 'XOF', unit: 'FORFAIT', value: 123,
+    source: 'internal', confidence: 1, status: 'active', container_type: null, notes: 'SYNTHETIC TEST ONLY' }];
+  const fixed = await state.invoke('price-service-lines', body);
+  assertEquals(fixed.status, 200, JSON.stringify(fixed.body));
+  const line = fixed.body.data.priced_lines[0];
+  assertEquals(line.rate, 123); assertEquals(line.quantity_used, 1);
+  assertEquals(line.tariff_reference.id, 'synthetic-air-delivery-forfait');
+  for (const conflict of [{ corridor: 'DAKAR_BAMAKO' }, { origin_port: 'UNRELATED_PORT' }, { notes: 'Tarif maritime conteneur' }, { currency: 'USD' }]) {
+    const saved = { ...state.tables.pricing_rate_cards[0] };
+    Object.assign(state.tables.pricing_rate_cards[0], conflict);
+    const refused = await state.invoke('price-service-lines', body);
+    assertEquals(refused.body.data.priced_lines[0].rate, null, JSON.stringify(conflict));
+    assertEquals(refused.body.data.priced_lines[0].quantity_used, null);
+    state.tables.pricing_rate_cards[0] = saved;
+  }
+  state.tables.pricing_client_overrides.push({ id: 'synthetic-priority-override', client_code: 'TEST', service_code: 'TRUCKING', pricing_mode: 'FIXED', base_price: 456, min_price: 0,
+    currency: 'XOF', active: true, mode_scope: 'AIR' });
+  state.tables.quote_facts.push(fact('client.code', 'TEST'));
+  const priority = await state.invoke('price-service-lines', body);
+  assertEquals(priority.body.data.priced_lines[0].rate, 456);
+  assertEquals(priority.body.data.priced_lines[0].tariff_reference.id, 'synthetic-priority-override');
+}));
+
+Deno.test('partial pricing: selected provisional fee IDs and rule state survive run/version/PDF and later tariff edits without changing totals', async () => fixture(async state => {
+  state.tables.fee_rules.forEach(r => { r.label = 'SYNTHETIC forfait provisoire'; r.source_reference = 'SYNTHETIC provenance'; });
+  state.tables.quote_facts.find(f => f.fact_key === 'cargo.dimensions_evidence')!.value_json = { conflict: true, sources: [
+    { groups: [{ count: 25, length: 48, width: 36, height: 29, unit: 'cm' }, { count: 5, length: 44, width: 27, height: 24, unit: 'cm' }] },
+    { filename: 'SYNTHETIC_PL.pdf', groups: [{ count: 28, length: 48, width: 36, height: 29, unit: 'cm' }, { count: 2, length: 44, width: 27, height: 24, unit: 'cm' }] },
+  ] };
+  const originalFacts = JSON.stringify(state.tables.quote_facts);
+  const priced = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: true });
+  assertEquals(priced.status, 200, JSON.stringify(priced.body));
+  const run = state.tables.pricing_runs[0];
+  const capturedRun = JSON.stringify(run);
+  for (const key of ['CUSTOMS_DAKAR', 'AGENCY']) {
+    const source = run.tariff_lines.find((l: Row) => l.category === key).source;
+    assertEquals(source.tariff_reference.table, 'fee_rules');
+    assertEquals(source.tariff_reference.id, key);
+    assertEquals(source.tariff_reference.validation_status, 'provisional');
+    assertEquals(source.firm_eligible, false);
+  }
+  state.tables.fee_rules.forEach(r => { r.id = 'changed-after-run'; r.amount = 99999; r.label = 'changed-after-run'; });
+  const generated = await state.invoke('generate-quotation-version', { case_id: 'fixture-case', pricing_run_id: run.id });
+  assertEquals(generated.status, 200, JSON.stringify(generated.body));
+  const snap = state.tables.quotation_versions[0].snapshot;
+  assertEquals(snap.totals.total_ttc, run.total_ttc);
+  assertEquals(snap.meta.quoteQualification.level, 'partial');
+  assert(snap.meta.quoteQualification.reasons.some((r: Row) => r.code === 'TARIFF_VALIDATION_UNCONFIRMED'));
+  for (const key of ['CUSTOMS_DAKAR', 'AGENCY']) {
+    const saved = snap.lines.find((l: Row) => l.category === key);
+    assertEquals(saved.source, run.tariff_lines.find((l: Row) => l.category === key).source);
+    assertStringIncludes(classifyClientLine(saved, {}).label, 'provisoire');
+  }
+  const frozen = JSON.stringify(snap);
+  const text = await pdfText(await generateDraftPdf(snap, 'SYNTHETIC-TRACE'));
+  for (const value of ['poids brut 190 kg', 'net 151 kg', '30 colis', 'poids taxable non confirme', 'contradictoires', '25 × 48 × 36 × 29 cm', '28 × 48 × 36 × 29 cm', 'Forfait provisoire']) assertStringIncludes(text, value);
+  assertEquals(JSON.stringify(snap), frozen); assertEquals(JSON.stringify(run), capturedRun);
+  assertEquals(JSON.stringify(state.tables.quote_facts), originalFacts);
 }));

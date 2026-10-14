@@ -1,4 +1,5 @@
 import { readQuotationCargoBasis, quotationCargoBasisText } from "./quotation-cargo-basis.ts";
+import { tariffReferenceNotice } from "./selected-tariff-reference.ts";
 /**
  * Client presentation of a saved quotation version (screen, PDF, e-mail). Pure projection:
  * reads only the immutable snapshot, never changes amounts, totals, reservations or
@@ -91,6 +92,10 @@ export function classifyClientLine(line: unknown, raw: unknown, index = 0): Clie
   if (isToConfirmLine(line) || UNPRICED.has(type)) {
     return { index, status: "to_confirm", label: "À confirmer", amountText: "À confirmer" };
   }
+  const tariffNotice = tariffReferenceNotice(source);
+  if (tariffNotice && amount !== null && amount > 0) {
+    return { index, status: "estimated", label: tariffNotice, amountText: null };
+  }
   if (type === "EXCLUDED_BY_RULE") {
     if (reference === "SCENARIO_SOC_NO_CARRIER_RETURN") {
       return { index, status: "not_applicable", label: "Sans objet : conteneurs SOC, pas de restitution à l’armateur", amountText: "Non facturé" };
@@ -152,6 +157,7 @@ const REASON_TEXT: Record<string, string> = {
 const COVERED_BY_LINES = new Set([
   "SCENARIO_THC_BASE_ESTIMATE", "SCENARIO_TRANSPORT_KM_ESTIMATE", "SCENARIO_CONTAINER_STAY_ESTIMATE",
   "SCENARIO_EMPTY_RETURN_SCOPE", "RATE_PENDING_CONFIRMATION", "SCENARIO_DG_UNKNOWN", "SCENARIO_IMO_INCOMPLETE",
+  "TARIFF_VALIDATION_UNCONFIRMED",
 ]);
 const GENERAL_CODES: Record<string, string> = {
   SCENARIO_CONTAINER_THC_OPERATOR_INDEPENDENT: "Manutention des conteneurs selon le barème homologué, sans déduction liée à l’opérateur ou au mode de manutention.",
@@ -363,7 +369,7 @@ function legacyLotEquipment(snapshot: Row, rawLines: unknown[]): string[] {
 
 function legacyBases(inputs: Row, lotEquipment: string[] = []): string[] {
   const out: string[] = [];
-  const route = [str(inputs.origin), str(inputs.destination)].filter(Boolean).join(" → ");
+  const route = quotationRoute(inputs).join(" → ");
   if (route || str(inputs.incoterm)) out.push(`Trajet : ${route || "non précisé"}${str(inputs.incoterm) ? ` (${str(inputs.incoterm)})` : ""}`);
   const containers = list(inputs.containers).map(row).map(c => [
     num(c.quantity) !== null ? `${fr(num(c.quantity)!)} ×` : "", str(c.type).toUpperCase(), str(c.coc_soc).toUpperCase(),
@@ -378,6 +384,13 @@ function legacyBases(inputs: Row, lotEquipment: string[] = []): string[] {
   if (weight !== null) out.push(`Poids retenu${scope} : ${fr(weight)} t`);
   else if (num(inputs.cargo_weight) !== null) out.push(`Poids enregistré${scope} : ${fr(num(inputs.cargo_weight)!)} (unité non précisée)`);
   return out;
+}
+
+/** Only adjacent repeated places are removed; intermediate stops are never invented. */
+export function quotationRoute(inputsValue: unknown): string[] {
+  const inputs = row(inputsValue);
+  return [str(inputs.origin), str(inputs.destination)].filter(Boolean)
+    .filter((place, i, places) => i === 0 || place.toLocaleLowerCase("fr") !== places[i - 1].toLocaleLowerCase("fr"));
 }
 
 export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjection {
@@ -493,6 +506,7 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
       case "SCENARIO_EMPTY_RETURN_SCOPE":
         return has((l, i) => /retour vide|empty.return/i.test(text(l, i)), ["not_applicable", "client_charge", "excluded"]);
       case "RATE_PENDING_CONFIRMATION": return projected.some(l => l.status === "to_confirm");
+      case "TARIFF_VALIDATION_UNCONFIRMED": return projected.some(l => l.status === "estimated" && tariffReferenceNotice(sourceOf(lines[l.index])) !== null);
       default: return true; // danger/IMO: restituted by the dedicated condition below
     }
   };
@@ -566,7 +580,9 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
 
   // --- Conditions générales ---
   const general: string[] = [];
-  if (projected.some(l => l.status === "estimated")) general.push("Les montants « Estimé » sont compris dans le total mais ne sont pas fermes.");
+  if (projected.some(l => l.status === "estimated")) general.push(lines.some(l => tariffReferenceNotice(sourceOf(l)))
+    ? "Les montants provisoires ou estimés sont compris dans le total mais ne sont pas fermes."
+    : "Les montants « Estimé » sont compris dans le total mais ne sont pas fermes.");
   if (projected.some(l => l.status === "to_confirm")) general.push("Un poste non chiffré n’est pas gratuit.");
   if (projected.some(l => l.status === "franchise")) general.push("Une franchise de séjour est conditionnelle : au-delà, le séjour est facturable selon les conditions applicables.");
   for (const [code] of codes) if (GENERAL_CODES[code]) general.push(GENERAL_CODES[code]);

@@ -1,5 +1,6 @@
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
+import { partialServiceSource } from '../_shared/selected-tariff-reference.ts';
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
 import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
 import { loadPadGroupState, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
@@ -3026,6 +3027,7 @@ Deno.serve(async (req) => {
       value_date: f.value_date,
       source_type: f.source_type,
       confidence: f.confidence,
+      ...(partialDestination ? { is_validated: f.is_validated === true } : {}),
     }));
 
     // 8. Build inputs_json from facts
@@ -3317,7 +3319,8 @@ Deno.serve(async (req) => {
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
                   ...(partialDestination && isInternalFeeServiceKey(serviceKey, feeLineCodes) ? { bloc: INTERNAL_FEE_BLOC } : {}),
-                  source: { type: price.sourceType, reference: 'LOT4-provisional-firm', confidence: pl.confidence ?? 0 },
+                  source: partialDestination ? partialServiceSource(pl, price.sourceType)
+                    : { type: price.sourceType, reference: 'LOT4-provisional-firm', confidence: pl.confidence ?? 0 },
                   quantity: partialDestination && pl.quantity_used === null ? null : pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
@@ -3641,7 +3644,8 @@ Deno.serve(async (req) => {
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
                   bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
-                  source: { type: price.sourceType, reference: 'P5', confidence: pl.confidence ?? 0 },
+                  source: partialDestination ? partialServiceSource(pl, price.sourceType)
+                    : { type: price.sourceType, reference: 'P5', confidence: pl.confidence ?? 0 },
                   quantity: partialDestination && pl.quantity_used === null ? null : pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',

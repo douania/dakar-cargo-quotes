@@ -105,3 +105,33 @@ Deno.test("adopted operator bases keep priority over the scenario engine aggrega
   assertEquals(buildPricingCargoBasis({ engine_request: { cargoWeight: 57 }, outputs_json: { operator_basis: operator } }), null);
   assertThrows(() => buildPricingCargoBasis({ engine_request: { cargoWeight: 57 }, outputs_json: { operator_basis: null } }), Error, "OPERATOR_BASIS_INVALID");
 });
+
+Deno.test("partial AIR recorded cargo stays immutable, duplicate facts stay unknown and no multi-lot globals leak", () => {
+  const r = { id: "saved-air", inputs_json: { servicePackage: "AIR_IMPORT_DDP" }, engine_request: { cargoWeight: .19 },
+    outputs_json: { quoteQualification: { level: "partial" } }, facts_snapshot: [
+      { id: "gross", key: "cargo.weight_kg", value_number: 190 }, { id: "net", key: "cargo.weight_net_kg", value_number: 151 },
+      { id: "colis", key: "cargo.pieces_count", value_number: 30 }, { id: "dim", key: "cargo.dimensions_evidence", value_json: { conflict: true } },
+    ] };
+  const basis = buildPricingCargoBasis(r)!;
+  r.facts_snapshot[0].value_number = 999;
+  assertEquals(basis.lots[0].recorded_details!.gross_kg, 190);
+  assertEquals(basis.lots[0].recorded_details!.chargeable_kg, null);
+  const words = quotationCargoBasisText(basis).join(" ");
+  for (const text of ["poids brut 190 kg", "net 151 kg", "30 colis", "poids taxable non confirmé", "Dimensions contradictoires"]) assertStringIncludes(words, text);
+  r.facts_snapshot.push({ id: "second-net", key: "cargo.weight_net_kg", value_number: 160 });
+  assertEquals(buildPricingCargoBasis(r)!.lots[0].recorded_details!.net_kg, null);
+  assertEquals(buildPricingCargoBasis(run())!.lots.some(l => l.recorded_details !== undefined), false);
+  basis.lots[0].recorded_details!.chargeable_kg = NaN;
+  assertThrows(() => readQuotationCargoBasis(basis), Error, "CARGO_BASIS_INVALID");
+});
+
+Deno.test("cargo PDF does not publish conflicted extracted taxable weight; recorded operator/validated choices survive", () => {
+  const r = { engine_request: { cargoWeight: .19 }, inputs_json: { servicePackage: "AIR_IMPORT_DDP" }, outputs_json: { quoteQualification: { level: "partial" } },
+    facts_snapshot: [{ key: "cargo.chargeable_weight_kg", value_number: 250, source_type: "attachment_extracted", is_validated: false },
+      { key: "cargo.dimensions_evidence", value_json: { conflict: true } }] };
+  assertEquals(buildPricingCargoBasis(r)!.lots[0].recorded_details!.chargeable_kg, null);
+  r.facts_snapshot[0].source_type = "operator";
+  assertEquals(buildPricingCargoBasis(r)!.lots[0].recorded_details!.chargeable_kg, 250);
+  r.facts_snapshot[0].source_type = "attachment_extracted"; r.facts_snapshot[0].is_validated = true;
+  assertEquals(buildPricingCargoBasis(r)!.lots[0].recorded_details!.chargeable_kg, 250);
+});

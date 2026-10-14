@@ -4,6 +4,7 @@
  * No totals are inferred, and no current dossier data repairs a saved quotation.
  */
 import { readOperatorBasis } from "./operator-quotation-basis.ts";
+import { partialChargeableWeight } from "./partial-destination-quote.ts";
 type Row = Record<string, unknown>;
 const row = (v: unknown): Row => v !== null && typeof v === "object" && !Array.isArray(v) ? v as Row : {};
 const list = (v: unknown): Row[] => Array.isArray(v) ? v.map(row) : [];
@@ -11,7 +12,9 @@ const text = (v: unknown): string => typeof v === "string" ? v.trim() : "";
 const number = (v: unknown): number | null => (typeof v === "number" || (typeof v === "string" && /^\d+(?:\.\d+)?$/.test(v.trim()))) && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null;
 
 export type CargoWeight = { status: "known" | "missing" | "unit_unknown" | "conflict"; kg: number | null; recorded_value: number | null; source_keys: string[] };
-export type CargoBasisLot = { lot_index: number; label: string; source_id: string | null; containers: Array<{ type: string; quantity: number | null }>; weight: CargoWeight };
+export type CargoRecordedDetails = { gross_kg: number | null; net_kg: number | null; pieces_count: number | null; chargeable_kg: number | null;
+  dimensions_conflict: boolean; dimensions_sources: string[]; source_fact_ids: string[] };
+export type CargoBasisLot = { lot_index: number; label: string; source_id: string | null; containers: Array<{ type: string; quantity: number | null }>; weight: CargoWeight; recorded_details?: CargoRecordedDetails };
 export type QuotationCargoBasis = { schema_version: 1; source: "pricing_run" | "request_lines"; source_id: string | null; lots: CargoBasisLot[] };
 const emptyWeight = (): CargoWeight => ({ status: "missing", kg: null, recorded_value: null, source_keys: [] });
 
@@ -52,6 +55,30 @@ function containers(value: unknown): CargoBasisLot["containers"] {
   return list(value).map(c => ({ type: text(c.type), quantity: number(c.quantity) })).filter(c => c.type !== "");
 }
 
+/** Partial AIR mono-lot only: exact facts recorded in this run, never the current dossier. */
+function partialAirDetails(run: Row): CargoRecordedDetails | undefined {
+  if (row(run.inputs_json).servicePackage !== "AIR_IMPORT_DDP" || row(row(run.outputs_json).quoteQualification).level !== "partial") return undefined;
+  const keys = ["cargo.weight_kg", "cargo.weight_net_kg", "cargo.pieces_count", "cargo.chargeable_weight_kg", "cargo.dimensions_evidence"];
+  const facts = list(run.facts_snapshot).filter(f => keys.includes(text(f.key)));
+  const value = (key: string) => { const matches = facts.filter(f => f.key === key); return matches.length === 1 ? number(matches[0].value_number) : null; };
+  const evidenceFacts = facts.filter(f => f.key === "cargo.dimensions_evidence");
+  const evidence = evidenceFacts.length === 1 ? row(evidenceFacts[0].value_json) : {};
+  const dimensions_sources = list(evidence.sources).flatMap(source => {
+    const groups = list(source.groups).flatMap(g => {
+      const values = [g.count, g.length, g.width, g.height].map(number);
+      if (values.some(v => v === null) || !["cm", "mm", "m"].includes(text(g.unit))) return [];
+      return [`${values[0]} × ${values.slice(1).join(" × ")} ${text(g.unit)}`];
+    });
+    return groups.length ? [`${text(source.filename) || "courriel"} : ${groups.join(" ; ")}`] : [];
+  });
+  const taxableFacts = facts.filter(f => f.key === keys[3]);
+  const chargeable = taxableFacts.length === 1 ? partialChargeableWeight(facts.map(f => ({ fact_key: text(f.key),
+    value_number: number(f.value_number), value_json: f.value_json, source_type: text(f.source_type), is_validated: f.is_validated === true }))).kg : null;
+  return { gross_kg: value(keys[0]), net_kg: value(keys[1]), pieces_count: value(keys[2]), chargeable_kg: chargeable,
+    dimensions_conflict: evidence.conflict === true || evidenceFacts.length > 1,
+    dimensions_sources, source_fact_ids: facts.map(f => text(f.id)).filter(Boolean) };
+}
+
 /** Exact successful run only. Match lot indexes, never array position or global facts. */
 export function buildPricingCargoBasis(value: unknown): QuotationCargoBasis | null {
   const run = row(value), engine = row(run.engine_request), output = row(run.outputs_json), inputs = row(run.inputs_json);
@@ -77,7 +104,9 @@ export function buildPricingCargoBasis(value: unknown): QuotationCargoBasis | nu
   const params = engine;
   const weight = engineWeight(params), equipment = containers(params.containers);
   if (weight.status === "missing" && !equipment.length) return null;
-  return { schema_version: 1, source: "pricing_run", source_id: text(run.id) || null, lots: [{ lot_index: 1, label: "Marchandise", source_id: text(run.id) || null, containers: equipment, weight }] };
+  const details = partialAirDetails(run);
+  return { schema_version: 1, source: "pricing_run", source_id: text(run.id) || null, lots: [{ lot_index: 1, label: "Marchandise", source_id: text(run.id) || null, containers: equipment, weight,
+    ...(details ? { recorded_details: details } : {}) }] };
 }
 
 /** Current request line extraction, explicitly not an operator confirmation. */
@@ -113,6 +142,11 @@ export function readQuotationCargoBasis(value: unknown): QuotationCargoBasis | n
       (w.status === "known" ? typeof w.kg !== "number" || number(w.kg) === null : w.kg !== null) ||
       (w.status === "unit_unknown" ? typeof w.recorded_value !== "number" || number(w.recorded_value) === null : w.recorded_value !== null)) throw new Error("CARGO_BASIS_INVALID");
     indexes.add(index);
+    if (lot.recorded_details !== undefined) {
+      const d = row(lot.recorded_details);
+      if (["gross_kg", "net_kg", "pieces_count", "chargeable_kg"].some(k => d[k] !== null && (typeof d[k] !== "number" || number(d[k]) === null)) ||
+        typeof d.dimensions_conflict !== "boolean" || [d.dimensions_sources, d.source_fact_ids].some(v => !Array.isArray(v) || v.some(s => typeof s !== "string"))) throw new Error("CARGO_BASIS_INVALID");
+    }
   }
   return b as unknown as QuotationCargoBasis;
 }
@@ -122,10 +156,16 @@ export function quotationCargoBasisText(value: unknown): string[] {
   const b = readQuotationCargoBasis(value);
   if (!b) return [];
   const fmt = (n: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(n);
-  return b.lots.map(lot => {
+  return b.lots.flatMap(lot => {
     const equipment = lot.containers.map(c => `${c.quantity === null ? "quantité non précisée" : fmt(c.quantity)} × ${c.type}`).join(" ; ");
     const w = lot.weight;
     const weight = w.status === "known" ? `poids total du lot : ${fmt(w.kg!)} kg` : w.status === "unit_unknown" ? `poids enregistré : ${fmt(w.recorded_value!)} (unité non précisée)` : w.status === "conflict" ? "poids à clarifier : valeurs ou unités contradictoires" : "poids du lot non précisé";
-    return `${lot.label} : ${[equipment, weight].filter(Boolean).join(" ; ")}${b.source === "request_lines" ? " (extrait de la demande, à confirmer)" : " (base enregistrée du calcul)"}.`;
+    const d = lot.recorded_details;
+    if (d) {
+      const kg = (value: number | null) => value === null ? "non confirmé" : `${fmt(value)} kg`;
+      return [`${lot.label} : poids brut ${kg(d.gross_kg)} ; net ${kg(d.net_kg)} ; ${d.pieces_count === null ? "nombre de colis non confirmé" : `${fmt(d.pieces_count)} colis`} ; poids taxable ${kg(d.chargeable_kg)} (données enregistrées du calcul).`,
+        ...(d.dimensions_sources.length || d.dimensions_conflict ? [`Dimensions${d.dimensions_conflict ? " contradictoires, à confirmer" : " enregistrées"} : ${d.dimensions_sources.join(" / ") || "sources à clarifier"}. Aucun poids taxable recalculé.`] : [])];
+    }
+    return [`${lot.label} : ${[equipment, weight].filter(Boolean).join(" ; ")}${b.source === "request_lines" ? " (extrait de la demande, à confirmer)" : " (base enregistrée du calcul)"}.`];
   });
 }
