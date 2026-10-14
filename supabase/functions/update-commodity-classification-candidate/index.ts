@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 // MAP-5B — Edge Function write contrôlé `update-commodity-classification-candidate`
 // Action opérateur Accepter / Rejeter sur public.commodity_classification_candidates.
 // - Auth en code modèle MAP-4 (SUPABASE_ANON_KEY + Authorization caller, supabase.auth.getUser).
@@ -54,6 +55,9 @@ Deno.serve(async (req) => {
   if (userError || !userData?.user) {
     return json({ error: "unauthorized", reason: "invalid_token" }, 401);
   }
+  const admission = await requireWorkspaceToken(authHeader.replace(/^Bearer /i, ""));
+  if (admission instanceof Response) return admission;
+
   const userId = userData.user.id;
 
   // --- Body validation ---

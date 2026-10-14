@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 // MAP-4 — Edge Function read-only `get-commodity-classification-candidates`
 // Lecture filtrée de public.commodity_classification_candidates par case_id.
 // RLS appliquée sous l'identité du caller (SUPABASE_ANON_KEY + Authorization JWT).
@@ -58,6 +59,9 @@ Deno.serve(async (req) => {
   if (userError || !userData?.user) {
     return json({ error: "UNAUTHORIZED", reason: "invalid_token" }, 401);
   }
+
+  const admission = await requireWorkspaceToken(authHeader.replace(/^Bearer /i, ""));
+  if (admission instanceof Response) return admission;
 
   // --- Body validation ---
   let raw: unknown;

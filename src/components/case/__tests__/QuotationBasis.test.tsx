@@ -89,3 +89,47 @@ it("shows scenario snapshots with their assumptions and keeps review an explicit
   fireEvent.click(screen.getByRole("button", { name: "Revoir les bases dans Marchandise" }));
   expect(onReview).toHaveBeenCalledTimes(1);
 });
+
+it("uses the immutable cargo block for digest and detail, hiding old global containers/weight", () => {
+  const basis = { schema_version: 1, source: "pricing_run", source_id: "run-2", lots: [
+    { lot_index: 1, label: "Lot A", source_id: "run-2", containers: [{ type: "40HC", quantity: 3 }], weight: { status: "known", kg: 45000, recorded_value: null, source_keys: ["engine.cargoWeight_t"] } },
+    { lot_index: 2, label: "Lot B", source_id: "run-2", containers: [{ type: "20DV", quantity: 1 }], weight: { status: "known", kg: 12000, recorded_value: null, source_keys: ["engine.cargoWeight_t"] } },
+  ] };
+  render(<QuotationBasis context="Version v2" inputs={{ cargo_weight: 36, containers: [{ type: "20GP", quantity: 1 }], cargo_basis: basis }} />);
+  const summary = screen.getByText("Bases retenues pour cette cotation").closest("summary")!;
+  expect(summary).toHaveTextContent(/45\s000 kg/);
+  expect(summary).toHaveTextContent(/12\s000 kg/);
+  expect(summary).toHaveTextContent("3 × 40HC");
+  expect(summary).not.toHaveTextContent("20GP");
+  expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();
+  expect(screen.getByRole("region", { name: "Poids et conteneurs enregistrés par lot" })).toHaveTextContent(/45\s000 kg/);
+});
+
+it("displays the same retained basis from the successful run before creating a version", () => {
+  render(<QuotationBasis context="Calcul n° 4" inputs={{ mode: "multi_lot" }} pricingRun={{
+    id: "run-4", inputs_json: { mode: "multi_lot" }, outputs_json: { multi_lot: true, lots: [{ lot_index: 1, label: "Lot révisé" }] },
+    engine_request: { mode: "multi_lot", lots: [{ lot_index: 1, params: { cargoWeight: 45, containers: [{ type: "40HC", quantity: 3 }] } }] },
+  }} />);
+  expect(screen.getByRole("region", { name: "Poids et conteneurs enregistrés par lot" })).toHaveTextContent(/45\s000 kg/);
+  expect(screen.getByRole("region", { name: "Poids et conteneurs enregistrés par lot" })).toHaveTextContent("3 × 40HC");
+});
+
+it("signals invalid new saved bases without presenting the old global as replacement", () => {
+  render(<QuotationBasis context="Version endommagée" inputs={{ cargo_weight: 36, cargo_basis: null }} />);
+  expect(screen.getByRole("alert")).toHaveTextContent("Bases de poids indisponibles");
+  expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();
+});
+
+it("keeps adopted operator run aggregates out of the per-lot cargo block", () => {
+  render(<QuotationBasis context="Calcul adopté" inputs={{ origin: "Dakar" }} pricingRun={{ engine_request: { cargoWeight: 57 }, outputs_json: { operator_basis: {
+    schema_version: 1, title: "Scénario", revision_no: 1, calculated_at: "2026-10-08T00:00:00Z", source_run_id: "scenario-run", scope_hash: "a".repeat(64), scope: { cargo_units: [] }, assumptions: [], overlay: [], reservations: [], open_points: [],
+  } } }} />);
+  expect(screen.queryByRole("region", { name: "Poids et conteneurs enregistrés par lot" })).toBeNull();
+  expect(screen.queryByText(/57\s000 kg/)).toBeNull();
+});
+it("rejects an empty saved run block before both digest and detail can use old globals", () => {
+  render(<QuotationBasis context="Version vide" inputs={{ cargo_weight: 36, containers: [{type:"20GP",quantity:1}], cargo_basis: {schema_version:1,source:"pricing_run",source_id:"run",lots:[]} }} />);
+  expect(screen.getByRole("alert")).toHaveTextContent("Bases de poids indisponibles");
+  expect(screen.getByText("Bases retenues pour cette cotation").closest("summary")).not.toHaveTextContent("20GP");
+  expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();
+});

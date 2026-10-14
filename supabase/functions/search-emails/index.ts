@@ -1,29 +1,18 @@
+import { ImapByteReader, readImapHeaders } from "../_shared/imap-headers.ts";
+import { readMailboxSecret, quoteImapString } from "../_shared/mailbox-secret.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { imapAccountKey } from "../_shared/imap-import-identity.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
+import {
+  boundedSearchLimit, decodeSearchHeader as decodeHeader, findDecodedSubjectUids,
+  parseSearchUids, requireImapCommandOk, searchFetchMessages,
+} from "../_shared/imap-subject-search.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Decode MIME encoded headers
-function decodeHeader(text: string): string {
-  return text.replace(/=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi, (_: string, charset: string, encoding: string, content: string) => {
-    try {
-      if (encoding.toUpperCase() === 'B') {
-        const decoded = atob(content);
-        return new TextDecoder(charset).decode(new Uint8Array([...decoded].map(c => c.charCodeAt(0))));
-      } else {
-        return content
-          .replace(/_/g, ' ')
-          .replace(/=([0-9A-F]{2})/gi, (_m: string, hex: string) => String.fromCharCode(parseInt(hex, 16)));
-      }
-    } catch {
-      return content;
-    }
-  });
-}
 
 // Parse email date
 function parseEmailDate(dateStr: string): string {
@@ -208,12 +197,13 @@ function normalizeSubject(subject: string): string {
 }
 
 // Simple IMAP client for search
-class IMAPSearchClient {
+export class IMAPSearchClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
   private encoder = new TextEncoder();
-  private decoder = new TextDecoder();
+  private reader = new ImapByteReader(buffer => this.conn!.read(buffer));
   private tagCounter = 0;
-  private buffer = "";
+  uidValidity: number | null = null;
+
 
   constructor(
     private host: string,
@@ -231,52 +221,9 @@ class IMAPSearchClient {
     await this.startTls();
   }
 
-  private async readLine(): Promise<string> {
-    const buf = new Uint8Array(4096);
-    let result = this.buffer;
-    while (!result.includes('\r\n')) {
-      const n = await this.conn!.read(buf);
-      if (n === null) break;
-      result += this.decoder.decode(buf.subarray(0, n));
-    }
-    const idx = result.indexOf('\r\n');
-    if (idx >= 0) {
-      this.buffer = result.substring(idx + 2);
-      return result.substring(0, idx);
-    }
-    this.buffer = "";
-    return result;
-  }
+  private async readLine(): Promise<string> { return await this.reader.readLine(); }
 
-  private async readBytes(count: number): Promise<Uint8Array> {
-    const chunks: Uint8Array[] = [];
-    let totalRead = 0;
-
-    // Use any buffered data first
-    if (this.buffer.length > 0) {
-      const bufferedBytes = new TextEncoder().encode(this.buffer);
-      const toUse = Math.min(bufferedBytes.length, count);
-      chunks.push(bufferedBytes.subarray(0, toUse));
-      totalRead += toUse;
-      this.buffer = this.buffer.substring(toUse);
-    }
-
-    while (totalRead < count) {
-      const buf = new Uint8Array(Math.min(8192, count - totalRead));
-      const n = await this.conn!.read(buf);
-      if (n === null) break;
-      chunks.push(buf.subarray(0, n));
-      totalRead += n;
-    }
-
-    const result = new Uint8Array(totalRead);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return result;
-  }
+  private async readBytes(count: number): Promise<Uint8Array> { return await this.reader.readBytes(count); }
 
   private async readUntilTag(tag: string): Promise<string> {
     let result = "";
@@ -293,7 +240,7 @@ class IMAPSearchClient {
         result += new TextDecoder().decode(literalBytes);
       }
 
-      if (line.startsWith(`${tag} OK`) || line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) break;
+      if (new RegExp(`^${tag} (?:OK|NO|BAD)(?:\\s|$)`, "i").test(line)) break;
     }
     return result;
   }
@@ -329,7 +276,7 @@ class IMAPSearchClient {
         const response = await this.readUntilTag(tag);
         if (!response.includes(`${tag} OK`)) throw new Error("STARTTLS failed");
         
-        this.buffer = "";
+        this.reader.clear();
         const tcpConn = this.conn as Deno.TcpConn;
         this.conn = await Deno.startTls(tcpConn, { hostname: serverName });
         
@@ -342,7 +289,7 @@ class IMAPSearchClient {
         console.error(`TLS failed for ${serverName}:`, e);
         // Reconnect for next attempt
         try { this.conn?.close(); } catch { /* ignore */ }
-        this.buffer = "";
+        this.reader.clear();
         this.conn = await Deno.connect({ hostname: this.host, port: 143 });
         await this.readLine();
       }
@@ -351,25 +298,34 @@ class IMAPSearchClient {
   }
 
   async login(username: string, password: string): Promise<boolean> {
-    const response = await this.sendCommand(`LOGIN "${username}" "${password}"`);
-    return response.includes("OK");
+    const response = await this.sendCommand(`LOGIN ${quoteImapString(username)} ${quoteImapString(password)}`);
+    requireImapCommandOk(response, "LOGIN");
+    return true;
   }
 
   async select(mailbox: string): Promise<number> {
-    const response = await this.sendCommand(`SELECT "${mailbox}"`);
+    // EXAMINE has SELECT's response shape while keeping mailbox state read-only.
+    const response = await this.sendCommand(`EXAMINE ${quoteImapString(mailbox)}`);
+    requireImapCommandOk(response, "EXAMINE");
     const match = response.match(/\* (\d+) EXISTS/);
-    return match ? parseInt(match[1]) : 0;
+    if (!match || !Number.isSafeInteger(Number(match[1]))) throw new Error("Réponse IMAP EXISTS invalide");
+    const validity = response.match(/\[UIDVALIDITY ([1-9]\d*)\]/i);
+    this.uidValidity = validity && Number.isSafeInteger(Number(validity[1])) ? Number(validity[1]) : null;
+    return Number(match[1]);
   }
 
   async search(criteria: string): Promise<number[]> {
     console.log(`Searching: ${criteria}`);
-    const response = await this.sendCommand(`SEARCH ${criteria}`);
-    const match = response.match(/\* SEARCH([\d\s]*)/);
-    if (!match) return [];
-    return match[1].trim().split(/\s+/).filter(Boolean).map(Number);
+    const charset = [...criteria].some(c => c.charCodeAt(0) > 127) ? "CHARSET UTF-8 " : "";
+    const response = await this.sendCommand(`UID SEARCH ${charset}${criteria}`);
+    return parseSearchUids(response);
   }
 
-  async fetchHeaders(seqNums: number[]): Promise<Array<{
+  async fetchSubjects(uids: number[]): Promise<Array<{ uid: number; subject: string }>> {
+    return (await this.fetchHeaders(uids, true)).map(({ uid, subject }) => ({ uid, subject }));
+  }
+
+  async fetchHeaders(uids: number[], subjectOnly = false): Promise<Array<{
     seq: number;
     uid: number;
     subject: string;
@@ -380,13 +336,16 @@ class IMAPSearchClient {
     references: string;
     attachments: Array<{ filename: string; contentType: string; size: number }>;
   }>> {
-    if (seqNums.length === 0) return [];
+    if (uids.length === 0) return [];
+    if (uids.some(uid => !Number.isSafeInteger(uid) || uid < 1)) throw new Error("UID IMAP invalide");
     
-    const range = seqNums.join(',');
+    const range = [...new Set(uids)].join(',');
     // Fetch headers AND BODYSTRUCTURE to get attachment info
+    const fields = subjectOnly ? "SUBJECT" : "FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO";
     const response = await this.sendCommand(
-      `FETCH ${range} (UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)] BODYSTRUCTURE)`
+      `UID FETCH ${range} (UID BODY.PEEK[HEADER.FIELDS (${fields})]${subjectOnly ? "" : " BODYSTRUCTURE"})`
     );
+    requireImapCommandOk(response, "FETCH");
     
     const messages: Array<{
       seq: number;
@@ -400,43 +359,15 @@ class IMAPSearchClient {
       attachments: Array<{ filename: string; contentType: string; size: number }>;
     }> = [];
 
-    // Split response by FETCH blocks
-    const fetchBlocks = response.split(/(?=\* \d+ FETCH)/);
-    
-    for (const block of fetchBlocks) {
-      if (!block.includes('FETCH')) continue;
-      
-      const seqMatch = block.match(/\* (\d+) FETCH/);
-      const uidMatch = block.match(/UID (\d+)/);
-      if (!seqMatch || !uidMatch) continue;
-      
-      const seq = parseInt(seqMatch[1]);
-      const uid = parseInt(uidMatch[1]);
-      
-      // Extract header block
-      const headerMatch = block.match(/BODY\[HEADER\.FIELDS[^\]]*\] \{(\d+)\}\r\n([\s\S]*?)(?=BODYSTRUCTURE|\)$)/i);
-      const headerBlock = headerMatch?.[2] || '';
-      
-      const subjectMatch = headerBlock.match(/Subject:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const fromMatch = headerBlock.match(/From:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const toMatch = headerBlock.match(/To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const dateMatch = headerBlock.match(/Date:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const messageIdMatch = headerBlock.match(/Message-ID:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const referencesMatch = headerBlock.match(/References:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const inReplyToMatch = headerBlock.match(/In-Reply-To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      
-      const subject = decodeHeader(subjectMatch?.[1]?.trim() || '(Sans sujet)');
-      let from = fromMatch?.[1]?.trim() || '';
-      const emailMatch = from.match(/<([^>]+)>/);
-      if (emailMatch) from = emailMatch[1];
-      
-      const to = (toMatch?.[1]?.trim() || '').split(',').map(e => {
-        const m = e.match(/<([^>]+)>/);
-        return m ? m[1].trim() : e.trim();
-      }).filter(e => e);
-      
+    for (const { seq, uid, headerResponse, metadata } of searchFetchMessages(response)) {
+      let subjectPresent = false;
+      const { subject, from, to, date, messageId, references } = readImapHeaders(headerResponse, uid, value => {
+        subjectPresent = true;
+        return decodeHeader(value);
+      });
+
       // Extract BODYSTRUCTURE using balanced parentheses
-      const bodyStructure = extractBodyStructure(block);
+      const bodyStructure = extractBodyStructure(metadata);
       const attachments = bodyStructure 
         ? parseAttachmentsFromBodyStructure(bodyStructure)
         : [];
@@ -444,17 +375,18 @@ class IMAPSearchClient {
       messages.push({
         seq,
         uid,
-        subject,
+        subject: subjectOnly && !subjectPresent ? "" : subject,
         from,
         to,
-        date: dateMatch?.[1]?.trim() || new Date().toISOString(),
-        messageId: messageIdMatch?.[1]?.trim() || `<${uid}@imported>`,
-        references: referencesMatch?.[1]?.trim() || inReplyToMatch?.[1]?.trim() || '',
+        date,
+        messageId,
+        references,
         attachments
       });
     }
     
-    return messages;
+    const requested = new Set(uids);
+    return [...new Map(messages.filter(m => requested.has(m.uid)).map(m => [m.uid, m])).values()];
   }
 
   // Search by Message-ID header
@@ -462,10 +394,7 @@ class IMAPSearchClient {
     // Clean up the message ID for searching
     const cleanId = messageId.replace(/^<|>$/g, '');
     console.log(`Searching for Message-ID: ${cleanId}`);
-    const response = await this.sendCommand(`SEARCH HEADER Message-ID "${cleanId}"`);
-    const match = response.match(/\* SEARCH([\d\s]*)/);
-    if (!match) return [];
-    return match[1].trim().split(/\s+/).filter(Boolean).map(Number);
+    return await this.search(`HEADER Message-ID ${quoteImapString(cleanId)}`);
   }
 
   async fetchBody(uid: number): Promise<{ text: string; html: string }> {
@@ -506,7 +435,7 @@ class IMAPSearchClient {
   }
 }
 
-serve(async (req) => {
+export const handler = async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -519,7 +448,8 @@ serve(async (req) => {
     if (auth instanceof Response) return auth;
 
     // Increased default limit from 30 to 200 for better thread coverage
-    const { configId, searchType, query, limit = 200, deepSearch = false, reconstructThread = false } = await req.json();
+    const { configId, searchType, query, limit: requestedLimit = 200, deepSearch = false, reconstructThread = false } = await req.json();
+    const limit = boundedSearchLimit(requestedLimit);
     
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -528,7 +458,7 @@ serve(async (req) => {
     // Get config
     const { data: config, error: configError } = await supabase
       .from('email_configs')
-      .select('*')
+      .select('id,name,host,port,username,folder,use_ssl,is_active,last_sync_at,created_at')
       .eq('id', configId)
       .single();
 
@@ -536,39 +466,44 @@ serve(async (req) => {
       throw new Error("Configuration email non trouvée");
     }
 
+    const imapPassword = await readMailboxSecret(supabase, config.id);
     client = new IMAPSearchClient(config.host, config.port);
     await client.connect();
     
-    const loggedIn = await client.login(config.username, config.password_encrypted);
+    const loggedIn = await client.login(config.username, imapPassword);
     if (!loggedIn) throw new Error("Échec de l'authentification IMAP");
 
     const mailbox = config.folder || 'INBOX';
-    await client.select(mailbox);
+    const mailboxSize = await client.select(mailbox);
+    const uidValidity = client.uidValidity;
 
     // Build search criteria - use OR for deep search to find related emails
     let criteria = 'ALL';
     if (searchType === 'subject' && query) {
       if (deepSearch) {
         // Deep search: OR subject, body, from
-        criteria = `OR OR SUBJECT "${query}" BODY "${query}" FROM "${query}"`;
+        criteria = `OR OR SUBJECT ${quoteImapString(query)} BODY ${quoteImapString(query)} FROM ${quoteImapString(query)}`;
       } else {
-        criteria = `SUBJECT "${query}"`;
+        criteria = `SUBJECT ${quoteImapString(query)}`;
       }
     } else if (searchType === 'from' && query) {
-      criteria = `FROM "${query}"`;
+      criteria = `FROM ${quoteImapString(query)}`;
     } else if (searchType === 'text' && query) {
-      criteria = `TEXT "${query}"`;
+      criteria = `TEXT ${quoteImapString(query)}`;
     }
 
-    // Search emails
-    const seqNums = await client.search(criteria);
-    console.log(`Found ${seqNums.length} matching emails on server`);
-
-    // Apply limit - take all if within limit, otherwise take most recent
-    const selectedSeqs = seqNums.length <= limit ? seqNums : seqNums.slice(-limit);
+    // Subject recovery stays within fixed header budgets, even if the normal search found replies.
+    const subjectResult = searchType === 'subject' && query
+      ? await findDecodedSubjectUids(client, query, mailboxSize, limit, deepSearch)
+      : null;
+    const uids = subjectResult ? subjectResult.uids : await client.search(criteria);
+    const totalFound = subjectResult ? subjectResult.totalFound : uids.length;
+    const selectedUids = uids.slice(-limit);
     
     // Fetch headers
-    const messages = await client.fetchHeaders(selectedSeqs);
+    const messages = await client.fetchHeaders(selectedUids);
+    let remainingHeaderBudget = limit - selectedUids.length;
+    let reconstructionTruncated = false;
     
     // Thread reconstruction by Message-ID/References
     if (reconstructThread && messages.length > 0) {
@@ -596,12 +531,20 @@ serve(async (req) => {
       
       // Search for each missing Message-ID
       let foundAdditional = 0;
-      for (const refId of referencedIds) {
+      const referenceList = [...referencedIds];
+      reconstructionTruncated = referenceList.length > 50;
+      for (const refId of referenceList.slice(0, 50)) {
+        const remaining = Math.min(limit - messages.length, remainingHeaderBudget);
+        if (remaining <= 0) { reconstructionTruncated = true; break; }
         try {
-          const refSeqs = await client.searchByMessageId(refId);
-          if (refSeqs.length > 0) {
-            console.log(`Found ${refSeqs.length} email(s) for Message-ID: ${refId}`);
-            const additionalMsgs = await client.fetchHeaders(refSeqs);
+          const refUids = await client.searchByMessageId(refId);
+          const existing = new Set(messages.map(m => m.uid));
+          const missingUids = refUids.filter(uid => !existing.has(uid));
+          if (missingUids.length > 0) {
+            reconstructionTruncated ||= missingUids.length > remaining;
+            const requestedUids = missingUids.slice(-remaining);
+            remainingHeaderBudget -= requestedUids.length;
+            const additionalMsgs = await client.fetchHeaders(requestedUids);
             
             // Add only if not already in our list (by UID to avoid duplicates)
             const existingUids = new Set(messages.map(m => m.uid));
@@ -615,6 +558,7 @@ serve(async (req) => {
           }
         } catch (e) {
           console.error(`Error searching for Message-ID ${refId}:`, e);
+          throw e;
         }
       }
       
@@ -693,10 +637,15 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        totalFound: seqNums.length,
-        selectedCount: selectedSeqs.length,
+        totalFound,
+        selectedCount: selectedUids.length,
         limitApplied: limit,
         deepSearchEnabled: deepSearch,
+        mailbox,
+        uidValidity,
+        accountKey: await imapAccountKey(config),
+        searchCoverage: subjectResult?.coverage ?? null,
+        reconstructionTruncated,
         threads: threadList
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -715,4 +664,5 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+};
+if (Deno.env.get("MAIL_FUNCTION_DISABLE_SERVE") !== "1") serve(handler);

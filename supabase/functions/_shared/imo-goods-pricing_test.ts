@@ -186,7 +186,7 @@ Deno.test("IMO groups engine: invalid or conflicting plan rejected before any DB
 });
 Deno.test("IMO groups wiring: fresh evidence guard before status mutation, one engine and scoped fee override", () => {
   const pricing = Deno.readTextFileSync(new URL("../run-pricing/index.ts", import.meta.url));
-  assert(pricing.indexOf("const goodsAssessment") < pricing.indexOf("const { data: blockingGapsRows }"));
+  assert(pricing.indexOf("const goodsAssessment") < pricing.indexOf("const { data: blockingGapsRows,"));
   assert(pricing.includes("imoGoodsPlan: inputs.imoGoodsPlan"));
   assert(pricing.includes("imo_facts: imoGoodsFeeFacts(inputs.imoGoodsPlan)"));
   assert(pricing.includes("sk !== 'DTHC'"));

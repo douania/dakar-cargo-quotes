@@ -8,6 +8,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { normalizeOperatorCargoFactWrite, OPERATOR_CARGO_FACT_KEYS } from "../_shared/operator-cargo-fact-write.ts";
 import { getCorrelationId, respondOk, respondError, logRuntimeEvent } from "../_shared/runtime.ts";
 import {
   normalizeTerminalOperationFactWrite,
@@ -33,6 +34,7 @@ const DTHC_FAMILY_FACT_KEY = "pricing.dthc_family";
 
 // ── Strict whitelist ──
 const ALLOWED_FACT_KEYS = new Set([
+  ...OPERATOR_CARGO_FACT_KEYS,
   "client.code",
   "cargo.caf_value",
   "cargo.freight_cost",
@@ -112,7 +114,8 @@ Deno.serve(async (req) => {
   try {
     // 3. Parse & validate body
     const body = await req.json();
-    const { case_id, fact_key, value_text, value_number, value_json } = body;
+    const { case_id, fact_key } = body;
+    let { value_text, value_number, value_json } = body;
 
     if (!case_id || !fact_key) {
       const resp = respondError({
@@ -141,6 +144,15 @@ Deno.serve(async (req) => {
         httpStatus: 400, durationMs: Date.now() - startMs,
       });
       return resp;
+    }
+
+    // STRUCTURAL_PATCH_ALLOWED (local GO 2026-10-10): only the three missing operator keys.
+    if (OPERATOR_CARGO_FACT_KEYS.has(fact_key)) {
+      const normalized = normalizeOperatorCargoFactWrite(fact_key, { value_text, value_number, value_json });
+      if (normalized.ok === false) {
+        return respondError({ code: "VALIDATION_FAILED", message: normalized.message, correlationId });
+      }
+      ({ value_text, value_number, value_json } = normalized.value);
     }
 
     // TERMINAL-GAP: payload textuel unique, validé et canonicalisé AVANT le RPC.

@@ -4,6 +4,7 @@ import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { deriveConsigneeDocumentRequest, deriveRequestServiceEvidence, documentVerificationAction, readServiceScopeEvent } from '../_shared/request-service-evidence.ts';
 
 // ── System prompt: strict business-scope detection ──
 const SYSTEM_PROMPT = `Tu es un expert en logistique internationale spécialisé dans le transit au port de Dakar (Sénégal).
@@ -71,6 +72,7 @@ const TARGET_FACT_KEYS = [
   "cargo.pieces_count",
   "cargo.description",
   "service.package",
+  "service.overrides",
   "contacts.client_company",
   "contacts.client_email",
 ];
@@ -94,6 +96,8 @@ const FACT_LABELS: Record<string, string> = {
 };
 
 type QuoteFact = {
+  id?: string;
+  is_validated?: boolean;
   fact_key: string;
   value_text: string | null;
   value_number: number | null;
@@ -151,7 +155,7 @@ function subjectMentionsPeking(subject: string | null): boolean {
     || normalized.includes("dakar a pekin");
 }
 
-serve(async (req: Request) => {
+export const analyzeServiceScopeHandler = async (req: Request) => {
   const corsResp = handleCors(req);
   if (corsResp) return corsResp;
 
@@ -180,7 +184,7 @@ serve(async (req: Request) => {
     // 1. Resolve thread from quote_case
     const { data: quoteCase, error: caseErr } = await userClient
       .from("quote_cases")
-      .select("id, thread_id")
+      .select("id, thread_id, email_threads(client_email)")
       .eq("id", case_id)
       .maybeSingle();
 
@@ -190,7 +194,7 @@ serve(async (req: Request) => {
 
     const { data: quoteFacts, error: factsErr } = await userClient
       .from("quote_facts")
-      .select("fact_key, value_text, value_number, value_json, source_type, source_excerpt")
+      .select("id, fact_key, value_text, value_number, value_json, source_type, source_excerpt, is_validated")
       .eq("case_id", case_id)
       .eq("is_current", true)
       .in("fact_key", TARGET_FACT_KEYS);
@@ -211,10 +215,10 @@ serve(async (req: Request) => {
     // 2. Fetch emails from thread (most recent first)
     const { data: emails, error: emailsErr } = await userClient
       .from("emails")
-      .select("id, subject, body_text, sent_at")
+      .select("id, from_address, subject, body_text, sent_at")
       .eq("thread_ref", quoteCase.thread_id)
       .order("sent_at", { ascending: false })
-      .limit(5);
+      .limit(50);
 
     if (emailsErr || !emails?.length) {
       return errorResponse("No emails found for this thread", 404);
@@ -222,6 +226,86 @@ serve(async (req: Request) => {
 
     const latestEmail = emails[0];
     const latestEmailId = latestEmail.id;
+    // Existing scope/reasoning/manual-action contracts; no fact, tariff or workflow mutation.
+    const thread = quoteCase.email_threads as unknown as { client_email?: string } | null;
+    const externalAddresses = [factsByKey.get('contacts.client_email') ?? '', thread?.client_email ?? ''];
+    // Read human authority before any deterministic or AI fallback, including
+    // when protected facts make the destination interpretation inapplicable.
+    const { data: operatorScope, error: operatorScopeError } = await serviceClient.from('case_timeline_events')
+      .select('id, event_data, related_email_id').eq('case_id', case_id)
+      .eq('event_type', 'service_scope_v1').eq('actor_type', 'operator')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (operatorScopeError) return errorResponse('Failed to load operator scope', 500);
+    const retainedScope = operatorScope ? readServiceScopeEvent(operatorScope.event_data) : null;
+    if (operatorScope && !retainedScope) return errorResponse('Invalid operator scope; review required', 409);
+    const requestEvidence = emails.length < 50
+      ? deriveRequestServiceEvidence(emails, quoteFacts ?? [], externalAddresses)
+      : null; // A truncated thread cannot establish the current request.
+    if (requestEvidence || operatorScope) {
+      const { data: timeline, error: timelineError, count } = await serviceClient.from('case_timeline_events')
+        .select('id, event_type, actor_type, related_email_id, event_data', { count: 'exact' })
+        .eq('case_id', case_id).in('event_type', ['service_scope_v1', 'case_reasoning_v1', 'manual_action'])
+        .order('created_at', { ascending: false }).limit(200);
+      if (timelineError || !Array.isArray(timeline) || count !== timeline.length) {
+        return errorResponse('Failed to load complete scope/action history', 500);
+      }
+      const documentRequest = emails.length < 50
+        ? requestEvidence?.document_request ?? deriveConsigneeDocumentRequest(emails, externalAddresses)
+        : null;
+      const documentAction = documentRequest
+        ? documentVerificationAction(case_id, documentRequest, timeline)
+        : null;
+      if (operatorScope) {
+        if (documentAction) {
+          const { error } = await serviceClient.from('case_timeline_events').insert(documentAction);
+          if (error) return errorResponse(`Failed to record consignee document action: ${error.message}`, 500);
+        }
+        const retainedReasoning = timeline.find(e => e.event_type === 'case_reasoning_v1' && e.related_email_id === operatorScope.related_email_id);
+        return jsonResponse({ ok: true, idempotent: !documentAction, case_id, scope: retainedScope,
+          reasoning: retainedReasoning?.event_data ?? null, request_proposal: requestEvidence,
+          created: documentAction ? ['manual_action'] : [], operator_scope_preserved: true });
+      }
+      if (!requestEvidence) return errorResponse('Current request evidence unavailable', 409);
+      const scope = {
+        shipment_type: 'import', freight_scope: requestEvidence.freight_scope,
+        freight_scope_basis: requestEvidence.freight_scope_basis, customs_scope: requestEvidence.services.some(s => s.service === 'CUSTOMS_DAKAR'), transit_scope: false,
+        document_scope: !!requestEvidence.document_request, confidence: requestEvidence.mode === 'conflicting' ? 'low' : 'high',
+        signals: ['Interprétation sourcée du périmètre destination ; aucune exclusion contractuelle inventée'],
+        request_evidence: requestEvidence,
+      };
+      const reasoning = {
+        summary: 'Prestations destination déduites de la demande du partenaire à l’origine',
+        services_expected: requestEvidence.services.map(s => s.service),
+        service_evidence: requestEvidence.services,
+        blocking_assumptions: ['Interprétation de la demande, pas validation de conformité ni exclusion contractuelle'],
+        questions_to_confirm: requestEvidence.mode === 'conflicting' ? ['Demandes de services contradictoires dans le même message : revue opérateur'] : [],
+        confidence: requestEvidence.mode === 'conflicting' ? 'low' : 'high',
+        document_request: requestEvidence.document_request,
+      };
+      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify({ scope, reasoning }))))]
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const key = `request-service-evidence:${case_id}:${digest}`;
+      const created: string[] = [];
+      const proposed = [
+        { event_type: 'service_scope_v1', event_data: scope },
+        { event_type: 'case_reasoning_v1', event_data: reasoning },
+      ];
+      for (const event of proposed) {
+        if (timeline.some(e => e.event_type === event.event_type && e.event_data?.dedupe_key === key)) continue;
+        const { error } = await serviceClient.from('case_timeline_events').insert({ case_id,
+          ...event, actor_type: 'system', related_email_id: requestEvidence.source_email_id,
+          event_data: { ...event.event_data, dedupe_key: key, model_meta: { model: 'deterministic', version: 'request-service-evidence-v1' } },
+        });
+        if (error) return errorResponse(`Failed to record ${event.event_type}: ${error.message}`, 500);
+        created.push(event.event_type);
+      }
+      if (documentAction) {
+        const { error } = await serviceClient.from('case_timeline_events').insert(documentAction);
+        if (error) return errorResponse(`Failed to record consignee document action: ${error.message}`, 500);
+        created.push('manual_action');
+      }
+      return jsonResponse({ ok: true, idempotent: created.length === 0, case_id, scope, reasoning, created, interpretation: true });
+    }
     const originCountry = factsByKey.get("routing.origin_country") ?? "";
     const originPort = factsByKey.get("routing.origin_port") ?? factsByKey.get("routing.origin_airport") ?? "";
     const destinationCountry = factsByKey.get("routing.destination_country") ?? "";
@@ -388,4 +472,5 @@ serve(async (req: Request) => {
     console.error("[analyze-service-scope] Unexpected error:", (err as Error).message);
     return errorResponse("Internal server error", 500);
   }
-});
+};
+if (Deno.env.get('ANALYZE_SERVICE_SCOPE_DISABLE_SERVE') !== '1') serve(analyzeServiceScopeHandler);

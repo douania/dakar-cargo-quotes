@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 /**
  * Phase M2.3 — suggest-historical-lines
  *
@@ -181,6 +182,9 @@ Deno.serve(async (req: Request) => {
         });
         return respondError({ code: "AUTH_INVALID_JWT", message: "Invalid or expired JWT", correlationId });
       }
+
+      const admission = await requireWorkspaceToken(token);
+      if (admission instanceof Response) return admission;
 
       userId = claimsData.claims.sub as string;
     }

@@ -131,9 +131,14 @@ export async function searchEmails(configId: string, searchType: string, query: 
   return data;
 }
 
-export async function importThread(configId: string, uids: number[], threadKey?: string) {
+export interface ImportSearchIdentity {
+  configId: string; mailbox: string; uidValidity: number; accountKey: string;
+  messages: Array<{ uid: number; messageId: string }>;
+}
+
+export async function importThread(configId: string, uids: number[], threadKey?: string, searchIdentity?: ImportSearchIdentity) {
   const { data, error } = await supabase.functions.invoke('import-thread', {
-    body: { configId, uids, learningCase: 'quotation', threadKey },
+    body: { configId, uids, learningCase: 'quotation', threadKey, searchIdentity },
   });
   
   if (error) throw error;
@@ -355,7 +360,8 @@ export interface QuotationProcessResult {
 export async function processQuotationRequest(
   configId: string, 
   uids: number[],
-  threadKey?: string
+  threadKey?: string,
+  searchIdentity?: ImportSearchIdentity
 ): Promise<QuotationProcessResult> {
   // Step 1: Import ALL emails via batching loop (P0-A)
   const MAX_IMPORT_ITERATIONS = 20;
@@ -371,7 +377,7 @@ export async function processQuotationRequest(
     }
 
     const prevCount = currentUids.length;
-    const importResult = await importThread(configId, currentUids, threadKey);
+    const importResult = await importThread(configId, currentUids, threadKey, searchIdentity);
     
     const batchEmails = importResult.emails || [];
     allImportedEmails.push(...batchEmails);

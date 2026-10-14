@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { PARTIAL_CUSTOMS_GAP_KEYS } from './partial-destination-quote.ts';
 import {
   IMO_GOODS_GAP, imoGoodsEvidenceId, imoGoodsQuestion, recognizeImoGoods, syncImoGoodsRecognition,
   type ImoGoodsAssessment, type ImoGoodsSource, type ImoGoodsStore,
@@ -234,6 +235,8 @@ Deno.test("IMO goods wiring: recognized groups cannot enter legacy facts or mult
   assert(code.includes("IMO_GOODS_GAP, // recognition scope guard"));
   assert(code.includes("imo_goods_assessment: imoGoodsAssessment"));
   const pricing = Deno.readTextFileSync(new URL("../run-pricing/index.ts", import.meta.url));
-  assert(pricing.includes('blockingGapsRows!.every((g: any) => g.gap_key === "cargo.value")'));
+  assert(pricing.includes('blockingGapsRows!.every((g: any) => g.gap_key === "cargo.value" ||'));
+  assert(pricing.includes('partialDestination && PARTIAL_CUSTOMS_GAP_KEYS.has(g.gap_key)'));
   assertEquals(["cargo.value"].includes(IMO_GOODS_GAP), false); // provisional pricing cannot bypass this guard
+  assertEquals(PARTIAL_CUSTOMS_GAP_KEYS.has(IMO_GOODS_GAP), false);
 });

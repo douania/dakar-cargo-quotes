@@ -9,12 +9,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { parseServiceScopeEvent } from '@/lib/serviceScopeEvent';
 
 export interface ServiceScope {
   freightScope: boolean | null;
   customsScope: boolean | null;
   transitScope: boolean | null;
   documentScope: boolean | null;
+  freightScopeBasis?: string;
 }
 
 export function useServiceScope(caseId: string | undefined) {
@@ -34,19 +36,7 @@ export function useServiceScope(caseId: string | undefined) {
       if (error) throw error;
       if (!data?.event_data) return null;
 
-      const ed = data.event_data as Record<string, unknown>;
-      const scope = ed?.["scope"] as Record<string, unknown> | undefined;
-      if (!scope) return null;
-
-      const toBoolOrNull = (v: unknown): boolean | null =>
-        typeof v === "boolean" ? v : null;
-
-      return {
-        freightScope: toBoolOrNull(scope["freight_scope"]),
-        customsScope: toBoolOrNull(scope["customs_scope"]),
-        transitScope: toBoolOrNull(scope["transit_scope"]),
-        documentScope: toBoolOrNull(scope["document_scope"]),
-      };
+      return parseServiceScopeEvent(data.event_data);
     },
   });
 }

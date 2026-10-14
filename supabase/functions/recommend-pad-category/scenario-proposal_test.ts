@@ -148,6 +148,7 @@ async function withTransport(options: Options, check: (invoke: (body: Row, auth?
       if (url.origin === origin && req.method === "GET") {
         assertEquals(req.headers.get("Authorization"), "Bearer synthetic-user");
         assertEquals(req.headers.get("apikey"), "synthetic-anon");
+        if (url.pathname === "/rest/v1/rpc/has_workspace_access") return reply(true);
         if (url.pathname === "/auth/v1/user") return options.invalidAuth ? reply({}, 401) : reply({ id: CASE, aud: "authenticated" });
         if (url.pathname === "/rest/v1/quote_cases") { assertEquals(url.searchParams.get("id"), `eq.${CASE}`); return reply(options.invisible ? null : { id: CASE, thread_id: "thread", request_type: "IMPORT" }); }
         if (url.pathname === "/rest/v1/email_threads") { assertEquals(url.searchParams.get("id"), "eq.thread"); return reply({ client_email: "threadClient" in options ? options.threadClient : CLIENT }); }

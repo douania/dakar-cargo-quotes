@@ -49,7 +49,7 @@ export async function requireUser(req: Request): Promise<AuthResult | Response> 
     );
   }
 
-  return { user, token };
+  return await requireWorkspaceAccess({ user, token });
 }
 
 /**
@@ -77,4 +77,31 @@ export async function requireAdmin(req: Request): Promise<AuthResult | Response>
   }
 
   return auth;
+}
+
+/** Explicit admission to the shared internal workspace, checked with the user JWT.
+ * Never elevate to service_role until this returns AuthResult.
+ */
+export async function requireWorkspaceAccess(auth: AuthResult): Promise<AuthResult | Response> {
+  return await requireWorkspaceToken(auth.token) ?? auth;
+}
+
+/** For existing inline JWT guards; identity validation remains at their entrypoint. */
+export async function requireWorkspaceToken(token: string): Promise<Response | null> {
+  try {
+    const client = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+    const { data, error } = await client.rpc("has_workspace_access", {}, { get: true });
+    if (error) throw new Error();
+    if (data === true) return null;
+    return new Response(JSON.stringify({ error: "Forbidden: internal workspace access required" }), {
+      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch {
+    return new Response(JSON.stringify({ error: "Workspace authorization unavailable" }), {
+      status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 }

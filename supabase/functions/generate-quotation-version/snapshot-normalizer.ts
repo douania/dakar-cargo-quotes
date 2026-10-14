@@ -32,6 +32,7 @@
  * Module isolé (sans Deno.serve, sans import jsr/supabase) pour tests unitaires.
  */
 
+import { isToConfirmLine } from '../_shared/quotation-line-status.ts';
 type AnyRecord = Record<string, unknown>;
 
 export interface SnapshotInputsBlock {
@@ -49,7 +50,7 @@ export interface SnapshotClientBlock {
 }
 
 export interface NormalizedLinePricing {
-  quantity: number;
+  quantity: number | null;
   unit_price: number;
   amount: number;
 }
@@ -206,7 +207,7 @@ export function resolveSnapshotClient(
 export function normalizeLinePricing(line: unknown): NormalizedLinePricing {
   const src: AnyRecord = isRecord(line) ? line : {};
 
-  const quantity = toFiniteNumber(src.quantity) ?? 1;
+  const quantity = src.quantity === null && isToConfirmLine(src) ? null : toFiniteNumber(src.quantity) ?? 1;
   const amount = toFiniteNumber(src.amount) ?? toFiniteNumber(src.total) ?? 0;
 
   const explicitUnitPrice = toFiniteNumber(src.unitPrice) ??
@@ -216,7 +217,7 @@ export function normalizeLinePricing(line: unknown): NormalizedLinePricing {
   let unit_price: number;
   if (explicitUnitPrice !== null) {
     unit_price = explicitUnitPrice;
-  } else if (quantity > 0) {
+  } else if (quantity !== null && quantity > 0) {
     unit_price = amount / quantity;
   } else {
     unit_price = 0;

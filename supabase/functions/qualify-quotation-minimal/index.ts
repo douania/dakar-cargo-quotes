@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 /**
  * Phase 8.8 — Edge Function de qualification minimale
  * 
@@ -148,6 +149,9 @@ serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    const admission = await requireWorkspaceToken(token);
+    if (admission instanceof Response) return admission;
 
     const { thread_id } = await req.json();
 

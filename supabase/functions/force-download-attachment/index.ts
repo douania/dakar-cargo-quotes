@@ -1,3 +1,4 @@
+import { readMailboxSecret, quoteImapString } from "../_shared/mailbox-secret.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
@@ -363,7 +364,7 @@ class IMAPClient {
   }
 
   async login(username: string, password: string): Promise<boolean> {
-    const response = await this.sendCommand(`LOGIN "${username}" "${password}"`);
+    const response = await this.sendCommand(`LOGIN ${quoteImapString(username)} ${quoteImapString(password)}`);
     return response.includes("OK");
   }
 
@@ -448,7 +449,7 @@ class IMAPClient {
   }
 }
 
-serve(async (req) => {
+export const handler = async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -481,7 +482,7 @@ serve(async (req) => {
         emails!inner (
           id, message_id,
           email_configs!inner (
-            id, host, username, password_encrypted, folder
+            id, host, username, folder
           )
         )
       `)
@@ -510,10 +511,11 @@ serve(async (req) => {
     console.log(`Connecting to ${config.host} as ${config.username}...`);
     
     // Connect to IMAP
+    const imapPassword = await readMailboxSecret(supabase, config.id);
     const client = new IMAPClient(config.host);
     await client.connect();
     
-    const loggedIn = await client.login(config.username, config.password_encrypted);
+    const loggedIn = await client.login(config.username, imapPassword);
     if (!loggedIn) {
       client.close();
       return new Response(
@@ -632,4 +634,5 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
-});
+};
+if (Deno.env.get("MAIL_FUNCTION_DISABLE_SERVE") !== "1") serve(handler);

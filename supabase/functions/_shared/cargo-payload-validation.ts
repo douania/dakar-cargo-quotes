@@ -31,7 +31,8 @@ export const EQUIPMENT_STATUS_WHITELIST = new Set([
   "confirmed",
   "superseded",
 ]);
-export const CURRENCY_WHITELIST = new Set(["XOF", "FCFA", "CFA", "EUR", "USD"]);
+import { CURRENCY_WHITELIST } from "./cargo-currency-codes.ts";
+export { CURRENCY_WHITELIST } from "./cargo-currency-codes.ts";
 
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -1,3 +1,5 @@
+import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
+import { requireWorkspaceAccess } from "../_shared/auth.ts";
 /**
  * Phase A1: build-case-puzzle
  * Analyzes thread emails/attachments and populates facts/gaps
@@ -958,6 +960,12 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'fournisseur': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
   'devise': { factKey: 'cargo.value_currency', category: 'cargo', valueType: 'text' },
   // Variantes de clés produites par analyze-attachments (COMPOSITE-DOC-1 / patch build-case-puzzle)
+  'total_cartons': { factKey: 'cargo.pieces_count', category: 'cargo', valueType: 'number' },
+  'total_gross_weight_kg': { factKey: 'cargo.weight_kg', category: 'cargo', valueType: 'number' },
+  'gross_weight_kg': { factKey: 'cargo.weight_kg', category: 'cargo', valueType: 'number' },
+  'total_net_weight_kg': { factKey: 'cargo.weight_net_kg', category: 'cargo', valueType: 'number' },
+  'net_weight_kg': { factKey: 'cargo.weight_net_kg', category: 'cargo', valueType: 'number' },
+  'incoterms': { factKey: 'routing.incoterm', category: 'routing', valueType: 'text' },
   'total_weight_kg': { factKey: 'cargo.weight_kg', category: 'cargo', valueType: 'number' },
   'vessel_name': { factKey: 'transport.vessel', category: 'transport', valueType: 'text' },
   'bl_number': { factKey: 'transport.bl_number', category: 'transport', valueType: 'text' },
@@ -1036,6 +1044,7 @@ const DOC_TYPE_PRIORITY: Record<string, string[]> = {
   'transport.vessel':          ['bill_of_lading', 'transit_order'],
   'transport.bl_number':       ['bill_of_lading', 'transit_order'],
   'cargo.weight_kg':           ['packing_list', 'bill_of_lading', 'transit_order'],
+  'cargo.weight_net_kg':       ['packing_list', 'bill_of_lading', 'transit_order'],
   'cargo.pieces_count':        ['packing_list', 'bill_of_lading', 'transit_order'],
   'contacts.shipper':          ['bill_of_lading', 'commercial_invoice'],
   'contacts.client_company':   ['commercial_invoice', 'transit_order'],
@@ -4369,10 +4378,11 @@ function parseRobustNumber(raw: string): number | null {
   return isNaN(num) ? null : num;
 }
 
-async function injectAttachmentFacts(
+export async function injectAttachmentFacts(
   caseId: string,
   serviceClient: any,
-  emailIds: string[]
+  emailIds: string[],
+  emails: Array<{ id: string; body_text?: string | null }> = []
 ): Promise<{ added: number; updated: number; skipped: number }> {
   const result = { added: 0, updated: 0, skipped: 0 };
 
@@ -4390,14 +4400,14 @@ async function injectAttachmentFacts(
   // 2. CTO Adjustment #1: Read existing facts from DB (not from LLM output)
   const { data: existingFacts } = await serviceClient
     .from('quote_facts')
-    .select('fact_key, source_type')
+    .select('fact_key, source_type, is_validated, confidence, value_text, value_number, value_json, source_email_id, source_attachment_id')
     .eq('case_id', caseId)
     .eq('is_current', true);
 
   const factSourceMap = new Map<string, string>();
   if (existingFacts) {
     for (const f of existingFacts) {
-      factSourceMap.set(f.fact_key, f.source_type);
+      factSourceMap.set(f.fact_key, f.is_validated || f.source_type === 'operator_correction' ? 'operator' : f.source_type);
     }
   }
 
@@ -4418,10 +4428,14 @@ async function injectAttachmentFacts(
       // Walk priority list: first doc_type with a valid value wins
       let bestValue: string | number | null = null;
       let bestDocType: string | null = null;
+      let bestSourceField: string | null = null;
+      let bestConfidence: number | null = null;
 
       for (const preferredDocType of priorityList) {
         const doc = documents.find((d: any) => d?.doc_type === preferredDocType);
         if (!doc) continue;
+
+        if (documentCargoEvidence(attachment.extracted_data).nonCommercial && ['cargo.value', 'cargo.value_currency'].includes(targetFactKey)) continue;
 
         // Financial facts: scan tariff_lines inside the sub-document
         if (['cargo.value', 'cargo.value_currency', 'cargo.freight_cost', 'cargo.freight_currency'].includes(targetFactKey)) {
@@ -4461,14 +4475,20 @@ async function injectAttachmentFacts(
           if (!mapping || mapping.factKey !== targetFactKey) continue;
 
           if (mapping.valueType === 'number') {
-            const num = typeof rawVal === 'number' ? rawVal : parseRobustNumber(String(rawVal));
-            if (num != null && num > 0) { bestValue = num; bestDocType = preferredDocType; break; }
+            const num = ['cargo.weight_kg', 'cargo.weight_net_kg'].includes(targetFactKey) ? declaredWeightKg(rawVal, /kg$/i.test(normKey)) : sourceNumber(rawVal);
+            if (num != null && num > 0 && (targetFactKey !== 'cargo.pieces_count' || Number.isInteger(num))) { bestValue = num; bestDocType = preferredDocType; bestSourceField = rawKey; break; }
           } else {
             const txt = String(Array.isArray(rawVal) ? (rawVal as any[]).join(', ') : rawVal).trim();
-            if (txt) { bestValue = txt; bestDocType = preferredDocType; break; }
+            if (txt) { bestValue = txt; bestDocType = preferredDocType; bestSourceField = rawKey; break; }
           }
         }
         if (bestValue != null) break;
+      }
+
+      if (bestDocType) {
+        const doc = documents.find((d: { doc_type?: string }) => d?.doc_type === bestDocType);
+        bestConfidence = sourceConfidence(attachment.extracted_data, doc);
+        bestSourceField ??= 'tariff_lines';
       }
 
       // --- CLIENT-COMPANY-GUARD: reject SODATRA in composite-doc flow ---
@@ -4495,8 +4515,8 @@ async function injectAttachmentFacts(
         p_source_type: 'attachment_extracted',
         p_source_email_id: attachment.email_id || null,
         p_source_attachment_id: attachment.id,
-        p_source_excerpt: `[COMPOSITE-DOC-2][${bestDocType}][${attachment.filename}] ${targetFactKey}`,
-        p_confidence: 0.95,
+        p_source_excerpt: `[COMPOSITE-DOC-2][${bestDocType}][${attachment.filename}] ${bestSourceField}: ${bestValue}${['cargo.weight_kg', 'cargo.weight_net_kg'].includes(targetFactKey) ? ' kg' : ''}`,
+        p_confidence: bestConfidence,
       });
 
       if (!rpcErr) {
@@ -4505,7 +4525,7 @@ async function injectAttachmentFacts(
         result.added++;
         console.log(`[COMPOSITE-DOC-2] Injected ${targetFactKey} from ${bestDocType} in ${attachment.filename}`);
       } else {
-        console.error(`[COMPOSITE-DOC-2] Failed ${targetFactKey} from ${bestDocType}:`, rpcErr);
+        throw new Error(`Attachment fact ${targetFactKey} could not be recorded: ${rpcErr.message}`);
       }
     }
   }
@@ -4523,7 +4543,8 @@ async function injectAttachmentFacts(
 
       const normalizedKey = normalizeExtractedKey(rawKey);
       const mapping = ATTACHMENT_FACT_MAPPING[normalizedKey];
-      if (!mapping) continue;
+      if (!mapping || mapping.factKey === 'cargo.hs_code') continue; // HS promotion remains behind its existing dedicated guard.
+      if (documentCargoEvidence(attachment.extracted_data).nonCommercial && ['cargo.value', 'cargo.value_currency'].includes(mapping.factKey)) continue;
 
       // --- CLIENT-COMPANY-GUARD: reject SODATRA in attachment flow ---
       if (mapping.factKey === "contacts.client_company" && isSodatraCompanyName(rawValue)) {
@@ -4573,10 +4594,9 @@ async function injectAttachmentFacts(
         // Legacy behavior for all other facts
         const scalar = Array.isArray(resolvedValue) ? resolvedValue.join(", ") : resolvedValue;
         if (mapping.valueType === 'number') {
-          valueNumber = parseRobustNumber(String(scalar));
-          if (valueNumber === null) {
-            valueText = String(scalar);
-          }
+          valueNumber = ['cargo.weight_kg', 'cargo.weight_net_kg'].includes(mapping.factKey)
+            ? declaredWeightKg(scalar, /kg$/i.test(normalizedKey)) : sourceNumber(scalar);
+          if (valueNumber === null || valueNumber <= 0 || (mapping.factKey === 'cargo.pieces_count' && !Number.isInteger(valueNumber))) { result.skipped++; continue; }
         } else {
           valueText = String(scalar);
         }
@@ -4624,12 +4644,11 @@ async function injectAttachmentFacts(
         p_source_email_id: attachment.email_id || null,
         p_source_attachment_id: attachment.id,
         p_source_excerpt: `[${attachment.filename}] ${rawKey}: ${String(rawValue).substring(0, 200)}`,
-        p_confidence: 0.95,
+        p_confidence: sourceConfidence(attachment.extracted_data),
       });
 
       if (rpcError) {
-        console.error(`[M3.4] Failed to inject fact ${mapping.factKey} from ${attachment.filename}:`, rpcError);
-        continue;
+        throw new Error(`Attachment fact ${mapping.factKey} could not be recorded: ${rpcError.message}`);
       }
 
       // Timeline logging
@@ -4656,6 +4675,34 @@ async function injectAttachmentFacts(
     }
   }
 
+  // Preserve competing allocations as evidence, without choosing dimensions or calculating volume.
+  const dimensionSources: Array<{ email_id: string | null; attachment_id: string | null; filename: string | null; confidence: number | null; groups: ReturnType<typeof documentDimensionSources>[number]['groups']; document_index?: number | null; doc_type?: unknown }> = [];
+  const currentDim = existingFacts?.find((f: { fact_key: string }) => f.fact_key === 'cargo.dimensions');
+  const sourceEmail = emails.find(e => e.id === currentDim?.source_email_id);
+  if (sourceEmail) {
+    const groups = emailCargoEvidence(extractPlainTextFromMime(sourceEmail.body_text || '')).groups;
+    if (groups.length) dimensionSources.push({ email_id: sourceEmail.id, attachment_id: null, filename: null, confidence: currentDim.confidence ?? null, groups });
+  }
+  for (const att of [...attachments].sort((a: { id: string },b: { id: string }) => String(a.id).localeCompare(String(b.id)))) {
+    for (const source of documentDimensionSources(att.extracted_data)) {
+      dimensionSources.push({ email_id: att.email_id || null, attachment_id: att.id, filename: att.filename, ...source });
+    }
+  }
+  if (dimensionSources.length) {
+    const value = { type: 'dimension_groups_v1', conflict: dimensionGroupsDisagree(dimensionSources.map(s => s.groups)), sources: dimensionSources };
+    const previous = existingFacts?.find((f: { fact_key: string }) => f.fact_key === 'cargo.dimensions_evidence');
+    if (!previous?.is_validated && !['operator_correction', ...MANUAL_PROTECTED_SOURCES].includes(previous?.source_type ?? '') && JSON.stringify(previous?.value_json) !== JSON.stringify(value)) {
+      const first = dimensionSources.find(s => s.attachment_id) ?? dimensionSources[0];
+      const { error } = await serviceClient.rpc('supersede_fact', { p_case_id: caseId, p_fact_key: 'cargo.dimensions_evidence', p_fact_category: 'cargo',
+        p_value_text: null, p_value_number: null, p_value_date: null, p_value_json: value, p_source_type: 'attachment_extracted',
+        p_source_email_id: first.email_id, p_source_attachment_id: first.attachment_id,
+        p_source_excerpt: value.conflict ? 'Conflicting carton allocations; operator confirmation required' : 'Declared carton dimensions; no aggregate calculation',
+        p_confidence: dimensionSources.every(s => s.confidence !== null) ? Math.min(...dimensionSources.map(s => s.confidence ?? 0)) : null });
+      if (error) throw new Error('Dimension evidence could not be recorded: ' + error.message);
+      result.added++;
+    }
+  }
+
   // --- Patch B: Exploit attachment tariff_lines for cargo.value / cargo.freight_cost ---
   for (const attachment of attachments) {
     const tariffLines = (attachment.extracted_data as any)?.tariff_lines;
@@ -4673,7 +4720,7 @@ async function injectAttachmentFacts(
       const currency = String(tl.currency ?? tl.devise ?? '').trim() || null;
 
       // CFR / CAF / CIF → cargo.value + cargo.value_currency
-      if (/\b(?:CFR|CAF|CIF)\b/i.test(service)) {
+      if (!documentCargoEvidence(attachment.extracted_data).nonCommercial && /\b(?:CFR|CAF|CIF)\b/i.test(service)) {
         if (!injectedKeys.has('cargo.value')) {
           const existingSource = factSourceMap.get('cargo.value');
           if (!MANUAL_PROTECTED_SOURCES.has(existingSource ?? '') && existingSource !== 'attachment_extracted') {
@@ -4689,7 +4736,7 @@ async function injectAttachmentFacts(
               p_source_email_id: attachment.email_id || null,
               p_source_attachment_id: attachment.id,
               p_source_excerpt: `[${attachment.filename}] tariff_line: ${service} = ${amount}`,
-              p_confidence: 0.90,
+              p_confidence: sourceConfidence(attachment.extracted_data),
             });
             if (!rpcErr) {
               injectedKeys.add('cargo.value');
@@ -4710,7 +4757,7 @@ async function injectAttachmentFacts(
                     p_source_type: 'attachment_extracted', p_source_email_id: attachment.email_id || null,
                     p_source_attachment_id: attachment.id,
                     p_source_excerpt: `[${attachment.filename}] tariff_line currency: ${currency}`,
-                    p_confidence: 0.90,
+                    p_confidence: sourceConfidence(attachment.extracted_data),
                   });
                   injectedKeys.add('cargo.value_currency');
                   factSourceMap.set('cargo.value_currency', 'attachment_extracted');
@@ -4741,7 +4788,7 @@ async function injectAttachmentFacts(
               p_source_email_id: attachment.email_id || null,
               p_source_attachment_id: attachment.id,
               p_source_excerpt: `[${attachment.filename}] tariff_line: ${service} = ${amount}`,
-              p_confidence: 0.90,
+              p_confidence: sourceConfidence(attachment.extracted_data),
             });
             if (!rpcErr) {
               injectedKeys.add('cargo.freight_cost');
@@ -4762,7 +4809,7 @@ async function injectAttachmentFacts(
                     p_source_type: 'attachment_extracted', p_source_email_id: attachment.email_id || null,
                     p_source_attachment_id: attachment.id,
                     p_source_excerpt: `[${attachment.filename}] tariff_line currency: ${currency}`,
-                    p_confidence: 0.90,
+                    p_confidence: sourceConfidence(attachment.extracted_data),
                   });
                   injectedKeys.add('cargo.freight_currency');
                   factSourceMap.set('cargo.freight_currency', 'attachment_extracted');
@@ -4839,7 +4886,7 @@ async function injectAttachmentFacts(
             p_source_email_id: attachment.email_id || null,
             p_source_attachment_id: attachment.id,
             p_source_excerpt: `[${attachment.filename}] ${articlesDetail.length} articles with EXW values`,
-            p_confidence: 0.95,
+            p_confidence: sourceConfidence(attachment.extracted_data),
           });
 
           if (!rpcError) {
@@ -4874,8 +4921,7 @@ async function injectAttachmentFacts(
   return result;
 }
 
-if (Deno.env.get("BUILD_CASE_PUZZLE_DISABLE_SERVE") !== "1") {
-Deno.serve(async (req) => {
+export const buildCasePuzzleHandler = async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -4907,6 +4953,9 @@ Deno.serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const admission = await requireWorkspaceAccess({ user: userData.user, token });
+    if (admission instanceof Response) return admission;
 
     const userId = userData.user.id;
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
@@ -5539,7 +5588,7 @@ Deno.serve(async (req) => {
         // Check if fact already exists
         const { data: existingFact } = await serviceClient
           .from("quote_facts")
-          .select("id, value_text, value_number, value_json, source_type")
+          .select("id, value_text, value_number, value_json, source_type, is_validated")
           .eq("case_id", case_id)
           .eq("fact_key", fact.key)
           .eq("is_current", true)
@@ -5553,7 +5602,8 @@ Deno.serve(async (req) => {
           const existingValue = existingFact.value_text ?? existingFact.value_number ?? existingFact.value_json;
           const hasRealValue = existingValue !== null && existingValue !== undefined &&
             (typeof existingValue === 'number' ? Number.isFinite(existingValue) : String(existingValue).trim().length > 0);
-          if (hasRealValue && MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? '')) {
+          if (hasRealValue && (existingFact.is_validated || existingFact.source_type === 'operator_correction' || MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? '') ||
+            (existingFact.source_type === 'attachment_extracted' && fact.sourceType !== 'attachment_extracted'))) {
             console.log(`[AI extract] Skipping ${fact.key}: protected manual source (${existingFact.source_type})`);
             factsSkipped++;
             continue;
@@ -5662,7 +5712,7 @@ Deno.serve(async (req) => {
 
     // --- M3.4: Inject deterministic facts from attachments ---
     const attachmentFactsResult = await injectAttachmentFacts(
-      case_id, serviceClient, emailIds
+      case_id, serviceClient, emailIds, emails
     );
     factsAdded += attachmentFactsResult.added;
     factsUpdated += attachmentFactsResult.updated;
@@ -7675,7 +7725,7 @@ Deno.serve(async (req) => {
         const { error: mlGapErr } = await serviceClient.from("quote_gaps").insert({
           case_id,
           gap_key: multiLotGapKey,
-          gap_category: "request",
+          gap_category: "other",
           question_fr: "Plusieurs lots ou modes de transport détectés dans la demande. La structure multi-ligne n'a pas pu être établie automatiquement. Veuillez clarifier les lots distincts.",
           question_en: "Multiple lots or transport modes detected in the request. The multi-line structure could not be established automatically. Please clarify the distinct lots.",
           priority: "critical",
@@ -8355,8 +8405,8 @@ Deno.serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
-}
+};
+if (Deno.env.get("BUILD_CASE_PUZZLE_DISABLE_SERVE") !== "1") Deno.serve(buildCasePuzzleHandler);
 
 async function extractFactsWithAI(
   threadContext: string,
@@ -8510,7 +8560,7 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
   }
 }
 
-function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
+export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
   const facts: ExtractedFact[] = [];
   const firstEmail = emails[0];
 
@@ -8528,6 +8578,7 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
 
     const body = extractPlainTextFromMime(firstEmail.body_text || "");
     const bodyLower = body.toLowerCase();
+    const cargoEvidence = emailCargoEvidence(body);
     
     // A1: Incoterm detection - priority TERM:/Incoterm: then last free match
     const incoterms = ["EXW", "FOB", "CFR", "CIF", "DAP", "DDP", "FCA", "CPT", "CIP", "DAT", "DPU"];
@@ -8590,23 +8641,8 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
       });
     }
 
-    // A1: Extract cargo.weight_kg
-    const weightMatch = body.match(/(\d[\d\s,.']*)\s*kg\b/i);
-    if (weightMatch) {
-      const weight = parseRobustNumber(weightMatch[1]);
-      if (weight && weight > 0) {
-        facts.push({
-          key: "cargo.weight_kg",
-          category: "cargo",
-          value: weight,
-          valueType: "number",
-          sourceType: "email_body",
-          sourceEmailId: firstEmail.id,
-          sourceExcerpt: weightMatch[0],
-          confidence: 0.85,
-        });
-      }
-    }
+    if (cargoEvidence.weightKg !== null) facts.push({ key: 'cargo.weight_kg', category: 'cargo', value: cargoEvidence.weightKg,
+      valueType: 'number', sourceType: 'email_body', sourceEmailId: firstEmail.id, sourceExcerpt: cargoEvidence.weightExcerpt || undefined, confidence: 0.85 });
 
     // A1: Extract cargo.volume_cbm
     const volumeMatch = body.match(/(\d[\d,.]*)\s*cbm\b/i);
@@ -8626,69 +8662,11 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
       }
     }
 
-    // A1: Extract cargo.pieces_count
-    const piecesMatch = body.match(/(\d+)\s*(?:crates?|pieces?|pcs|colis|cartons?|pkgs?|packages?)\b/i);
-    if (piecesMatch) {
-      const pieces = parseInt(piecesMatch[1], 10);
-      if (pieces > 0) {
-        facts.push({
-          key: "cargo.pieces_count",
-          category: "cargo",
-          value: pieces,
-          valueType: "number",
-          sourceType: "email_body",
-          sourceEmailId: firstEmail.id,
-          sourceExcerpt: piecesMatch[0],
-          confidence: 0.85,
-        });
-      }
-    }
-
-    // A1: Extract cargo.dimensions (value_text)
-    const dimMatch = body.match(/(\d+(?:[.,]\d+)?)\s*[*x×]\s*(\d+(?:[.,]\d+)?)\s*[*x×]\s*(\d+(?:[.,]\d+)?)(?:\s*(mm|cm|m)\b)?/i);
-    if (dimMatch) {
-      facts.push({
-        key: "cargo.dimensions",
-        category: "cargo",
-        value: dimMatch[0],
-        valueType: "text",
-        sourceType: "email_body",
-        sourceEmailId: firstEmail.id,
-        sourceExcerpt: dimMatch[0],
-        confidence: 0.8,
-      });
-
-      // P0: Auto-calc cargo.volume_cbm from cargo.dimensions if unit is explicit
-      if (!facts.some(f => f.key === "cargo.volume_cbm")) {
-        const dL = parseFloat(dimMatch[1].replace(",", "."));
-        const dW = parseFloat(dimMatch[2].replace(",", "."));
-        const dH = parseFloat(dimMatch[3].replace(",", "."));
-        const unitStr = dimMatch[4]?.toLowerCase();
-
-        let divisor: number | null = null;
-        if (unitStr === "mm") divisor = 1000;
-        else if (unitStr === "cm") divisor = 100;
-        else if (unitStr === "m") divisor = 1;
-
-        if (divisor !== null) {
-          const volM3 = Math.round((dL / divisor) * (dW / divisor) * (dH / divisor) * 100) / 100;
-
-          if (volM3 > 0 && volM3 < 10000) {
-            facts.push({
-              key: "cargo.volume_cbm",
-              category: "cargo",
-              value: volM3,
-              valueType: "number",
-              sourceType: "deterministic_calc",
-              sourceEmailId: firstEmail.id,
-              sourceExcerpt: `${dimMatch[0]} → ${dL}/${divisor} × ${dW}/${divisor} × ${dH}/${divisor} = ${volM3} m³`,
-              confidence: 0.90,
-            });
-            console.log(`[P0] Auto-calc volume from dimensions: ${volM3} m³`);
-          }
-        }
-      }
-    }
+    if (cargoEvidence.pieces !== null && cargoEvidence.pieces > 0) facts.push({ key: 'cargo.pieces_count', category: 'cargo', value: cargoEvidence.pieces,
+      valueType: 'number', sourceType: 'email_body', sourceEmailId: firstEmail.id, sourceExcerpt: cargoEvidence.piecesExcerpt || undefined, confidence: 0.85 });
+    if (cargoEvidence.groups.length) facts.push({ key: 'cargo.dimensions', category: 'cargo', value: cargoEvidence.excerpts.join(' ; '),
+      valueType: 'text', sourceType: 'email_body', sourceEmailId: firstEmail.id, sourceExcerpt: cargoEvidence.excerpts.join(' ; '), confidence: 0.8 });
+    // Dimensions are per-carton source evidence. Never turn the first group into shipment CBM.
 
     // A1: Extract cargo.description
     const descMatch = body.match(/(?:commodity|nature|goods|marchandise)\s*[:=]\s*(.+)/i);
@@ -8711,7 +8689,7 @@ function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
     // A1: Calculate cargo.chargeable_weight_kg deterministically
     const weightFact = facts.find(f => f.key === "cargo.weight_kg");
     const volumeFact = facts.find(f => f.key === "cargo.volume_cbm");
-    if (weightFact || volumeFact) {
+    if (weightFact && volumeFact && cargoEvidence.groups.length <= 1) {
       const grossKg = typeof weightFact?.value === 'number' ? weightFact.value : 0;
       const volCbm = typeof volumeFact?.value === 'number' ? volumeFact.value : 0;
       const volWeight = Math.round(volCbm * 167);

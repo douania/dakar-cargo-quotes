@@ -1,3 +1,4 @@
+import { readMailboxSecret, quoteImapString, createMailboxConfig, replaceMailboxSecret } from "../_shared/mailbox-secret.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireAdmin } from "../_shared/auth.ts";
@@ -345,7 +346,7 @@ class ReimportIMAPClient {
   }
 
   async login(username: string, password: string): Promise<boolean> {
-    const response = await this.sendCommand(`LOGIN "${username}" "${password}"`);
+    const response = await this.sendCommand(`LOGIN ${quoteImapString(username)} ${quoteImapString(password)}`);
     return response.includes('OK');
   }
 
@@ -392,7 +393,7 @@ class ReimportIMAPClient {
   }
 }
 
-serve(async (req) => {
+export const handler = async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -415,7 +416,7 @@ serve(async (req) => {
         // OPTIMIZED: Fetch only configs and counts to reduce memory usage
         // Emails/threads are paginated separately via get_emails_paginated
         const [configsRes, emailCountRes, draftCountRes, threadCountRes] = await Promise.all([
-          supabase.from('email_configs').select('*').order('created_at', { ascending: false }),
+          supabase.from('email_configs').select('id,name,host,port,username,folder,use_ssl,is_active,last_sync_at,created_at').order('created_at', { ascending: false }),
           supabase.from('emails').select('id', { count: 'exact', head: true }),
           supabase.from('email_drafts').select('id', { count: 'exact', head: true }),
           supabase.from('email_threads').select('id', { count: 'exact', head: true })
@@ -507,29 +508,30 @@ serve(async (req) => {
           throw new Error("Champs requis manquants");
         }
 
-        const { data: config, error } = await supabase
-          .from('email_configs')
-          .insert({
-            name,
-            host,
-            port: port || 993,
-            username,
-            password_encrypted: password,
-            folder: folder || 'INBOX',
-            use_ssl: use_ssl !== false
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
+        const config = await createMailboxConfig(supabase, {
+          name, host, port: port || 993, username,
+          folder: folder || 'INBOX', use_ssl: use_ssl !== false,
+        }, password);
 
         return new Response(
           JSON.stringify({ 
             success: true, 
-            config: { ...config, password_encrypted: '********' }
+            config
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
+      }
+
+      case 'replace_password': {
+        try {
+          await replaceMailboxSecret(supabase, data?.configId, data?.password);
+          return new Response(JSON.stringify({ success: true }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        } catch {
+          // Never forward/log raw RPC errors or the submitted body.
+          return new Response(JSON.stringify({ success: false, error: "Remplacement du mot de passe impossible" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
       }
 
       case 'delete_config': {
@@ -910,7 +912,7 @@ serve(async (req) => {
             // Get config
             const { data: config, error: configErr } = await supabase
               .from('email_configs')
-              .select('*')
+              .select('id,name,host,port,username,folder,use_ssl,is_active,last_sync_at,created_at')
               .eq('id', configId)
               .single();
             
@@ -923,8 +925,9 @@ serve(async (req) => {
             let imapClient: ReimportIMAPClient | null = null;
             try {
               imapClient = new ReimportIMAPClient(config.host, config.port, config.use_ssl !== false);
+              const imapPassword = await readMailboxSecret(supabase, config.id);
               await imapClient.connect();
-              const loggedIn = await imapClient.login(config.username, config.password_encrypted);
+              const loggedIn = await imapClient.login(config.username, imapPassword);
               if (!loggedIn) { errors.push(`Auth IMAP échouée pour ${config.name}`); continue; }
               await imapClient.select(config.folder || 'INBOX');
               
@@ -1317,7 +1320,7 @@ serve(async (req) => {
 
           const canonicalThreadId = emails[0].thread_id;
           // P1-D: Derive rootMessageId from first email
-          const rootMessageId = canonicalThreadId || emails[0].message_id || null;
+          const rootMessageId = canonicalThreadId || (emails[0] as { message_id?: string | null }).message_id || null;
           
           // P1-D: Check if a email_threads entry exists by root_message_id first
           let { data: existingThread } = rootMessageId
@@ -1668,4 +1671,5 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+};
+if (Deno.env.get("MAIL_FUNCTION_DISABLE_SERVE") !== "1") serve(handler);

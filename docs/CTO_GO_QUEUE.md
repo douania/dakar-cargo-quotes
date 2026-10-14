@@ -12,6 +12,16 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 <!-- Nouvelle entrée : copier le bloc ci-dessous, remplir, ajouter en haut de la liste. -->
 
+## [2026-10-07 17:57 UTC] TRAITÉ — Sécurité V1 interne : contre-revue locale clôturée, activation non autorisée
+**Origine** : GO local utilisateur ; Codex exécutant unique, session indépendante security_counter_review en lecture seule, même PC DESKTOP-DJVBKU7.
+**Question bornée** : copie `C:/Users/DELL/Documents/Codex/2026-10-07/task/security-access-v1`, work/d371e02 ; vérifier admission, FROZEN, mail/Vault, RLS/ACL et signed attachments ; reprendre seulement les blocages et parties affectées.
+**Verdict initial** : PARTIAL — fermer les grants clients explicites sur huit RPC historiques et attester la confidentialité/existence des buckets voisins ; aucun état Cloud affirmé.
+**Corrections et verdict final** : ACL/prérequis et recette SQL renforcés ; PASS_WITH_BASELINE local, aucun blocage local. Corps métier RPC inchangés ; FROZEN +4/-0 chacun pour admission uniquement.
+**Preuves** : npm run ci exit 0, 680 Vitest, 1829 Deno/0 échec/6 ignorés ; type Deno 49/5, lint 725/16 ; PostgreSQL renforcé PASS. Logs/manifest/diff dans le dossier voisin `task-3`.
+**Réserves / action suivante** : crypto native et recette connectée NOT_RUN, schéma/ACL Cloud UNKNOWN, liens signés valides au plus 1 h ; GO utilisateur distinct obligatoire avant toute publication/activation. Aucun commit/push/écriture Cloud.
+
+---
+
 ## [AAAA-MM-JJ HH:MM UTC] PENDING — <titre court>
 **Origine** : autopilot quotidien (planifié) | session interactive
 **Type** : demande de GO avant travail | branche/PR prête pour verdict | blocage / divergence Git

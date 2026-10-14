@@ -13,7 +13,7 @@ This contract covers the **canonical pipeline** and **critical functions** only.
 
 Pattern: `verify_jwt = false` + `requireUser` (centralized auth helper in `_shared/auth.ts`).
 
-- `requireUser(req)` → validates JWT, returns `AuthResult` or `401 Response`
+- `requireUser(req)` → validates JWT, then checks internal admission under that JWT. Returns `AuthResult`, `401` for invalid identity, `403` for a non-member, or `503` if admission cannot be verified (fail closed).
 - `requireAdmin(req)` → validates JWT + checks `ADMIN_EMAIL_ALLOWLIST`
 
 Active business Edge Functions set `verify_jwt = false` in `supabase/config.toml` for ES256 signing-keys compatibility.
@@ -32,7 +32,7 @@ ES256 rejection on these retired paths is acceptable. No other function policy c
 
 **Current access model**: shared authenticated operator workspace.
 
-- All authenticated operators can access all cases.
+- Members with `workspace_operator` or `role_admin` can access the shared case portfolio. Authentication alone is insufficient. A currently banned account is not admitted, including an account with `role_admin`.
 - Case ownership (`created_by`) is **not enforced** for access control.
 - Actor identity **is preserved** for audit trail (`actor_user_id`, `decided_by`, `created_by`).
 
@@ -70,7 +70,52 @@ La protection réelle repose sur :
 
 3. **Suppression `documents`** : tout utilisateur authentifié peut supprimer tout document. C'est un choix accepté en mono-équipe, documenté explicitement. À restreindre si ouverture multi-société.
 
-**Décision de non-implémentation** : aucun système de rôles (RBAC) n'est implémenté à ce stade. Le ROI est négatif en mono-équipe. Voir `DEFERRED_BACKLOG.md` item RLS-ADMIN pour le déclencheur de réouverture.
+**Historique** : la décision initiale de ne pas créer de RBAC global est remplacée pour l'admission de la V1 interne par `app_roles.workspace_operator` / `role_admin`. Les règles existantes de propriété, de rôle tarifaire et d'allowlist admin restent nécessaires ; ce lot ne transforme pas la mono-équipe en modèle multi-société.
+
+## V1 interne — lot local de sécurisation du 7 octobre 2026
+
+### Complément local IMAP du 9 octobre 2026
+
+- GO utilisateur local : `/admin/emails`, onglet configurations, « Remplacer le mot de passe ». Ressaisie humaine uniquement, champs masqués et confirmation ; aucune lecture, initialisation, trace ou restitution de l'ancien secret.
+- `email-admin/replace_password` conserve `requireAdmin` : JWT valide + admission workspace + `ADMIN_EMAIL_ALLOWLIST`. `role_admin` seul ne suffit pas ; l'appartenance réelle de Ramzi à l'allowlist reste non vérifiée et aucune configuration distante n'est modifiée.
+- `replace_mailbox_secret(uuid,text)` est service-only, SECURITY DEFINER à search_path vide : verrou configuration, création d'un nouveau secret sous la clé opérationnelle, bascule de référence puis nettoyage du seul ancien UUID, dans une transaction. Aucun UUID de configuration, email, pièce jointe ou lien métier n'est supprimé/recréé.
+- Référence NULL, ancienne ligne legacy ou ancien secret absent/indéchiffrable : la réparation ne lit pas l'ancien mot de passe. Moteur/clé incapable de chiffrer, erreur de bascule ou de nettoyage : échec fermé et transaction annulée. Le parcours n'est pas une garantie de conservation de la clé lors d'une restauration Lovable.
+- Les doubles clics sont bloqués côté UI ; les remplacements successifs sont sérialisés par FOR UPDATE, sans promesse d'idempotence serveur. Entrée sensible conservée masquée après erreur, effacée au succès/fermeture, sans stockage persistant ni erreur RPC brute.
+- CI locale PASS_WITH_BASELINE : 692 Vitest, 1921 Deno / 0 échec / 6 ignorés, type Deno 49/5, lint 723/16, typecheck/build PASS ; tests PostgreSQL/WASM + Vault simulé PASS. Nouvelle RPC avec Vault natif et recette navigateur NOT_RUN, cette dernière bloquée par `Transport closed`. Publication suspendue ; aucun secret réel ni changement distant.
+
+**Statut : code local, non publié.** GO local utilisateur ; `STRUCTURAL_PATCH_ALLOWED` limité à l'ajout d'admission aux entrées `run-pricing` et `build-case-puzzle`. Aucun calcul ni tarif modifié. Ce texte décrit le résultat préparé, pas une sécurité déjà active en Cloud.
+
+- Admission centralisée dans `_shared/auth.ts`, ainsi qu'aux entrées JWT inline ; le chemin service interne de `suggest-historical-lines` reste explicite. `has_workspace_access()` lit les rôles serveur, pas les métadonnées modifiables de l'utilisateur.
+- RLS `AS RESTRICTIVE FOR ALL` sur 50 tables et les quatre buckets métier : les policies préexistantes continuent de limiter propriété/écriture. Un membre de l'équipe ne gagne aucune permission propriétaire par ce gate. `app_roles` est également protégé, y compris contre un ancien JWT de role_admin banni.
+- Les helpers case et les RPC opérateur `reset_attachment_for_retry` / `select_quotation_version` exigent l'admission ; les quatre locks d'analyse sont service-only. Les grants explicites anon/authenticated observés sont retirés, pas seulement PUBLIC. Huit RPC métier/maintenance historiques conservent seulement le chemin serveur ; leurs corps métier restent inchangés. La migration refuse une RLS storage désactivée ou un bucket métier voisin absent/public, sans présumer les ACL Cloud.
+- `quotation-attachments` devient privé. Les exports HTML/CSV/Excel ad hoc utilisent des téléchargements signés d'une heure (champs de réponse conservés pour compatibilité). Un tel URL n'est pas un lien client durable ; télécharger la pièce avant un envoi. Les PDF canoniques utilisent déjà des liens signés. Un lien déjà émis demeure utilisable jusqu'à son expiration (au plus une heure), même après ban ou révocation du rôle ; ceux-ci bloquent les nouveaux accès par JWT.
+- Secret IMAP : Vault installé est utilisé via RPC service-only. Création configuration + secret atomique, référence UUID interne, aucune lecture client de Vault, aucun fallback vers `password_encrypted`. LOGIN échappe guillemets/backslashes et refuse CR/LF/NUL. Les erreurs de RPC secrète ne transmettent pas de détail backend.
+- L'installation Vault ne déplace aucune ancienne valeur. `migrate_legacy_imap_secrets()` est une action distincte, transactionnelle, idempotente, renvoyant seulement un compte ; elle refuse les doubles sources et élimine le clair. Le CHECK NOT VALID bloque les nouveaux enregistrements/mises à jour en clair, y compris last_sync sur une ancienne configuration non convertie.
+
+Validation locale clôturée sur DESKTOP-DJVBKU7 le 7 octobre 2026 : `npm run ci` exit 0 (680 Vitest, 1829 Deno / 0 échec / 6 ignorés), typecheck app/node PASS, Deno 49 diagnostics/5 buckets inchangés, lint 725/16 ≤ baseline 732/16, build PASS. Recette PostgreSQL renforcée PASS (grants clients adverses, prérequis avec rollback, propriété et service), Vault simulé seulement. Contre-revue indépendante PASS_WITH_BASELINE, aucun blocage local. CI GitHub de ce lot, schéma/ACL Cloud et activation non vérifiés ; crypto native et recette connectée NOT_RUN.
+
+### Activation distante — autorisation distincte obligatoire, aucune action faite
+
+1. Valider la liste nominative des opérateurs/admins, les comptes de recette à bloquer, les inscriptions fermées et la maintenance. Une pause UI seule ne bloque pas les anciens endpoints service_role : vérifier une suspension technique des accès ou un déploiement coordonné, puis les refus d'accès avant toute réouverture. Si cette suspension n'est pas disponible, garder la release bloquée jusqu'au protocole d'activation validé.
+2. Appliquer dans Lovable Cloud les migrations `20261007120000` puis `20261007121000`, après revue de leur diff et des ACL actuelles. Aucun seed de compte dans ces migrations.
+3. Sous le même GO de bascule mail, exécuter côté serveur `SELECT public.migrate_legacy_imap_secrets();` ; vérifier uniquement le compte migré, l'absence de clair et le résultat de rejeu. Ne jamais SELECT les secrets déchiffrés ni copier de valeur dans une commande, une discussion ou Git. Faire ensuite renouveler l'identifiant IMAP par son administrateur : les anciens backups peuvent contenir l'ancien clair.
+4. Attribuer uniquement aux UUID validés le rôle workspace_operator via la procédure SQL ci-dessous. role_admin est déjà admis ; pad_admin/tariff_admin seuls ne donnent pas l'accès métier. Contrôler les comptes de test et les inscriptions dans les paramètres Auth Lovable ; aucun identifiant réel ni modification Auth inclus dans le lot local.
+5. Déployer de façon coordonnée **tous** les consommateurs du helper auth et les entrées inline modifiées, les six fonctions mail et les exports ad hoc. Le changement d'un fichier partagé seul ne prouve pas le redéploiement des bundles déjà en ligne. Conserver l'allowlist ADMIN_EMAIL_ALLOWLIST existante et vérifier son appartenance à l'équipe, sans imprimer sa valeur.
+6. Recette connectée : anonyme/non-membre/banni/rôle retiré refusés ; opérateur admis fonctionne ; admin non allowlisté refusé ; fonctions d'analyse service-only ; bucket inaccessible par URL public ; accès signé fonctionne ; secret non exposé ; synchronisation/hydratation/import en sandbox autorisé. Ces vérifications et la crypto Vault native sont NOT_RUN dans le lot local.
+
+Attribution révisable (remplacer les placeholders uniquement dans l'outil serveur autorisé ; ne pas exécuter tel quel) :
+
+```sql
+INSERT INTO public.app_roles (user_id, role, created_by)
+VALUES ('<UUID_OPERATEUR_VALIDE>'::uuid, 'workspace_operator', '<UUID_ADMIN_VALIDE>'::uuid)
+ON CONFLICT (user_id, role) DO NOTHING;
+```
+
+### Vérification et retour arrière
+
+Tests HTTP locaux : JWT valide + admission vraie, admission absente/fausse/malformée, vérification indisponible, allowlist et OPTIONS ; les requêtes refusées n'atteignent ni métier ni IMAP. Tests SQL : `supabase/tests/internal_workspace_access.sql` sous transaction ROLLBACK, à exécuter seulement en base de recette autorisée. Le harness local PostgreSQL/WASM utilise de fausses API Vault : il prouve RLS/ACL/transactions, pas le chiffrement natif ni la totalité du schéma Cloud.
+
+Avant publication : annuler les changements de la copie locale suffit, le dépôt d'origine et le Cloud sont intacts. Après activation : maintenir les accès suspendus, l'admission, les ACL, Vault et les buckets privés ; privilégier une correction en avant. **Ne pas republier simplement d371e02, rétablir le clair ou rendre le bucket public.** Un retour arrière distant ciblé exige son propre GO et une preuve négative des accès avant réouverture.
 
 ---
 

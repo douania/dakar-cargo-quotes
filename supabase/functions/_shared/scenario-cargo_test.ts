@@ -317,6 +317,7 @@ Deno.test("scenario DAP services: actual authenticated HTTP generate and validat
     globalThis.fetch = (async (input, init) => {
       const req = new Request(input, init); const url = new URL(req.url);
       if (url.origin === "https://engine-synthetic.invalid" && req.method === "GET") {
+        if (url.pathname === "/rest/v1/rpc/has_workspace_access") return reply(true);
         if (url.pathname === "/auth/v1/user") {
           assertEquals(req.headers.get("Authorization"), "Bearer synthetic-user");
           return reply({ id: "33333333-3333-4333-8333-333333333333", aud: "authenticated" });

@@ -21,7 +21,9 @@
  * CTO-T3: COUNT depends on service_key (TRUCKING ≥40' rule)
  */
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { partialKgQuantity, partialDestinationDdpEligible, type PartialQuoteFact } from '../_shared/partial-destination-quote.ts';
+import { readOverridesFromFacts, resolveEffectiveServiceKeys } from '../_shared/service-scope.ts';
 import { handleCors } from "../_shared/cors.ts";
 import { collectFeeLineCodes, isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
 import {
@@ -147,6 +149,7 @@ interface PricingContext {
   destination_country: string | null;
   containers: Array<{ type: string; quantity: number }>;
   weight_kg: number | null;
+  partial_kg_facts?: PartialQuoteFact[];
   caf_value: number | null; // Phase PRICING V2: CAF value from canonical fact cargo.caf_value
   client_code: string | null; // Phase PRICING V3.2: canonical fact client.code
   destination_city: string | null; // Phase V4.1: for local_transport_rates matching
@@ -171,7 +174,7 @@ interface PricedLine {
   source: string;
   confidence: number;
   explanation: string;
-  quantity_used: number;
+  quantity_used: number | null;
   unit_used: string;
   rule_id: string | null;
   conversion_used?: string;
@@ -349,6 +352,14 @@ function computeQuantity(
 
   // A1: KG basis for air freight (P0-3 CTO: null if missing, no pricing)
   if (basis === "KG") {
+    // STRUCTURAL_PATCH_ALLOWED (GO local 2026-10-13): requested partial mono-air
+    // destination only. Honor the rule's explicit weight fact, never infer its
+    // basis from KG/AIR_HANDLING. FLAT/other modes remain unchanged.
+    if (isAirMode && ctx.partial_kg_facts) {
+      const retained = partialKgQuantity(rule, ctx.partial_kg_facts);
+      return { quantity_used: retained.kg, unit_used: rule.default_unit, rule_id: rule.id,
+        conversion_used: `partial_kg_basis:${retained.factKey ?? 'unspecified'}:${retained.reason ?? `${retained.kg}kg`}` };
+    }
     const chargeableKg = ctx.weight_kg;
     if (!chargeableKg || chargeableKg <= 0) {
       return {
@@ -672,7 +683,7 @@ function findLocalTransportRate(
 // ═══════════════════════════════════════════════════════════════
 
 async function findPadExportPortChargesFallback(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
   serviceKey: string,
   ctx: PricingContext,
 ): Promise<{
@@ -920,11 +931,12 @@ Deno.serve(async (req) => {
 
     // ═══ Parse & validate input ═══
     const body = await req.json();
-    const { case_id, service_lines, active_modifiers, pricing_context_override } = body as {
+    const { case_id, service_lines, active_modifiers, pricing_context_override, provisional_destination_quote } = body as {
       case_id: string;
       service_lines: ServiceLineInput[];
       active_modifiers?: string[];
       pricing_context_override?: Partial<PricingContext>;
+      provisional_destination_quote?: boolean;
     };
     const activeModifierCodes = new Set(active_modifiers || []);
 
@@ -957,9 +969,9 @@ Deno.serve(async (req) => {
     const isLCL = /LCL/i.test(requestType);
 
     // ═══ Load facts for pricing context (JWT client, RLS) ═══
-    const { data: facts } = await jwtClient
+    const { data: facts, error: factsError } = await jwtClient
       .from("quote_facts")
-      .select("fact_key, value_text, value_json, value_number")
+      .select("fact_key, value_text, value_json, value_number, source_type, is_validated")
       .eq("case_id", case_id)
       .eq("is_current", true);
 
@@ -972,6 +984,25 @@ Deno.serve(async (req) => {
     if (pricing_context_override) {
       pricingCtx = { ...pricingCtx, ...pricing_context_override };
     }
+    // This internal switch is never trusted from pricing_context_override.
+    delete pricingCtx.partial_kg_facts;
+    let partialDestination = false;
+    if (provisional_destination_quote === true) {
+      if (factsError) throw new Error('Partial destination facts verification failed');
+      const [scopeRead, lotRead] = await Promise.all([
+        jwtClient.from('case_timeline_events').select('actor_type, event_data').eq('case_id', case_id)
+          .eq('event_type', 'service_scope_v1').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        jwtClient.from('quote_request_lines').select('id', { count: 'exact', head: true }).eq('case_id', case_id),
+      ]);
+      if (scopeRead.error || lotRead.error) throw new Error('Partial destination scope verification failed');
+      const packageKey = factsMap.get('service.package')?.value_text?.trim().toUpperCase() ?? '';
+      partialDestination = pricing_context_override?.lot_weight_strict !== true && partialDestinationDdpEligible({
+        allowProvisional: true, packageKey, requestType: String(requestType).toUpperCase(), lotCount: lotRead.count,
+        scopeEvent: scopeRead.data, serviceKeys: resolveEffectiveServiceKeys(packageKey, readOverridesFromFacts(facts || [])),
+      });
+      if (!partialDestination) throw new Error('Partial destination service mode outside authorized scope');
+    }
+    if (partialDestination) pricingCtx.partial_kg_facts = facts || [];
     // Lot 1.2: preuve de réception clientCode dans le contexte effectif (post-merge override)
     console.log(`[LOT1.2][price-service-lines] effective pricingCtx.client_code=${JSON.stringify((pricingCtx as { client_code?: string | null }).client_code ?? null)}`);
 
@@ -1035,6 +1066,7 @@ Deno.serve(async (req) => {
     ]);
 
     const feeLines = (feeLinesResult.data || []) as FeeLineRow[];
+    if (partialDestination && rulesResult.error) return respondError({ code: 'UPSTREAM_DB_ERROR', message: 'Partial destination tariff quantity rules unavailable', correlationId });
     const feeRules = (feeRulesResult.data || []) as FeeRuleRow[];
     // H2-c2 : les codes des lignes d'honoraires actives sont des clés de service valides.
     const feeLineCodes = collectFeeLineCodes(feeLines);
@@ -1043,6 +1075,7 @@ Deno.serve(async (req) => {
     const customsTiers = (customsTiersResult.data || []) as Array<{
       id: string; mode: string; basis: string;
       min_value: number; max_value: number | null;
+      min_weight_kg?: number | null; max_weight_kg?: number | null;
       price: number | null; percent: number | null;
       min_price: number | null; max_price: number | null;
       currency: string;
@@ -1155,7 +1188,28 @@ Deno.serve(async (req) => {
 
       // ═══ T3: Compute quantity from DB rules ═══
       const rule = quantityRules.get(serviceKey);
-      const computed = computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode, isLCL);
+      // The auto-injected caller unit can be "forfait" even for a KG tariff.
+      // Read admissible tariff metadata; a real fixed forfait is independent.
+      const quantityCatalogue = catalogue.get(serviceKey);
+      const quantityCatalogueApplies = quantityCatalogue && (!quantityCatalogue.mode_scope || quantityCatalogue.mode_scope === (isAirMode ? 'AIR' : 'SEA'));
+      const fixedQuantityCatalogue = quantityCatalogueApplies && ['FIXED', 'FLAT'].includes(quantityCatalogue.pricing_mode);
+      const quantityOverride = pricingCtx.client_code && !isInternalFeeServiceKey(serviceKey, feeLineCodes)
+        ? clientOverrideMap.get(`${pricingCtx.client_code}::${serviceKey}::${isAirMode ? 'AIR' : 'SEA'}`) ?? clientOverrideMap.get(`${pricingCtx.client_code}::${serviceKey}::*`) : null;
+      const quantityToday = new Date().toISOString().slice(0, 10);
+      const validQuantityOverride = quantityOverride && (!quantityOverride.valid_from || quantityOverride.valid_from <= quantityToday) &&
+        (!quantityOverride.valid_to || quantityOverride.valid_to >= quantityToday) ? quantityOverride : null;
+      const fixedQuantityTariff = !isInternalFeeServiceKey(serviceKey, feeLineCodes) &&
+        (validQuantityOverride ? validQuantityOverride.pricing_mode === 'FIXED' : fixedQuantityCatalogue);
+      const quantityKgCard = partialDestination && findBestRateCard(allCards, serviceKey, pricingCtx, 'KG', currency, isAirMode, isLCL);
+      const quantityForfaitCard = partialDestination && findBestRateCard(allCards, serviceKey, pricingCtx, 'FORFAIT', currency, isAirMode, isLCL);
+      const kgTariffWithoutBasis = partialDestination && (!rule || rule.quantity_basis !== 'KG') && !fixedQuantityTariff &&
+        ((quantityCatalogueApplies && quantityCatalogue.pricing_mode === 'UNIT_RATE' && normalizeUnit(quantityCatalogue.unit_type || '') === 'KG') ||
+          (!quantityCatalogueApplies && !validQuantityOverride && quantityKgCard && !quantityForfaitCard));
+      const computed = partialDestination && fixedQuantityTariff
+        ? { quantity_used: 1, unit_used: 'FORFAIT', rule_id: rule?.id ?? null, conversion_used: 'partial_fixed_tariff' }
+        : kgTariffWithoutBasis
+        ? { quantity_used: null, unit_used: line.unit, rule_id: null, conversion_used: 'partial_kg_basis:unspecified:KG_TARIFF_BASIS_UNSPECIFIED' }
+        : computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode, isLCL);
       const lineUnit = normalizeUnit(computed.unit_used || line.unit);
 
       // ═══ V4.1.6: Business rule — EMPTY_RETURN = 0 for import Senegal ═══
@@ -1179,7 +1233,7 @@ Deno.serve(async (req) => {
         pricedLines.push({
           id: line.id, rate: null, currency, source: "missing_quantity",
           confidence: 0, explanation: `Cannot price ${serviceKey}: ${computed.conversion_used}`,
-          quantity_used: 0, unit_used: computed.unit_used, rule_id: computed.rule_id,
+          quantity_used: partialDestination ? null : 0, unit_used: computed.unit_used, rule_id: computed.rule_id,
           conversion_used: computed.conversion_used,
         });
         missing.push(serviceKey);
@@ -1223,7 +1277,7 @@ Deno.serve(async (req) => {
             } else if (override.pricing_mode === "PERCENTAGE") {
               // Phase V3.3: Percentage override — resolve fallback then apply %
               const fallback = await resolveWithoutClientOverride(
-                serviceKey, computed, pricingCtx, isAirMode, currency,
+                serviceKey, { ...computed, quantity_used: computed.quantity_used }, pricingCtx, isAirMode, currency,
                 customsTiers, catalogue, allCards,
                 preloadedTransportRates, isLCL, preloadedDthcTariffs,
               );
@@ -1804,6 +1858,12 @@ Deno.serve(async (req) => {
     for (const pl of pricedLines) {
       const debugExplanation = pl.explanation;
       pl.explanation = humanExplanation(pl);
+      if (partialDestination && pl.conversion_used?.startsWith('partial_kg_basis:')) {
+        const key = pl.conversion_used.split(':')[1];
+        const basisLabel = key === 'cargo.weight_kg' ? 'poids brut' : key === 'cargo.weight_net_kg' ? 'poids net'
+          : key === 'cargo.chargeable_weight_kg' ? 'poids taxable' : 'base du tarif au kg non documentée';
+        pl.explanation += ` — Base du tarif : ${basisLabel}${key === 'unspecified' ? ' (à confirmer)' : ` (${key})`}`;
+      }
       // Log the technical detail for debugging
       structuredLog({ level: "debug", service: FUNCTION_NAME, op: "human_explanation", correlationId,
         meta: { id: pl.id, source: pl.source, human: pl.explanation, debug: debugExplanation } });

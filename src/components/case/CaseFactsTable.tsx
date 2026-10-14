@@ -16,6 +16,7 @@ import {
   getFactDomain,
 } from "@/pages/case-view/constants";
 import { FactHistoryPopover } from "@/pages/case-view/FactHistoryPopover";
+import { OPERATOR_CARGO_FACT_HINTS } from "../../../supabase/functions/_shared/operator-cargo-fact-write";
 
 export type CaseFact = Database["public"]["Tables"]["quote_facts"]["Row"];
 
@@ -35,6 +36,7 @@ interface CaseFactsTableProps {
 }
 
 function sourceLabel(sourceType: string): string {
+  if (sourceType === "ai_assumption") return "Hypothèse IA";
   if (["manual_input", "operator", "operator_correction"].includes(sourceType)) return "Opérateur";
   if (sourceType.startsWith("partner") || sourceType.startsWith("external_request")) return "Partenaire";
   if (sourceType.startsWith("client")) return "Client";
@@ -58,6 +60,10 @@ function formatContainers(value: Json): string | null {
 }
 
 function displayValue(fact: CaseFact): { summary: string; technical: string | null } {
+  if (fact.fact_key === "cargo.dimensions_evidence" && fact.value_json && typeof fact.value_json === "object" && !Array.isArray(fact.value_json)) {
+    const evidence = fact.value_json;
+    return { summary: evidence.conflict === true ? "Dimensions contradictoires à confirmer" : "Dimensions déclarées par source", technical: JSON.stringify(evidence, null, 2) };
+  }
   if (fact.fact_key === "cargo.articles_detail" && Array.isArray(fact.value_json)) {
     const articles = fact.value_json;
     const hsCount = new Set(articles.flatMap((article) =>
@@ -70,10 +76,24 @@ function displayValue(fact: CaseFact): { summary: string; technical: string | nu
     if (containers) return { summary: containers, technical: JSON.stringify(fact.value_json, null, 2) };
   }
   if (fact.value_text !== null) return { summary: fact.value_text, technical: null };
-  if (fact.value_number !== null) return { summary: String(fact.value_number), technical: null };
+  if (fact.value_number !== null) return { summary: `${fact.value_number}${["cargo.weight_kg", "cargo.weight_net_kg"].includes(fact.fact_key) ? " kg" : ""}`, technical: null };
   if (fact.value_date !== null) return { summary: fact.value_date, technical: null };
   if (fact.value_json !== null) return { summary: "Données structurées à consulter", technical: JSON.stringify(fact.value_json, null, 2) };
   return { summary: "—", technical: null };
+}
+
+function dimensionSourceLines(value: Json): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.sources)) return [];
+  return value.sources.flatMap(source => {
+    if (!source || typeof source !== 'object' || Array.isArray(source) || !Array.isArray(source.groups)) return [];
+    const label = typeof source.filename === 'string' ? source.filename : 'E-mail';
+    const lines = source.groups.flatMap(group => {
+      if (!group || typeof group !== 'object' || Array.isArray(group)) return [];
+      if (![group.length, group.width, group.height].every(v => typeof v === 'number' && Number.isFinite(v))) return [];
+      return [`${typeof group.count === 'number' ? group.count : 'Nombre non précisé'} carton(s) : ${group.length} × ${group.width} × ${group.height} ${typeof group.unit === 'string' ? group.unit : ''}`];
+    });
+    return lines.length ? [`${label} — ${lines.join(' ; ')}`] : [];
+  });
 }
 
 function confidenceClass(confidence: number): string {
@@ -111,10 +131,10 @@ export function CaseFactsTable({ caseId, facts, editingFactId, editValue, isLock
           ...domainFacts.map((fact) => {
             const isEditing = editingFactId === fact.id;
             const value = displayValue(fact);
-            const hasExplicitConflict = conflictFactKeys.has(fact.fact_key);
+            const hasExplicitConflict = conflictFactKeys.has(fact.fact_key) || (fact.fact_key === "cargo.dimensions_evidence" && fact.value_json && typeof fact.value_json === "object" && !Array.isArray(fact.value_json) && fact.value_json.conflict === true);
             return <TableRow key={fact.id} className={hasExplicitConflict ? "bg-destructive/5" : undefined}>
               <TableCell className={hasExplicitConflict ? "border-l-2 border-l-destructive" : undefined}>
-                <div className="font-medium text-foreground">{FACT_LABELS[fact.fact_key] ?? fact.fact_key}</div>
+                <div className="font-medium text-foreground">{FACT_LABELS[fact.fact_key] ?? (fact.fact_key === 'cargo.dimensions_evidence' ? 'Dimensions par source' : fact.fact_key)}</div>
                 <div className="text-xs text-muted-foreground">{fact.fact_key}</div>
               </TableCell>
               <TableCell>
@@ -126,14 +146,20 @@ export function CaseFactsTable({ caseId, facts, editingFactId, editValue, isLock
                 ) : fact.fact_key === "cargo.articles_detail" ? (
                   <Textarea value={editValue} onChange={(event) => onEditValueChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") onCancelEdit(); }} className="h-32 font-mono text-xs" autoFocus />
                 ) : (
-                  <Input value={editValue} onChange={(event) => onEditValueChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onSaveFact(fact); if (event.key === "Escape") onCancelEdit(); }} className="h-8" autoFocus />
+                  <div>
+                    <Input aria-label={FACT_LABELS[fact.fact_key] ?? fact.fact_key} aria-describedby={OPERATOR_CARGO_FACT_HINTS[fact.fact_key] ? `fact-help-${fact.id}` : undefined} inputMode={fact.fact_key === 'cargo.weight_net_kg' ? 'decimal' : undefined} value={editValue} onChange={(event) => onEditValueChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !isSavingFact) onSaveFact(fact); if (event.key === "Escape") onCancelEdit(); }} disabled={isSavingFact} className="h-8" autoFocus />
+                    {OPERATOR_CARGO_FACT_HINTS[fact.fact_key] && <p id={`fact-help-${fact.id}`} className="mt-1 text-xs text-muted-foreground">{OPERATOR_CARGO_FACT_HINTS[fact.fact_key]}</p>}
+                  </div>
                 ) : <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span>{value.summary}</span>
                     {hasExplicitConflict && <Badge variant="destructive">Conflit signalé</Badge>}
+                    <Badge variant="outline">{fact.is_validated === true ? "Validé" : "Non validé"}</Badge>
                     {isMultiLot && MULTI_LOT_AMBIGUOUS_FACTS.has(fact.fact_key) && <Badge variant="outline" className="border-warning/40 text-warning">Multi-lot</Badge>}
                   </div>
+                  {fact.fact_key === 'cargo.dimensions_evidence' && dimensionSourceLines(fact.value_json).map((line, i) => <p key={i} className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{line}</p>)}
                   {value.technical && <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Détail technique</summary><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2">{value.technical}</pre></details>}
+                  {fact.source_excerpt && <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Extrait source</summary><p className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]">{fact.source_excerpt}</p></details>}
                 </div>}
               </TableCell>
               <TableCell className="text-muted-foreground">{sourceLabel(fact.source_type)}</TableCell>

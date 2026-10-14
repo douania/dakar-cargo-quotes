@@ -28,7 +28,7 @@ function graphErrors(value, location = '') {
 function resolveGraph(directory, name) {
   const entry = path.join(directory, name, 'index.ts');
   const result = spawnSync(deno, ['info', '--json', '--no-config', '--no-lock',
-    '--node-modules-dir=none', pathToFileURL(entry).href], {
+    '--node-modules-dir=none', '--import-map=' + path.join(root, 'scripts', 'deno-ci-imports.json'), pathToFileURL(entry).href], {
     cwd: directory, encoding: 'utf8', timeout: 120000, maxBuffer: 32 * 1024 * 1024,
   });
   if (result.error) throw result.error;

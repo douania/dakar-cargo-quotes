@@ -32,6 +32,7 @@ interface QualifyScopeInput {
     customsScope: boolean | null;
     transitScope: boolean | null;
     documentScope: boolean | null;
+    freightScopeBasis?: string;
   } | null;
   facts: Record<string, string | null>;
   caseStatus: string;
@@ -88,7 +89,9 @@ export function qualifyScope(input: QualifyScopeInput): QualifiedScope {
         service: def.service,
         qualification: "out_of_scope",
         signalStrength: "scope_confirmed",
-        reason: `${def.service} explicitement hors périmètre`,
+        reason: def.service === 'freight' && serviceScope?.freightScopeBasis === 'inferred_destination'
+          ? 'Périmètre destination proposé ; fret international non demandé explicitement'
+          : `${def.service} explicitement hors périmètre`,
       });
       continue;
     }

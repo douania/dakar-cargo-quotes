@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { AttachmentCargoEvidence } from "./AttachmentCargoEvidence";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -637,6 +638,7 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                       </TableCell>
                       <TableCell className="font-medium max-w-[180px] truncate text-xs">
                         {att.filename}
+                        <AttachmentCargoEvidence extractedData={att.extracted_data} />
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {att.content_type?.split("/").pop() ?? "—"}

@@ -75,6 +75,7 @@ async function withStorage(
       : input instanceof URL ? input.href : input.url);
     if (url.hostname !== "p1b-fixture.invalid") throw new Error("REAL_NETWORK_FORBIDDEN");
     state.calls.push(url.pathname);
+    if (url.pathname === "/rest/v1/rpc/has_workspace_access") return response(true);
     if (url.pathname === "/auth/v1/user") {
       return state.authValid
         ? response({ id: USER_ID, aud: "authenticated", role: "authenticated" })
@@ -188,7 +189,7 @@ Deno.test("P1-B recovery missing/invalid auth and case denial precede elevation"
     s.authValid = true; s.calls.length = 0; s.access = false;
     const denied = await handleRequest(request(revoke()));
     assertEquals(denied.status, 403); await denied.text();
-    assertEquals(s.calls, ["/auth/v1/user", "/rest/v1/rpc/has_case_write_access"]);
+    assertEquals(s.calls, ["/auth/v1/user", "/rest/v1/rpc/has_workspace_access", "/rest/v1/rpc/has_case_write_access"]);
   });
 });
 for (const action of ["confirm", "adjust", "reject"]) {

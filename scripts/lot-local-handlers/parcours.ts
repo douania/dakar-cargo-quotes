@@ -240,8 +240,7 @@ b = await build(G, LINES);
 failingRpcs.delete("replace_quote_request_lines");
 assertEquals([b.result.quote_request_lines_stored, b.state.lines, b.state.status], [0, 0, "NEED_INFO"]);
 for (const k of [TERMINAL, PAD]) assert(b.state.blocking.includes(k), `${k} ${JSON.stringify(b.state)}`);
-// Pre-existing, out of lot: the P0 gap `request.multi_lot_unresolved` uses gap_category "request",
-// refused by quote_gaps_gap_category_check; NEED_INFO is still forced by the same P0 guard.
+assert(b.state.blocking.includes("request.multi_lot_unresolved"), `multi-lot persistence failure must keep its blocking gap: ${JSON.stringify(b.state)}`);
 assertEquals((await price(G)).status, 400);
 ok("G persistence failure: not eligible, dossier terminal + PAD gaps blocking, NEED_INFO, run-pricing refused");
 

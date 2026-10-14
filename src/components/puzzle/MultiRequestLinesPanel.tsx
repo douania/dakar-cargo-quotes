@@ -8,8 +8,8 @@
  * P1a: amber alert + per-line key facts from extracted_facts_json.
  */
 
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useQuoteRequestCargoBasis } from "@/hooks/useQuoteRequestCargoBasis";
+import { quotationCargoBasisText } from "../../../supabase/functions/_shared/quotation-cargo-basis";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -34,22 +34,11 @@ interface Props {
 }
 
 export function MultiRequestLinesPanel({ caseId }: Props) {
-  const { data: lines = [], isLoading } = useQuery({
-    queryKey: ["quote-request-lines", caseId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("quote_request_lines" as any)
-        .select("*")
-        .eq("case_id", caseId)
-        .order("line_index", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-    enabled: !!caseId,
-    staleTime: 60000,
-  });
+  const { lines, cargoBasis, isLoading, isError } = useQuoteRequestCargoBasis(caseId);
+  const cargoTexts = quotationCargoBasisText(cargoBasis);
 
   if (isLoading) return null;
+  if (isError) return <p role="alert">Lignes de demande indisponibles : actualisez le dossier. Les faits globaux ne remplacent pas les poids par lot.</p>;
   if (lines.length < 2) return null;
 
   const displayed = lines.slice(0, MAX_DISPLAYED);
@@ -72,11 +61,11 @@ export function MultiRequestLinesPanel({ caseId }: Props) {
             <Alert className="mb-3 border-amber-300 bg-amber-50 dark:bg-amber-950/30">
               <AlertTriangle className="h-4 w-4 text-amber-600" />
               <AlertDescription className="text-xs text-amber-800 dark:text-amber-200">
-                Ce dossier contient plusieurs lots. Le poids, les colis et le mode affichés au niveau du dossier correspondent au dernier lot traité. Consultez les détails de chaque lot ci-dessous.</AlertDescription>
+                Ce dossier contient plusieurs lots. Les faits globaux ne constituent pas un total des lots. Les données extraites ci-dessous restent à confirmer pour le devis.</AlertDescription>
             </Alert>
 
             <ul className="space-y-2">
-              {displayed.map((line: any) => {
+              {displayed.map((line: any, linePosition: number) => {
                 const extractedFacts = Array.isArray(line.extracted_facts_json)
                   ? (line.extracted_facts_json as Array<{ key: string; value: string | number }>)
                   : [];
@@ -87,7 +76,7 @@ export function MultiRequestLinesPanel({ caseId }: Props) {
                 const typeHint = line.request_type_hint;
 
                 // P1a: per-line key facts
-                const keyFacts = extractedFacts.filter(f => PER_LINE_DISPLAY_KEYS.has(f.key));
+                const keyFacts = extractedFacts.filter(f => PER_LINE_DISPLAY_KEYS.has(f.key) && f.key !== "cargo.weight_kg");
 
                 return (
                   <li
@@ -117,6 +106,7 @@ export function MultiRequestLinesPanel({ caseId }: Props) {
                       </span>
                     </div>
 
+                    <p className="text-xs [overflow-wrap:anywhere]">{cargoTexts[linePosition]}</p>
                     {/* P1a: per-line key facts display */}
                     {keyFacts.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 ml-8">

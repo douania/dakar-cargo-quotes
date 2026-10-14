@@ -62,6 +62,134 @@ Règles non négociables :
 - Les règles FROZEN, sources tarifaires, sécurité et STOP restent applicables. Un nouveau risque bloquant ou une action hors GO impose un arbitrage ciblé, pas une remise en discussion de toute l'organisation.
 - Portée de cette mise en place : consignes locales AGENTS/CLAUDE et roadmap uniquement ; contrôle documentaire et diff-check, tests applicatifs NOT_RUN car aucun code modifié. Retour arrière : retirer seulement ces changements de gouvernance, préserver le lot applicatif antérieur ; aucun impact DB/Auth/RLS/runtime.
 
+### 2.2 Lot sécurité V1 interne — clôture locale du 7 octobre 2026
+
+- Statut : PASS_WITH_BASELINE local ; publication/activation distante non autorisée.
+- Reprise sur DESKTOP-DJVBKU7, copie isolée `C:/Users/DELL/Documents/Codex/2026-10-07/task/security-access-v1`, branche `work`, HEAD et origin/work distant vérifiés à `d371e02106ce2c40d39fa77fd811c4e17c91059b` ; aucun nouveau commit.
+- GO utilisateur local et exception STRUCTURAL_PATCH_ALLOWED limités à l'admission de run-pricing/build-case-puzzle, sans changement de calcul/tarif.
+- Lot : admission workspace_operator/role_admin (bannis refusés), gardes mail, RLS restrictive 50 tables/4 buckets, ACL RPC, attachments privés/signés, secret IMAP via Vault/RPC atomique sans fallback clair.
+- Reprise : fixture adoption précise le RPC métier ; deux assertions Vault typées ; huit ACL historiques fermées aux clients ; prérequis buckets/RLS storage bloquants et recette SQL renforcée.
+- npm run ci exit 0 : 680 Vitest, 1829 Deno, 0 échec, 6 ignorés ; typecheck app/node PASS ; Deno 49/5 baseline inchangée ; lint 725/16 ≤ 732/16 ; build PASS.
+- PostgreSQL local/WASM + Vault fictif PASS (ACL adverses, rollback, propriétaire/service, atomicité et migration legacy) ; chiffrement Vault natif NOT_RUN.
+- Contre-revue indépendante lecture seule : deux points corrigés puis PASS_WITH_BASELINE, aucun blocage local. Les liens signés déjà émis restent valides au plus 1 h.
+- Dépôt original préservé (deux docs modifiés et .claude préexistants) ; aucun secret réel, push, merge, déploiement ni changement distant.
+- Prochaine décision : GO distinct pour protocole d'activation Lovable, ACL/schéma, comptes/rôles/inscriptions, crypto native, migration mail, déploiement coordonné et recette connectée ; détails SECURITY_CONTRACT.md.
+- Avant activation : abandonner uniquement la copie/son diff. Après activation : accès suspendus, correction en avant, aucun retour au clair/bucket public/ancien helper.
+
+### 2.3 Poids du dossier, des versions et PDF - clôture locale du 8 octobre 2026
+
+- Statut : correction locale vérifiée ; validation finale PARTIAL à cause du SDK Deno flottant, aucune livraison Cloud.
+- GO local généralisé : provenance par lot dans demande courante, calcul retenu, nouvelles versions immuables et projecteur UI/mail/PDF ; aucune modification des moteurs FROZEN, tarifs ou faits globaux.
+- Conversion uniquement cargoWeight moteur (tonnes) vers kg ; absence/unité inconnue/contradiction explicites, indices uniques, aucun cumul arbitraire ; priorité operator_basis préservée.
+- Versions anciennes intactes ; nouveaux snapshots cargo_basis issus du seul engine_request enregistré, aucun recalcul des données historiques.
+- Recette réelle handlers/PostgreSQL fictif : V1 36 000/12 000 kg puis V2 45 000/12 000 kg après 2→3 40HC et reconfirmation ; montants HT/TTC exactement inchangés par rapport à la recette précédente.
+- Mono-lot : pricing, version persistée et PDF PASS ; UI locale demande/calcul/V1/V2 PASS ; export HTTP Auth/PostgREST/Storage réel, téléchargement signé et 12 contrôles PASS.
+- Derniers contrôles : typecheck app/node PASS, 685 Vitest PASS, 1847 Deno PASS/6 ignorés avec carte d'import audit SDK2.117.2 ; lint 723/16 non aggravé, build PASS.
+- npm run ci final FAIL à check:scenario-bundles (SDK flottant2.117.3 refusé par âge minimum) ; types Deno final BLOCKED cache/types2.117.3 ; première CI complète pré-guard PASS, baseline historique49/5.
+- Bundles8 + témoin négatif PASS avec SDK2.117.2 audit seulement ; dépendances du dépôt inchangées. Audit UI strict115 constats préexistants, aucun nouveau.
+- Limites : extraction IA simulée et adaptateur SQL partiel ; confirmations UI non servies par passerelle locale ; pas de preuve Lovable/native Vault ; aucun secret réel ni action distante.
+- Patch poids séparé : task-3/weight-final.patch et manifest ; rollback par inversion de ce seul delta après contrôle des hashes, conserver sécurité/gap antérieurs et dépôt original.
+- Publication et recette connectée nécessitent un GO distinct ; stabiliser la résolution du SDK avant cette validation finale.
+
+### 2.4 Stabilisation SDK des contrôles CI - clôture locale du 8 octobre 2026
+
+- Statut : PASS_WITH_BASELINE ; cette vérification finale lève la réserve CI/Deno de 2.3, sans validation Cloud.
+- Cause : SDK flottant 2.117.3 publié le 7 octobre à 12:34:46 UTC, environ 52 secondes après le cutoff de la CI précédente ; rejeu contrôlé sur base d371e02 : 5 erreurs d'âge minimum. Quarantaine expirée lors du recontrôle courant.
+- Base inchangée : typage à cache fermé bloqué sur 2.117.3 ; base et correctif avec SDK 2.117.2 : mêmes 49 diagnostics / 5 groupes.
+- Pin explicite SDK 2.117.2 dans scripts/deno-ci-imports.json ; test:deno, typecheck:deno et bundles utilisent cette carte ; le typage Edge ignore le manifeste npm du frontend.
+- Périmètre : quatre fichiers techniques de contrôles CI ; dépendances frontend, lockfile, sélection de tests, seuils, contrôles négatifs et âge minimum inchangés ; aucune modification métier ou FROZEN.
+- npm run ci standard PASS (13:01:29–13:03:36 UTC) : configuration fonctions, 8 bundles + témoin négatif, typecheck app/node, 685 Vitest / 55 fichiers, 1847 Deno / 0 échec / 6 ignorés, lint et build.
+- Dette préexistante inchangée : typecheck Deno 49/5 ; lint 723 erreurs / 16 avertissements sous baseline 732/16. Aucun seuil relevé pour rendre la CI verte.
+- Contre-revue indépendante : PASS_WITH_BASELINE, aucun finding supplémentaire ; preuves task-3/sdk-ci.log, sdk-ci-checks.json et sdk-final-evidence.json.
+- Delta SDK séparé : task-3/sdk-final.patch et manifest ; rollback SDK d'abord, puis delta poids si nécessaire. Patch poids et preuves antérieures conservés.
+- Dépôt original et .claude préservés ; aucun commit/push/merge/déploiement, secret réel ni changement distant. Recette connectée et chiffrement Vault natif restent à approuver/vérifier.
+
+### 2.5 Réparation IMAP existante - complément local du 9 octobre 2026
+
+- Statut PARTIAL : implémentation/tests PASS_WITH_BASELINE ; recette navigateur bloquée, publication suspendue.
+- GO humain à l'ajout local, mot de passe détenu par son administrateur, jamais demandé ni utilisé ici ; copie task-3/security-access-assembled-v1, work/0a86a21, dépôt original intact.
+- UI configuration existante → remplacement du mot de passe masqué/confirmé ; endpoint email-admin sous admission et ADMIN_EMAIL_ALLOWLIST inchangées ; rôle role_admin seul insuffisant.
+- RPC service-only atomique : FOR UPDATE, nouveau secret, bascule UUID Vault, nettoyage ancien secret ; conserve UUID de configuration, emails, attachments et liens métier, sans déchiffrement ancien ni fallback clair.
+- Fixtures PostgreSQL/WASM PASS : saine/NULL/orpheline/indéchiffrable simulée, legacy CHECK NOT VALID, moteur absent, échecs chiffrement/bascule/nettoyage, rollback/ACL/historique exact ; crypto native de cette RPC NOT_RUN.
+- CI locale exit0 : 692 Vitest / 57 fichiers, 1921 Deno / 0 échec / 6 ignorés, type app/node PASS, Deno 49/5 inchangé, lint 723/16 inchangé, build PASS. Ciblés 4 UI + 19 Deno PASS.
+- Aperçu du composant réel/API simulée localhost5194 HTTP200 ; recette visuelle/clavier NOT_RUN car pont Cua `Transport closed`. Valeur réelle de l'allowlist et accès humain de récupération UNKNOWN.
+- Retour avant activation : retirer seulement ce delta. Après activation : conserver protections, privilégier correction en avant ; réparation humaine exige Vault capable de chiffrer un nouveau secret.
+- Preuves et patch dans task-3/imap-recovery-evidence-20261009 ; aucune publication, migration distante, modification de rôle/secret ni relance d'audit général.
+
+### 2.6 Écritures cargo opérateur et réserves tarifaires - clôture locale du 10 octobre 2026
+
+- GO local : dimensions, poids net et devise via set-case-fact/UI ; tarifs inconnus conservés dans les convertisseurs provisoire et standard P5. Exceptions STRUCTURAL_PATCH_ALLOWED justifiées avant chaque modification ; tarifs, quantités, formules et pipeline inchangés.
+- Copie task-3/security-access-assembled-v1, work/0a86a21 ; 70 fichiers staged antérieurs et dépôt original préservés. Premier delta : 12 fichiers +186/-9 ; complément standard P5 : un bloc run-pricing +4/-2, plus cette clôture documentaire.
+- Absence/null/non-fini devient null + TO_CONFIRM ; zéro fini explicite reste connu. Snapshot provisoire/excludes_reserved_items, SQL numérique zéro avec amount_known:false, UI À confirmer/total provisoire et PDF DEVIS PROVISOIRE/hors réserves vérifiés.
+- Avant correctif standard : reproduction UI/snapshot/PDF PASS (défaut attesté). Après : handlers standard 16 contrôles, UI/PDF 3 tests, Deno ciblé 44 PASS ; type ciblé 2 TS2345 préexistants, baseline respectée.
+- Régression provisoire réelle : reprise 55 PASS/1 NOT_RUN avant classification fictive, pricing 18 PASS, snapshot/SQL/PDF 22 PASS. Auth/SDK adaptés, extraction IA indisponible simulée ; aucune preuve E2E Cloud revendiquée.
+- CI complète du premier delta (avant complément P5) exit0 : 695 Vitest, 1925 Deno/6 ignorés, types 49/5 et lint 723/16 sans aggravation, build PASS ; pas de nouvelle CI globale pour le seul complément P5.
+- Contenu historique v2 (run, snapshot, lignes) inchangé ; is_selected true→false au workflow normal de création v3. Anciennes qualifications et PDF non réécrits.
+- Réserve préexistante hors GO : dans la fixture standard, lignes connues 4275 XOF contre total payable 535 XOF, exactement inchangé ; cette recette valide les réserves, pas le rapprochement commercial global.
+- Contre-revue indépendante bornée et preuves/patchs : task-3/ddp-operator-recipe. Retour arrière : inverser seulement le complément P5/documentaire après contrôle ; conserver les lots antérieurs.
+- Publication/activation NOT_RUN ; aucun commit/push/merge/déploiement, secret réel ni modification distante. Crypto Vault native et recette connectée restent à valider sous GO distinct.
+
+### 2.7 Handling P5 dans le total standard - clôture locale du 12 octobre 2026
+
+- GO humain du 12 octobre 09:30 UTC ; exception STRUCTURAL_PATCH_ALLOWED justifiée avant édition : le handling P5 connu manquait aux agrégats opérationnel/DAP/DDP du parcours standard mono-lot.
+- Seul bloc standard run-pricing : +19/-0 ; montant déjà étendu ajouté une fois durant l'injection, réserves/zéros exclus de l'ajout, aliases CFA compatibles seulement, frais internes/transport déjà comptés préservés. Aucun tarif, quantité, taxe ou moteur modifié.
+- Même cas fictif 45434c0c : avant nouveau run4 payable535/ligne4275 ; après nouveau run10/versionv5 payable4275 = droits535 + handling17×220kg=3740. Magasinage franchise0 et trois réserves inchangés ; risque commercial de 2.6 corrigé dans ce périmètre.
+- Recette après : 62 contrôles PASS (rejeu, zéro connu, tarif absent, couverture canonique, snapshots historiques) ; neuf contrôles de gardes PASS (TO_CONFIRM fini, devise étrangère sans conversion, alias CFA, non-finis purs, retour tarif réel).
+- Première fixture « déjà couvert » sans marqueur canonique invalide : contrôle échoué8015 conservé, banc corrigé selon le contrat de couverture existant ; aucune correction de coverage ni extension du moteur. Couverture et contrôles négatifs sont des réponses synthétiques explicitement simulées.
+- Trois tests UI/snapshot/PDF PASS : total provisoire4275, réserves visibles/exclues, PDF réel du snapshot versionné ; pas de nouvelle inspection visuelle du PDF ni recette E2E Auth Cloud.
+- CI finale après ce correctif (09:41:20–09:44:03 UTC) exit0 : 695 Vitest/57 fichiers, 1925 Deno/0 échec/6 ignorés, typecheck app/node et build PASS ; Deno49/5 et lint723/16 sans aggravation. Aucun seuil relevé.
+- Contre-revue indépendante bornée, preuves et patch inverse : task-3/handling-total-20261012. Historiques et lignes préservés ; seuls marqueurs de sélection changent normalement à la création de nouvelles versions.
+- Copie work/0a86a21, lot70 staged et dépôt original préservés ; Docker/banc fictif existants relancés, aucun secret réel, commit/push/merge/déploiement ni modification distante. Retour arrière : inverser seulement ce delta après contrôle, conserver tous les correctifs précédents.
+- Publication/activation, recette connectée et crypto Vault native restent NOT_RUN sous GO distinct ; résultat local ne certifie pas l'ensemble des règles commerciales.
+
+### 2.8 Recherche de sujets encodés — clôture locale du 12 octobre 2026
+
+- GO humain local : saisie naturelle, repli borné, confirmation décodée, identité UID et erreurs IMAP ; complément UI autorisé pour exposer les limites. Aucun composant FROZEN touché.
+- Copie work/0a86a21 sur DESKTOP-DJVBKU7 ; exécution unique, contre-revue indépendante en lecture seule ; fixture et données entièrement anonymisées.
+- Statut : PARTIAL pour couverture non exhaustive ; implémentation et validations locales PASS_WITH_BASELINE. Publication toujours suspendue, aucun changement distant.
+- Recherche normale conservée ; indices Q espaces underscore/=20 (vrais underscores échappés), puis fenêtre fixe récente pour B/mots encodés coupés ; Q/B décodés avec charset supporté, casse/NFC/espaces normalisés, accents conservés.
+- Plafonds : normal200, candidatsQ200, fenêtre200, union600 sujets ;200 UID d’en-têtes complets demandés au total, reconstruction comprise et même si un UID disparaît ;50 recherches de références maximum,200 résultats maximum.
+- EXAMINE en lecture seule, UID SEARCH/FETCH BODY.PEEK, déduplication dans la boîte/session par UID ; UID hors literal/valeurs citées ou imbriquées, notifications FLAGS ignorées ; NO/BAD/incomplet devient erreur.
+- Interface existante : alerte persistante de recherche partielle, fenêtre/plafond/troncatures et total minimum visibles ; zéro borné ne permet pas de conclure à l’absence d’une demande.
+- Avant : contrat anonymisé échoue sur ancien handler ; après100 tests Deno ciblés et4 tests UI PASS. Revue indépendante38 Deno puis1 garde UID disparu et4 UI PASS ; blocages de parser corrigés et repris.
+- CI finale (12:06:18–12:08:34 UTC) exit0 :699 Vitest/58 fichiers,1960 Deno/0 échec/6 ignorés, typecheck app/node et build PASS ; types Deno49/5 et lint723/16 sans aggravation.
+- Audit UI strict :115 constats préexistants identiques, aucun ajout ; lint du composant4 erreurs préexistantes identiques. Pas de nouveau DESIGN/UX markdown selon consigne repo ; primitives Alert/sonner et tokens existants réutilisés.
+- Limites : anciens B/mots coupés, variantes Q mixtes et accents legacy hors fenêtre peuvent manquer ; charset inconnu non garanti. Tests UI jsdom seuls, recette visuelle/clavier/navigateur et vraie boîte après patch NOT_RUN.
+- Extension minimale proposée, non implémentée : période choisie ou continuation explicite par tranches de200 UID ; aucun scan élargi ni pagination ajoutée sous ce GO.
+- Preuves et patch inverse séparés dans task-3/subject-search-fix-20261012 ; lots sécurité/handling/opérateur/provisoire/standard et dépôt original conservés. Retour : inversion de ce seul delta après contrôle, préserver tous les lots antérieurs.
+- Aucun corps/PJ réel relu, secret réel, import/sync/mutation boîte, tarif/calcul, DB/Auth/RLS, commit/push/merge/déploiement ou modification de fournisseur. Activation exige GO distinct.
+
+### 2.9 Identité des imports IMAP legacy - lot local du 13 octobre 2026
+
+- GO humain local du 13/10 10:30 : reconnaître les anciens imports sans doublon et rattacher les messages existants en conservant UUID, corps/PJ et dossiers ; copie work/0a86a21, même DESKTOP-DJVBKU7, écrivain unique et contre-revue indépendante.
+- Namespace de recherche transmis aux deux appelants : configuration, empreinte du compte, dossier, UIDVALIDITY et chaque UID/Message-ID ; EXAMINE/PEEK, validation des en-têtes et de la racine avant toute persistance ; namespace périmé/incomplet refusé.
+- Migration préparée seulement `20261013110000` : provenance IMAP privée service-only et RPC transactionnelle max10 ; aucune adoption ni migration appliquée à un runtime réel.
+- Un `<UID@imported>` n'est pas une preuve : réutilisation exige une ligne persistante reviewed_legacy liée au compte/dossier/génération/UID, UUID, vrai Message-ID et racine ; le payload opérateur ne crée aucune attestation.
+- Refus sans écriture du lot : provenance absente/contradictoire, canonique+legacy concurrents, autre compte/config/dossier, racines incompatibles, fil existant rootNULL/différent ; aucun rapprochement par sujet ni déplacement d'un lien légitime.
+- Adoption prouvée limitée aux identifiants message_id/thread_id ; thread_ref déjà légitime conservé, seuls liens NULL attachés au fil exact ; aucun UUID supprimé/recréé, dossier ou lien métier modifié. Racine valide contradictoire refusée même sans thread_ref.
+- Les existants ne sont plus hydratés/réparés ou analysés par l'import ; corps, PJ, extracted_data et métadonnées opérateur conservés ; auto-analyse UI du lot mixte limitée aux nouveaux. Réparation de contenu/PJ existants exige un parcours distinct.
+- Tests ciblés :15 handler +4 en-têtes/rejeu,7 UI et24 scénarios PostgreSQL/WASM PASS ;65 Deno handler/admission PASS. Contre-revue indépendante : même résultat ciblé, blocage racine valide corrigé puis repris, aucun blocage restant.
+- CI finale 11:07:48-11:10:45 UTC exit0 :702 Vitest/58 fichiers,1975 Deno/0 échec/6 ignorés ; typecheck app/node/build PASS, types Deno49/5 et lint720/16 sans aggravation. Première CI : seule attente de test import vide500 obsolète, corrigée409 ; aucun seuil relevé.
+- Atomicité limitée aux identités/liens SQL ; Storage/IA après commit n'en font pas partie. Rejeu n'achève pas automatiquement une PJ manquante ; complément du13/10 11:41 UTC : PostgreSQL natif15.18 local,24 scénarios+3 concurrences/rollback fictifs PASS ; autres writers et crypto/runtime réels NOT_RUN.
+- Adoption réelle encore NON AUTORISÉE : GO distinct, activation coordonnée sécurité/Vault/headers/recherche/import/UI/migration ; crypto native et admission opérationnelles à prouver, sauvegarde et restauration bornées des quatre UUID à préparer.
+- Avant tout mapping reviewed_legacy : confirmer les en-têtes/References, boîte et UIDVALIDITY actuels, collision zéro sur les vrais IDs, UUID/config/fil/case attendus et empreintes de conservation ; UID seul, export ancien ou sujet ne suffisent pas.
+- Fenêtre exclusive vérifiée sans sync-emails/hydrate/import concurrents requise : writers legacy hors GO ignorent la provenance, UNIQUE(message_id) seul ne garantit pas l'absence de doublon canonique+synthétique. Vérifier adoption et invariants avant reprise des writers.
+- Preuves/delta/retour arrière borné : task-3/legacy-import-fix-20261013 ; préserver tous les lots antérieurs et le dépôt original. Aucun accès boîte/base réelle, secret réel, push, merge, publication ou changement distant sous ce GO.
+
+### 2.10 Demande partenaire air DDP destination et devis partiel - clôture locale du 13 octobre 2026
+
+- GO local humain ; exception STRUCTURAL_PATCH_ALLOWED du13/10 16:56 limitée à run-pricing/price-service-lines, allow_provisional=true, AIR_IMPORT_DDP destination mono-lot ; aucun tarif ni formule modifié.
+- Périmètre sourcé par les seuls corps entrants fiables, extrait exact par service ; contradiction/retrait/ajout ultérieur proposés, choix opérateur conservés, aucun critère sur nom ou sujet précis. Lecture scope plat/legacy corrigée ; demande fournisseur fret seulement sur inclusion explicite.
+- Action vérification documents/immatriculation du destinataire ouverte, sourcée et idempotente ; accusé de réception ou demande d'annulation ne prouvent pas la vérification et ne ferment pas l'action.
+- HS/valeur/régime manquants réservent les droits/taxes dans le seul mode éligible ; moteur douanier non appelé. Forfaits connus conservés selon règles existantes ; erreurs de lecture/tarification et réponses incomplètes refusées, statut restauré après échec.
+- Précision humaine17:53 : base de chaque tarif respectée (clé brut190/net151/taxable), jamais présumée par KG/AIR_HANDLING ; forfait explicite indépendant, taxable absent ou calcul contradictoire non validé réservé ; choix opérateur protégé. Absence de règleKG/carteKG inapplicable ne produit ni1kg ni blocage du forfait retenu ; sélection existante réutilisée, barème réel non attesté.
+- Réserves exclues des totaux ; statut partiel résultat/snapshot/PDF, quantité inconnue « ? ». Colonne numérique version garde sentinel1 + breakdown quantity_known:false, snapshot null.
+- CI finale18:05:57-18:08:11 UTC exit0 :709 Vitest/59 fichiers,2037 Deno/0 échec/6 ignorés ; app/node/build/config/bundles PASS ; types Deno49/5, lint720/16 sans aggravation et aucun nouveau diagnostic dans le delta.12 erreurs PSL auparavant non couvertes reproduites sur snapshot puis corrigées par annotations.
+- Ciblés :16 preuves,8 handler scope,7 frontend,6 purs partiels typés,32 recette handlers/version/PDF,53 régressions projection/tarification PASS ; contre-revue indépendante A/B et reprises poids/types/tests PASS.
+- Backend de recette HTTP en mémoire, tarifs/comptes fictifs, renderer PDF réel et deux pages synthétiques examinées ; SQL/RLS/Auth réels, calcul douanier métier, IA de repli et recette UI non validés. Aucun fait/compte/catalogue réel ni migration dans ce delta.
+- Preuves/diff/empreintes/retour arrière : task-3/request-scope-fix-20261013 ; copie work/0a86a21,70 fichiers staged antérieurs et dépôt original strictement préservés ; aucun commit/push/merge/déploiement/secret réel.
+- PASS_WITH_BASELINE local, runtime UNKNOWN. Publication/activation coordonnée Lovable et recette connectée restent sous GO distinct ; crypto Vault native NOT_RUN. Rollback : patch inverse du seul delta après --check, en conservant tous les lots précédents.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

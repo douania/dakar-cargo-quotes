@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 // PAD-V5 B2.1 - Create a suggested CCC candidate from a V5 shadow row.
 // Auth model: SUPABASE_ANON_KEY + caller Authorization JWT. No service_role.
 // Writes only public.commodity_classification_candidates under caller RLS.
@@ -162,6 +163,9 @@ Deno.serve(async (req) => {
   if (userError || !userData?.user) {
     return json({ error: "unauthorized", reason: "invalid_token" }, 401);
   }
+  const admission = await requireWorkspaceToken(authHeader.replace(/^Bearer /i, ""));
+  if (admission instanceof Response) return admission;
+
   const userId = userData.user.id;
 
   let raw: unknown;

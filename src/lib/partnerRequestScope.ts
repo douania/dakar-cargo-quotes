@@ -50,7 +50,7 @@ export function derivePartnerRequestScope(input: ScopeInput): PartnerScopeItem[]
   const text = latestClientEmailText ?? "";
 
   // ── 1. Freight rate — only if freight is in contractual scope (P2-C guard) ──
-  if (isMaritime && input.freightScope !== false) {
+  if (isMaritime && input.freightScope === true) {
     const items = [
       "Taux de fret maritime",
       "Transit time",
@@ -68,7 +68,7 @@ export function derivePartnerRequestScope(input: ScopeInput): PartnerScopeItem[]
       requiredItems: items,
       confidence: "high",
     });
-  } else if (isAir && input.freightScope !== false) {
+  } else if (isAir && input.freightScope === true) {
     scope.push({
       purpose: "air_tariff",
       label: "Fret aérien",

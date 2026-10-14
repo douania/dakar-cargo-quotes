@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 // PAD-EXPORT-SUGGEST-BOOTSTRAP-1 Lot 1
 // Creates operator-review PAD category candidates for EXPORT/CONTENEUR only.
 // Writes only public.commodity_classification_candidates under caller RLS.
@@ -121,6 +122,9 @@ Deno.serve(async (req) => {
   if (userError || !userData?.user) {
     return json({ ok: false, error: "unauthorized", reason: "invalid_token" }, 401);
   }
+
+  const admission = await requireWorkspaceToken(authHeader.replace(/^Bearer /i, ""));
+  if (admission instanceof Response) return admission;
 
   let body: { case_id?: unknown; article_id?: unknown };
   try {

@@ -37,6 +37,7 @@ import { useUiUsageTracker } from '@/hooks/useUiUsageTracker';
 import { ThreadStructureIndicators } from '@/components/emails/ThreadStructureIndicators';
 import { UiSessionSummary } from '@/components/emails/UiSessionSummary';
 import { invokeWithRetry } from '@/lib/fetchWithRetry';
+import { MailboxPasswordDialog } from '@/components/emails/MailboxPasswordDialog';
 
 interface EmailConfig {
   id: string;
@@ -188,6 +189,7 @@ export default function Emails() {
   };
   const [selectedDraft, setSelectedDraft] = useState<EmailDraft | null>(null);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [passwordConfig, setPasswordConfig] = useState<EmailConfig | null>(null);
   const [showGuidanceDialog, setShowGuidanceDialog] = useState(false);
   const [guidanceEmailId, setGuidanceEmailId] = useState<string | null>(null);
   const [guidanceEmailSubject, setGuidanceEmailSubject] = useState<string>('');
@@ -1528,7 +1530,7 @@ export default function Emails() {
             {configs.map((config) => (
               <Card key={config.id}>
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <h3 className="font-semibold">{config.name}</h3>
                       <p className="text-sm text-muted-foreground">
@@ -1540,7 +1542,10 @@ export default function Emails() {
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setPasswordConfig(config)}>
+                        Remplacer le mot de passe
+                      </Button>
                       <Button 
                         variant="outline" 
                         size="sm"
@@ -1683,6 +1688,10 @@ export default function Emails() {
         </Dialog>
 
         {/* Add Config Dialog */}
+        {passwordConfig && (
+          <MailboxPasswordDialog key={passwordConfig.id} config={passwordConfig}
+            onClose={() => setPasswordConfig(null)} onSuccess={() => { void loadData(); }} />
+        )}
         <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
           <DialogContent>
             <DialogHeader>

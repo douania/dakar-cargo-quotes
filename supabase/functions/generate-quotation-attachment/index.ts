@@ -76,14 +76,15 @@ Deno.serve(async (req) => {
       throw new Error(`Upload failed: ${uploadError.message}`);
     }
 
-    // Get public URL
-    const { data: publicUrlData } = supabase.storage
+    // Temporary download URL: the bucket is private.
+    const { data: publicUrlData, error: htmlUrlError } = await supabase.storage
       .from('quotation-attachments')
-      .getPublicUrl(storagePath);
+      .createSignedUrl(storagePath, 3600);
 
-    const publicUrl = publicUrlData?.publicUrl;
+    if (htmlUrlError || !publicUrlData?.signedUrl) throw new Error("Download URL unavailable");
+    const publicUrl = publicUrlData.signedUrl;
 
-    console.log("Quotation attachment uploaded:", storagePath, publicUrl);
+    console.log("Quotation attachment uploaded:", storagePath);
 
     // Also generate CSV version for Excel compatibility
     const csvContent = generateCsvQuotation(attachment_data);
@@ -97,9 +98,10 @@ Deno.serve(async (req) => {
         upsert: true,
       });
 
-    const { data: csvUrlData } = supabase.storage
+    const { data: csvUrlData, error: csvUrlError } = await supabase.storage
       .from('quotation-attachments')
-      .getPublicUrl(csvPath);
+      .createSignedUrl(csvPath, 3600);
+    if (csvUrlError || !csvUrlData?.signedUrl) throw new Error("Download URL unavailable");
 
     return new Response(
       JSON.stringify({
@@ -108,7 +110,7 @@ Deno.serve(async (req) => {
           filename: filename,
           storage_path: storagePath,
           public_url: publicUrl,
-          csv_url: csvUrlData?.publicUrl,
+          csv_url: csvUrlData.signedUrl,
           content_type: 'text/html',
         },
         email_id,

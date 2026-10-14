@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 // PAD-ALIAS-ENRICHMENT-PIPELINE-1 / Phase B — Producteur de PROPOSITIONS
 // d'enrichissement d'alias PAD (review only).
 //
@@ -185,6 +186,9 @@ export async function handle(req: Request): Promise<Response> {
   if (userError || !userData?.user) {
     return json({ ok: false, error: "unauthorized", reason: "invalid_token" }, 401);
   }
+
+  const admission = await requireWorkspaceToken(authHeader.replace(/^Bearer /i, ""));
+  if (admission instanceof Response) return admission;
 
   let body: { case_id?: unknown; mode?: unknown };
   try {

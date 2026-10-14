@@ -1,3 +1,4 @@
+import { buildPricingCargoBasis, type QuotationCargoBasis } from "../_shared/quotation-cargo-basis.ts";
 import { readOperatorBasis, type OperatorQuotationBasis } from "../_shared/operator-quotation-basis.ts";
 /**
  * Phase 12 + Phase 17B: generate-quotation-version
@@ -48,7 +49,7 @@ interface VersionSnapshotLot {
   lines: Array<{
     service_code: string;
     description: string | null;
-    quantity: number;
+    quantity: number | null;
     unit_price: number;
     amount: number;
     currency: string;
@@ -97,6 +98,7 @@ interface VersionSnapshot {
     containers: any[];
     cargo_weight: number | null;
     cargo_volume: number | null;
+    cargo_basis?: QuotationCargoBasis;
   };
   client: {
     email: string | null;
@@ -106,7 +108,7 @@ interface VersionSnapshot {
   lines: Array<{
     service_code: string;
     description: string | null;
-    quantity: number;
+    quantity: number | null;
     unit_price: number;
     amount: number;
     currency: string;
@@ -330,6 +332,7 @@ Deno.serve(async (req) => {
     const outputTotals = outputsJson?.totals as Record<string, any> | undefined;
 
     const operatorBasis = readOperatorBasis(outputsJson?.operator_basis);
+    const cargoBasis = operatorBasis ? null : buildPricingCargoBasis(pricingRun);
     const versionId = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -353,7 +356,10 @@ Deno.serve(async (req) => {
       // camelCase (originPort, cargoWeight, clientEmail, ...) — résolution
       // déterministe outputs_json > inputs camelCase > facts tableau > legacy
       // snake_case via helper pur (zéros valides préservés, pas de ||).
-      inputs: resolveSnapshotInputs(inputs, factsSnapshot, outputsJson),
+      inputs: {
+        ...resolveSnapshotInputs(inputs, factsSnapshot, outputsJson),
+        ...(cargoBasis ? { cargo_basis: cargoBasis } : {}),
+      },
       client: resolveSnapshotClient(inputs, factsSnapshot, outputsJson),
       raw_lines: tariffLines,
       lines: tariffLines.map((line: any, idx: number) => {
@@ -479,7 +485,8 @@ Deno.serve(async (req) => {
       line_order: idx,
       service_code: line.service_code,
       description: line.description,
-      quantity: line.quantity,
+      // Numeric table contract; unknown quantity is explicit in snapshot/breakdown.
+      quantity: line.quantity ?? 1,
       unit_price: line.unit_price,
       amount: line.amount,
       currency: line.currency,

@@ -14,6 +14,7 @@ Deno.test("adoption endpoint: authenticated identity, RLS proof, freshness, clos
     const body = req.method === "POST" ? await req.json() : {};
     calls.push({ url: url.pathname, body, auth: req.headers.get("Authorization") });
     const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+    if (url.pathname === "/rest/v1/rpc/has_workspace_access") return response(true);
     if (url.pathname === "/auth/v1/user") return mode === "invalid" ? response({ message: "invalid" }, 401) : response({ id, email: "test@example.invalid" });
     if (url.pathname.includes("quote_scenarios")) return response(mode === "forbidden" ? [] : [{ id, case_id: id, scope_hash: mode === "stale" ? "b".repeat(64) : payload.expected_scope_hash }]);
     if (url.pathname.includes("quote_scenario_pricing_runs")) return response([{ id, case_id: id, scenario_id: id, status: "success", qualification: "partial", scenario_scope_hash: payload.expected_scope_hash }]);
@@ -26,14 +27,14 @@ Deno.test("adoption endpoint: authenticated identity, RLS proof, freshness, clos
     assertEquals((await handler(request(payload, false))).status, 401);
     for (const [state, status] of [["invalid", 401], ["forbidden", 403], ["stale", 409]] as const) {
       mode = state; calls.length = 0; assertEquals((await handler(request())).status, status);
-      assert(!calls.some(c => c.url.includes("/rpc/")));
+      assert(!calls.some(c => c.url.includes("/rpc/") && !c.url.endsWith("/has_workspace_access")));
     }
     mode = "ok"; calls.length = 0;
     assertEquals((await handler(request({ ...payload, amount: 1 } as typeof payload))).status, 400);
-    assert(!calls.some(c => c.url.includes("/rpc/")));
+    assert(!calls.some(c => c.url.includes("/rpc/") && !c.url.endsWith("/has_workspace_access")));
     calls.length = 0; assertEquals((await handler(request())).status, 200);
     assert(calls.filter(c => c.url.includes("/rest/v1/quote_")).every(c => c.auth === "Bearer synthetic-user"));
-    const rpc = calls.find(c => c.url.includes("/rpc/"))!;
+    const rpc = calls.find(c => c.url.endsWith("/rpc/adopt_operator_quotation_basis"))!;
     assertEquals(rpc.body.p_actor_user_id, id); assertEquals(rpc.body.p_scenario_pricing_run_id, id);
     assertEquals(Object.keys(rpc.body).sort(), ["p_actor_user_id", "p_case_id", "p_expected_scope_hash", "p_idempotency_key", "p_scenario_id", "p_scenario_pricing_run_id"]);
   } finally {

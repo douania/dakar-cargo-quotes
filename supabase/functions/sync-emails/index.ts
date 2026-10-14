@@ -1,3 +1,4 @@
+import { readMailboxSecret, quoteImapString } from "../_shared/mailbox-secret.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
@@ -760,7 +761,7 @@ class SimpleIMAPClient {
   }
 
   async login(username: string, password: string): Promise<boolean> {
-    const response = await this.sendCommand(`LOGIN "${username}" "${password}"`);
+    const response = await this.sendCommand(`LOGIN ${quoteImapString(username)} ${quoteImapString(password)}`);
     return response.includes("OK");
   }
 
@@ -1922,8 +1923,7 @@ async function upsertContact(
 
 // Garde testabilité (cohérent avec build-case-puzzle) : permet d'importer ce
 // module dans un test sans démarrer le serveur HTTP.
-if (Deno.env.get("SYNC_EMAILS_DISABLE_SERVE") !== "1") {
-serve(async (req) => {
+export const handler = async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -1954,7 +1954,7 @@ serve(async (req) => {
     // Get email config
     const { data: config, error: configError } = await supabase
       .from('email_configs')
-      .select('*')
+      .select('id,name,host,port,username,folder,use_ssl,is_active,last_sync_at,created_at')
       .eq('id', configId)
       .single();
 
@@ -1966,6 +1966,7 @@ serve(async (req) => {
 
     // Create IMAP client - use STARTTLS for better certificate compatibility
     const useStartTls = config.port === 993; // If port 993, try STARTTLS as fallback
+    const imapPassword = await readMailboxSecret(supabase, config.id);
     client = new SimpleIMAPClient(
       config.host,
       useStartTls ? 143 : config.port, // Use port 143 for STARTTLS
@@ -1977,7 +1978,7 @@ serve(async (req) => {
     console.log("Connected to IMAP server");
 
     // Login
-    const loggedIn = await client.login(config.username, config.password_encrypted);
+    const loggedIn = await client.login(config.username, imapPassword);
     if (!loggedIn) {
       throw new Error("Échec de l'authentification IMAP");
     }
@@ -2213,5 +2214,5 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
-}
+};
+if (Deno.env.get("SYNC_EMAILS_DISABLE_SERVE") !== "1" && Deno.env.get("MAIL_FUNCTION_DISABLE_SERVE") !== "1") serve(handler);

@@ -532,10 +532,11 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to upload Excel: ${uploadError.message}`);
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
+    // Temporary download URL: the bucket is private.
+    const { data: urlData, error: urlError } = await supabase.storage
       .from('quotation-attachments')
-      .getPublicUrl(`exports/${filename}`);
+      .createSignedUrl(`exports/${filename}`, 3600);
+    if (urlError || !urlData?.signedUrl) throw new Error("Download URL unavailable");
 
     console.log(`Excel quotation ${reference} generated successfully: ${filename}`);
 
@@ -545,7 +546,7 @@ Deno.serve(async (req) => {
         reference,
         file: {
           filename,
-          url: urlData.publicUrl,
+          url: urlData.signedUrl,
           size: buffer.byteLength,
           format: 'xlsx',
           tabs: [

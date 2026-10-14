@@ -1,3 +1,5 @@
+import { useQuoteRequestCargoBasis } from "@/hooks/useQuoteRequestCargoBasis";
+import { quotationCargoBasisText } from "../../supabase/functions/_shared/quotation-cargo-basis";
 import React, { useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
@@ -62,6 +64,7 @@ import {
 import type { PricingPrecheck } from "./case-view/types";
 import { mapSourceType, toFactPayload, shouldShowPricingPanel, isPricingRerun } from "./case-view/helpers";
 import { CaseFactsTable, type CaseFact } from "@/components/case/CaseFactsTable";
+import { operatorCargoFactInput } from "../../supabase/functions/_shared/operator-cargo-fact-write";
 import { MainLayout } from "@/components/layout/MainLayout";
 import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
@@ -472,6 +475,7 @@ export default function CaseView() {
     staleTime: 60000,
   });
   const isMultiLot = multiLotLineCount >= 2;
+  const requestCargo = useQuoteRequestCargoBasis(caseId);
 
   // ── M9b: Output pipeline stepper data ──
   const isPipelineVisible = caseData && ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status);
@@ -546,6 +550,8 @@ export default function CaseView() {
   const handleRefresh = useCallback(() => {
     if (caseId) void refreshGapActionQueries(queryClient, caseId);
     queryClient.invalidateQueries({ queryKey: ["pad-group-confirmations", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["quote-request-lines", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["quote-request-lines-count", caseId] });
     refetchCase();
     refetchFacts();
     refetchEvents();
@@ -605,6 +611,7 @@ export default function CaseView() {
       }
 
       await refetchEvents();
+      await queryClient.invalidateQueries({ queryKey: ['service-scope', caseId] });
     } catch (err) {
       console.error("[Phase2] analyze-service-scope failed:", err);
       toast.error("Analyse impossible pour ce dossier");
@@ -1096,8 +1103,12 @@ export default function CaseView() {
         fact_key: fact.fact_key,
       };
 
+      const cargoInput = operatorCargoFactInput(fact.fact_key, editValue);
+      if (cargoInput) {
+        if (cargoInput.ok === false) throw new Error(cargoInput.message);
+        Object.assign(payload, cargoInput.value);
       // Special handling for cargo.articles_detail (JSON array)
-      if (fact.fact_key === "cargo.articles_detail") {
+      } else if (fact.fact_key === "cargo.articles_detail") {
         let parsed: any;
         try { parsed = JSON.parse(editValue); } catch {
           throw new Error("JSON invalide pour cargo.articles_detail");
@@ -1148,7 +1159,11 @@ export default function CaseView() {
     setIsAddingFact(true);
     try {
       const payload: Record<string, unknown> = { case_id: caseId, fact_key: addFactKey };
-      if (NUMERIC_FACT_KEYS.has(addFactKey)) {
+      const cargoInput = operatorCargoFactInput(addFactKey, addFactValue);
+      if (cargoInput) {
+        if (cargoInput.ok === false) throw new Error(cargoInput.message);
+        Object.assign(payload, cargoInput.value);
+      } else if (NUMERIC_FACT_KEYS.has(addFactKey)) {
         const num = Number(addFactValue);
         if (!Number.isFinite(num) || num < 0) throw new Error("Valeur numérique invalide");
         payload.value_number = num;
@@ -1279,12 +1294,20 @@ export default function CaseView() {
   ].filter(Boolean).join(" · ");
   const declaredWeight = facts.find(fact => fact.fact_key === "cargo.weight_kg" && fact.is_current);
   const declaredWeightKg = Number(declaredWeight?.value_number ?? declaredWeight?.value_text);
+  const declaredPieces = facts.find(fact => fact.fact_key === 'cargo.pieces_count' && fact.is_current);
+  const declaredPiecesCount = Number(declaredPieces?.value_number);
+  const dimensionEvidence = facts.find(fact => fact.fact_key === 'cargo.dimensions_evidence' && fact.is_current)?.value_json;
+  const hasDimensionConflict = dimensionEvidence && typeof dimensionEvidence === 'object' && !Array.isArray(dimensionEvidence) && dimensionEvidence.conflict === true;
   const guidedMerchandiseSummary = [
     multiLotLineCount > 0 ? `${multiLotLineCount} ligne${multiLotLineCount > 1 ? "s" : ""} client` : "Lots détaillés ci-dessous",
-    declaredWeight && Number.isFinite(declaredWeightKg) && declaredWeightKg > 0 ? `Poids déclaré : ${declaredWeightKg.toLocaleString("fr-FR")} kg` : "Poids déclaré à renseigner",
+    requestCargo.isLoading ? "Chargement des poids par lot…" : requestCargo.isError ? "Poids par lot indisponibles : actualisez le dossier" : requestCargo.lines.length > 0
+      ? quotationCargoBasisText(requestCargo.cargoBasis).join(" ")
+      : declaredWeight && Number.isFinite(declaredWeightKg) && declaredWeightKg > 0 ? `Poids déclaré au dossier : ${declaredWeightKg.toLocaleString("fr-FR")} kg (${declaredWeight.is_validated ? 'validé' : 'à confirmer'})` : "Poids déclaré à renseigner",
+    declaredPieces && Number.isInteger(declaredPiecesCount) && declaredPiecesCount > 0 ? `${declaredPiecesCount} colis déclarés (${declaredPieces.is_validated ? 'validé' : 'à confirmer'})` : null,
+    hasDimensionConflict ? 'Répartition des cartons contradictoire : à confirmer' : null,
     [...new Set(padGroupSummary.split(" · ").filter(Boolean))].join(" · ") || (currentPadCategory ? `PAD ${currentPadCategory}` : "Catégories à confirmer"),
     `${blockingGaps.length + nonBlockingOpenGaps.length} question${blockingGaps.length + nonBlockingOpenGaps.length > 1 ? "s" : ""} ouverte${blockingGaps.length + nonBlockingOpenGaps.length > 1 ? "s" : ""}`,
-  ].join(" · ");
+  ].filter(Boolean).join(" · ");
   const coordinationSummary = cockpitState ? [
     cockpitState.totalPartnerRequests > 0 ? `demandes partenaires ${cockpitState.closedPartnerRequests}/${cockpitState.totalPartnerRequests}` : null,
     pilotage?.action?.label ? `étape restante : ${pilotage.action.label}` : null,
@@ -1951,7 +1974,11 @@ export default function CaseView() {
                 case_id: caseId,
                 fact_key: g.gap_key,
               };
-              if (isNumeric) {
+              const cargoInput = operatorCargoFactInput(g.gap_key, raw);
+              if (cargoInput) {
+                if (cargoInput.ok === false) throw new Error(cargoInput.message);
+                Object.assign(payload, cargoInput.value);
+              } else if (isNumeric) {
                 const num = Number(raw);
                 if (!Number.isFinite(num) || num <= 0 || (g.gap_key === "cargo.pieces_count" && !Number.isInteger(num))) {
                   throw new Error(g.gap_key === "cargo.pieces_count" ? "Entier positif requis" : "Nombre positif requis");

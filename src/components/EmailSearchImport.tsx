@@ -4,17 +4,18 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Search, Mail, Users, Calendar, Loader2, BookOpen, FileText, FileSpreadsheet, Sparkles, Paperclip, Zap } from 'lucide-react';
+import { Search, Mail, Users, Calendar, Loader2, BookOpen, FileText, FileSpreadsheet, Sparkles, Paperclip, Zap, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { processQuotationRequest, type QuotationProcessResult } from '@/services/emailService';
+import { processQuotationRequest, type QuotationProcessResult, type ImportSearchIdentity } from '@/services/emailService';
 import { QuotationProcessor } from '@/components/QuotationProcessor';
 
 interface AttachmentPreview {
@@ -52,6 +53,16 @@ interface Props {
   onImportComplete: () => void;
 }
 
+interface SearchCoverage {
+  exhaustive?: boolean;
+  totalFoundIsLowerBound?: boolean;
+  recentWindowSize?: number;
+  normalCandidatesTruncated?: boolean;
+  qCandidatesTruncated?: boolean;
+  recentCandidatesTruncated?: boolean;
+  resultsTruncated?: boolean;
+}
+
 export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, onImportComplete }, ref) => {
   const navigate = useNavigate();
   const [searchType, setSearchType] = useState<'subject' | 'from' | 'text'>('subject');
@@ -61,6 +72,10 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const [totalFound, setTotalFound] = useState(0);
+  const [searchIdentity, setSearchIdentity] = useState<ImportSearchIdentity | null>(null);
+  const [searchNotice, setSearchNotice] = useState<{
+    partial: boolean; coverage: SearchCoverage | null; limit: number; reconstructionTruncated: boolean;
+  } | null>(null);
   const [reconstructThread, setReconstructThread] = useState(true); // Enable by default
   
   // Quotation processing state
@@ -81,6 +96,9 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
     setSearching(true);
     setThreads([]);
     setSelectedThreads(new Set());
+    setTotalFound(0);
+    setSearchNotice(null);
+    setSearchIdentity(null);
 
     try {
       const { data, error } = await supabase.functions.invoke('search-emails', {
@@ -97,13 +115,31 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
       if (data.error) throw new Error(data.error);
 
       setThreads(data.threads || []);
+      if (Number.isSafeInteger(data.uidValidity) && data.uidValidity > 0 && data.mailbox && data.accountKey) {
+        setSearchIdentity({ configId, mailbox: data.mailbox, uidValidity: data.uidValidity,
+          accountKey: data.accountKey, messages: (data.threads || []).flatMap((thread: EmailThread) =>
+            thread.messages.map(({ uid, messageId }) => ({ uid, messageId }))),
+        });
+      }
       setTotalFound(data.totalFound || 0);
+      const coverage: SearchCoverage | null = data.searchCoverage ?? null;
+      const reconstructionTruncated = data.reconstructionTruncated === true;
+      const partial = (searchType === 'subject' && coverage?.exhaustive !== true) ||
+        !!(coverage?.resultsTruncated || coverage?.normalCandidatesTruncated ||
+          coverage?.qCandidatesTruncated || coverage?.recentCandidatesTruncated) ||
+        reconstructionTruncated || data.totalFound > data.selectedCount;
+      setSearchNotice({
+        partial, coverage, reconstructionTruncated,
+        limit: Number.isSafeInteger(data.limitApplied) && data.limitApplied > 0 ? data.limitApplied : 200,
+      });
       
       if (data.threads?.length === 0) {
-        toast.info('Aucun email trouvé pour cette recherche');
+        toast.info(partial
+          ? 'Aucun résultat dans le périmètre vérifié. La recherche reste partielle.'
+          : 'Aucun email trouvé pour cette recherche');
       } else {
         const reconstructInfo = reconstructThread ? ' (reconstruction thread activée)' : '';
-        toast.success(`${data.threads.length} conversation(s) trouvée(s)${reconstructInfo}`);
+        toast.success(`${data.threads.length} conversation(s) trouvée(s)${partial ? ' — résultats partiels' : ''}${reconstructInfo}`);
       }
     } catch (error) {
       console.error('Search error:', error);
@@ -127,6 +163,10 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
   const handleImport = async () => {
     if (selectedThreads.size === 0) {
       toast.error('Sélectionnez au moins une conversation');
+      return;
+    }
+    if (!searchIdentity || searchIdentity.configId !== configId) {
+      toast.error('Relancez la recherche pour vérifier la boîte et les messages avant import.');
       return;
     }
 
@@ -157,7 +197,8 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
               configId, 
               uids: remainingUids,
               learningCase: 'quotation',
-              threadKey: currentThreadKey
+              threadKey: currentThreadKey,
+              searchIdentity,
             }
           });
 
@@ -207,7 +248,7 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
         try {
           // Collect email IDs from all imported emails across batches
           const importedEmailIds = allImportedEmails
-            .filter((e: any) => e?.id)
+            .filter((e: any) => e?.id && e.alreadyExists !== true)
             .map((e: any) => e.id);
 
           if (importedEmailIds.length > 0) {
@@ -262,13 +303,17 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
 
     const uids = selectedThread.messages.map(m => m.uid);
     const threadKey = selectedThread.threadKey;
+    if (!searchIdentity || searchIdentity.configId !== configId) {
+      toast.error('Relancez la recherche pour vérifier la boîte et les messages avant import.');
+      return;
+    }
     
     setProcessingQuotation(true);
     setQuotationResult(null);
 
     try {
       toast.info('Import du fil en cours...');
-      const result = await processQuotationRequest(configId, uids, threadKey);
+      const result = await processQuotationRequest(configId, uids, threadKey, searchIdentity);
       
       // C1 Convergence: if caseId is returned, navigate to case view
       if (result.caseId) {
@@ -379,9 +424,29 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
             </div>
           </div>
 
+          {searchNotice?.partial && (
+            <Alert aria-live="polite">
+              <Info className="h-4 w-4" aria-hidden="true" />
+              <AlertTitle>Recherche partielle</AlertTitle>
+              <AlertDescription className="space-y-1">
+                <p>{threads.length === 0
+                  ? "Aucun résultat dans le périmètre vérifié. Cela ne permet pas de conclure à l’absence d’une demande."
+                  : "Des messages peuvent manquer dans ces résultats ; la recherche n’est pas exhaustive."}</p>
+                <p>Affichage limité à {searchNotice.limit} e-mails.
+                  {Number.isSafeInteger(searchNotice.coverage?.recentWindowSize) && (
+                    <> Vérification complémentaire des sujets : fenêtre de {searchNotice.coverage?.recentWindowSize} e-mails récents.</>
+                  )}
+                </p>
+                {(searchNotice.coverage?.normalCandidatesTruncated || searchNotice.coverage?.qCandidatesTruncated ||
+                  searchNotice.coverage?.recentCandidatesTruncated) && <p>Certains candidats n’ont pas été vérifiés.</p>}
+                {searchNotice.reconstructionTruncated && <p>Certains échanges liés n’ont pas pu être inclus dans la limite.</p>}
+              </AlertDescription>
+            </Alert>
+          )}
+
           {totalFound > 0 && (
             <p className="text-sm text-muted-foreground">
-              {totalFound} email(s) trouvé(s), groupés en {threads.length} conversation(s)
+              {searchNotice?.coverage?.totalFoundIsLowerBound ? 'Au moins ' : ''}{totalFound} email(s) trouvé(s), groupés en {threads.length} conversation(s)
             </p>
           )}
         </CardContent>

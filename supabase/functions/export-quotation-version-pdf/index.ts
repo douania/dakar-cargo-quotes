@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 import { operatorBasisText } from "../_shared/operator-quotation-basis.ts";
 /**
  * Phase 17C: export-quotation-version-pdf
@@ -386,7 +387,8 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     descLines.forEach((text, i) => {
       currentPage.drawText(text, { x: colDesc, y: y - i * 11, size: 9, font, color: black });
     });
-    currentPage.drawText((line.quantity || 1).toString(), { x: colQty, y, size: 9, font, color: black });
+    const quantityText = isToConfirm && line.quantity === null ? '?' : (line.quantity || 1).toString();
+    currentPage.drawText(quantityText, { x: colQty, y, size: 9, font, color: black });
     if (isToConfirm) {
       currentPage.drawText(sanitize('—'), { x: colRate, y, size: 9, font, color: gray });
       currentPage.drawText(sanitize('À confirmer'), { x: colAmount, y, size: 9, font, color: gray });
@@ -869,6 +871,9 @@ if (import.meta.main) Deno.serve(async (req) => {
       );
       return respondError({ code: 'AUTH_INVALID_JWT', message: 'Invalid or expired token', correlationId });
     }
+    const admission = await requireWorkspaceToken(token);
+    if (admission instanceof Response) return admission;
+
     userId = user.id;
 
     const serviceClient = createClient(

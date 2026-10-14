@@ -1,3 +1,4 @@
+import { requireWorkspaceToken } from "../_shared/auth.ts";
 // ============================================================================
 // Phase 13 — commit-decision (SEUL POINT D'ÉCRITURE DÉCISIONS)
 // 
@@ -142,6 +143,9 @@ serve(async (req) => {
         correlationId,
       });
     }
+
+    const admission = await requireWorkspaceToken(token);
+    if (admission instanceof Response) return admission;
 
     // CTO FIX B5: Assignation unique après validation
     userId = user.id;

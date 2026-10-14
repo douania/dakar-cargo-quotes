@@ -68,6 +68,7 @@ const DENO_ARGS = [
   '--allow-read',
   '--no-lock',
   '--node-modules-dir=none',
+  '--import-map=scripts/deno-ci-imports.json',
   `--ignore=${LIVE_ONLY_TESTS.join(',')}`,
   'supabase/functions/',
 ];
@@ -100,7 +101,8 @@ function runDeno() {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
     // NO_COLOR belt, ANSI stripping braces: CI and local TTYs must parse identically.
-    env: { ...process.env, NO_COLOR: '1' },
+    // Edge imports are explicit; the frontend npm manifest must not add floating types.
+    env: { ...process.env, NO_COLOR: '1', DENO_NO_PACKAGE_JSON: '1' },
     windowsHide: true,
   });
 

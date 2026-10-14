@@ -107,6 +107,7 @@ async function withTransport(options: Options, check: (h: {
         unexpected.push(req.url);
         throw new Error("Non-synthetic destination refused");
       }
+      if (path === "/rest/v1/rpc/has_workspace_access") return reply(true);
       if (path === "/auth/v1/user" && req.method === "GET") {
         assertEquals(apiKey, "synthetic-anon-key");
         assertEquals(req.headers.get("Authorization"), AUTH);

@@ -114,6 +114,9 @@ export const CLIENT_RESOLVABLE_GAP_KEYS = new Set([
 
 /** Editable fact keys (must match set-case-fact whitelist) */
 export const EDITABLE_FACT_KEYS = new Set([
+  "cargo.dimensions",
+  "cargo.weight_net_kg",
+  "cargo.value_currency",
   "cargo.description",
   "cargo.weight_kg",
   "cargo.container_count",
@@ -148,6 +151,7 @@ export const EDITABLE_FACT_KEYS = new Set([
 ]);
 
 export const NUMERIC_FACT_KEYS = new Set([
+  "cargo.weight_net_kg",
   "cargo.weight_kg",
   "cargo.container_count",
   "cargo.caf_value",
@@ -176,8 +180,11 @@ export const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export const FACT_LABELS: Record<string, string> = {
+  "cargo.dimensions": "Dimensions retenues",
+  "cargo.weight_net_kg": "Poids net (kg)",
+  "cargo.value_currency": "Devise de la valeur marchandise",
   "cargo.description": "Description",
-  "cargo.weight_kg": "Poids total",
+  "cargo.weight_kg": "Poids enregistré au dossier",
   "cargo.weight_per_container_kg": "Poids par conteneur",
   "cargo.container_count": "Nombre de conteneurs",
   "cargo.container_type": "Type de conteneur",

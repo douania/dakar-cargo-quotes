@@ -265,7 +265,7 @@ Deno.test("IMO preflight: actual run-pricing invokes fallback before gaps/status
   const source = Deno.readTextFileSync(new URL("./index.ts", import.meta.url));
   const preflight = source.indexOf("const goodsAssessment = await resolvePricingGoodsEvidence(");
   assert(preflight > 0);
-  assert(preflight < source.indexOf("const { data: blockingGapsRows }"));
+  assert(preflight < source.indexOf("const { data: blockingGapsRows,"));
   const guard = source.slice(source.indexOf("const goodsSourceResults"), source.indexOf("// 4a. Hard guard"));
   assert(!guard.includes("if (goodsEvent)"));
   assert(guard.includes("goodsSourceResults[1].count !== goodsSourceResults[1].data?.length"));
@@ -336,7 +336,8 @@ for (const scenario of [
         }
         let data: unknown = [];
         let count = 0;
-        if (url.pathname === "/auth/v1/user") data = { id: "synthetic-user", aud: "authenticated" };
+        if (url.pathname === "/rest/v1/rpc/has_workspace_access") data = true;
+        else        if (url.pathname === "/auth/v1/user") data = { id: "synthetic-user", aud: "authenticated" };
         else if (url.pathname === "/rest/v1/quote_cases") data = {
           id: "synthetic-case", thread_id: "synthetic-thread", status: "PRICED_DRAFT", request_type: scenario.requestType ?? "SEA_FCL_IMPORT",
         };

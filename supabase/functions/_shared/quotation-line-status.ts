@@ -25,7 +25,8 @@ export function isToConfirmLine(line: unknown): boolean {
  */
 export function versionLineBreakdown(line: unknown, existing: unknown): unknown {
   if (!isToConfirmLine(line)) return existing ?? null;
-  const marker = { pricing_status: "to_confirm", amount_known: false };
+  const marker = { pricing_status: "to_confirm", amount_known: false,
+    ...((line as AnyRecord).quantity === null ? { quantity_known: false } : {}) };
   if (isRecord(existing)) return { ...existing, ...marker };
   return { ...marker, source: (line as AnyRecord).source ?? null, ...(existing == null ? {} : { details: existing }) };
 }

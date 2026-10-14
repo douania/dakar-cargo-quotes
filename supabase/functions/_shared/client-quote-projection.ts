@@ -1,3 +1,4 @@
+import { readQuotationCargoBasis, quotationCargoBasisText } from "./quotation-cargo-basis.ts";
 /**
  * Client presentation of a saved quotation version (screen, PDF, e-mail). Pure projection:
  * reads only the immutable snapshot, never changes amounts, totals, reservations or
@@ -412,7 +413,14 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
       if (value) bases.push(`Paramètre retenu sous hypothèse : ${o.fact_key === "routing.local_transport_estimate" ? "transport routier" : str(o.fact_key)} — ${value}`);
     }
   } else {
-    bases.push(...legacyBases(row(snapshot.inputs), legacyLotEquipment(snapshot, rawLines)));
+    const cargoBasis = readQuotationCargoBasis(row(snapshot.inputs).cargo_basis);
+    if (cargoBasis) {
+      const inputs = row(snapshot.inputs);
+      bases.push(...legacyBases({ origin: inputs.origin, destination: inputs.destination, incoterm: inputs.incoterm }));
+      bases.push(...quotationCargoBasisText(cargoBasis));
+    } else {
+      bases.push(...legacyBases(row(snapshot.inputs), legacyLotEquipment(snapshot, rawLines)));
+    }
   }
   const distances = new Map<string, string[]>();
   for (const line of lines) {

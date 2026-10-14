@@ -1,3 +1,5 @@
+import { requireWorkspaceAccess } from "../_shared/auth.ts";
+import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
 import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
 import { loadPadGroupState, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
@@ -12,6 +14,8 @@ import { weightBasisNotice, quotationWeightNotices } from "../_shared/quotation-
  */
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { provisionalServicePrice } from "../_shared/provisional-service-price.ts";
+import { isToConfirmLine } from "../_shared/quotation-line-status.ts";
 import { resolvePadClassification } from "../_shared/pad/resolvePadClassification.ts";
 import {
   isLocalTransportDebours,
@@ -1391,6 +1395,9 @@ Deno.serve(async (req) => {
       );
     }
 
+    const admission = await requireWorkspaceAccess({ user: userData.user, token });
+    if (admission instanceof Response) return admission;
+
     const userId = userData.user.id;
     const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -1524,6 +1531,21 @@ Deno.serve(async (req) => {
     const incotermEarlyRaw = (scopeFacts || []).find((f: any) => f.fact_key === "routing.incoterm")?.value_text ?? "";
     const incotermEarly = String(incotermEarlyRaw ?? "").trim().toUpperCase();
     const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incotermEarly === "DDP";
+    // STRUCTURAL_PATCH_ALLOWED (GO local 2026-10-13): grounded mono-air destination
+    // provisional quote only. Firm/other-flow/multi-lot/PAD/communication guards stay intact.
+    let partialDestination = false;
+    const partialCustomsDependencies = new Set<string>();
+    if (allow_provisional === true && pkg === 'AIR_IMPORT_DDP') {
+      const [scopeRead, lotRead] = await Promise.all([
+        serviceClient.from('case_timeline_events').select('actor_type, event_data').eq('case_id', case_id)
+          .eq('event_type', 'service_scope_v1').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+        serviceClient.from('quote_request_lines').select('id', { count: 'exact', head: true }).eq('case_id', case_id),
+      ]);
+      if (scopeRead.error || lotRead.error) throw new Error('Partial destination scope verification failed');
+      partialDestination = partialDestinationDdpEligible({ allowProvisional: true, packageKey: pkg,
+        requestType: String(caseData.request_type ?? '').toUpperCase(), lotCount: lotRead.count,
+        scopeEvent: scopeRead.data, serviceKeys: resolveEffectiveServiceKeys(pkg, readOverridesFromFacts(scopeFacts || [])) });
+    }
 
     // IMO-GOODS: read server evidence, not a caller-supplied plan. Check BEFORE
     // changing case status, including when an operator manually closed the gap.
@@ -1572,7 +1594,7 @@ Deno.serve(async (req) => {
     // 4a. Hard guard — ALL blocking gaps must be resolved
     // Lot 4.1 exception: if allow_provisional=true and the ONLY open blocking gap is cargo.value,
     // bypass this guard. The downstream PROVISIONAL-DDP-GUARD remains the final gatekeeper.
-    const { data: blockingGapsRows } = await serviceClient
+    const { data: blockingGapsRows, error: blockingGapsReadError } = await serviceClient
       .from("quote_gaps")
       .select("gap_key")
       .eq("case_id", case_id)
@@ -1580,10 +1602,15 @@ Deno.serve(async (req) => {
       .eq("status", "open");
 
     const blockingGapsCount = blockingGapsRows?.length ?? 0;
+    if (partialDestination && blockingGapsReadError) throw new Error('Blocking gap verification failed');
+    if (partialDestination) for (const gap of blockingGapsRows || []) {
+      if (PARTIAL_CUSTOMS_GAP_KEYS.has(gap.gap_key)) partialCustomsDependencies.add(gap.gap_key);
+    }
     const provisionalBypass =
       allow_provisional === true &&
       blockingGapsCount > 0 &&
-      blockingGapsRows!.every((g: any) => g.gap_key === "cargo.value");
+      blockingGapsRows!.every((g: any) => g.gap_key === "cargo.value" ||
+        (partialDestination && PARTIAL_CUSTOMS_GAP_KEYS.has(g.gap_key)));
 
     if (blockingGapsCount > 0 && !provisionalBypass) {
       return new Response(
@@ -2841,16 +2868,18 @@ Deno.serve(async (req) => {
       if (!hsDigits || hsDigits.length !== 10) {
         hsBlocker = "HS_CODE_REQUIRED";
       } else {
-        const { data: hsRow } = await serviceClient
+        const { data: hsRow, error: hsReadError } = await serviceClient
           .from("hs_codes")
           .select("code_normalized")
           .eq("code_normalized", hsDigits)
           .limit(1)
           .maybeSingle();
+        if (partialDestination && hsReadError) throw new Error('Partial destination HS verification failed');
         if (!hsRow) hsBlocker = "HS_CODE_UNKNOWN";
       }
 
-      if (hsBlocker) {
+      if (hsBlocker && partialDestination) partialCustomsDependencies.add('cargo.hs_code');
+      if (hsBlocker && !partialDestination) {
         console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "cargo.hs_code", blocker: hsBlocker, scopeWantsDuties, incoterm: incotermEarly, pkg });
 
         const { data: blockerRunNumber } = await serviceClient
@@ -2897,18 +2926,20 @@ Deno.serve(async (req) => {
 
     // 4c. Coherence check — Regime (last-resort drift detection, NO gap upsert)
     if (scopeWantsDuties) {
-      const { data: regimeCheckFacts } = await serviceClient
+      const { data: regimeCheckFacts, error: regimeReadError } = await serviceClient
         .from("quote_facts")
         .select("fact_key, value_text")
         .eq("case_id", case_id)
         .eq("is_current", true)
         .in("fact_key", ["customs.regime_code", "regulatory.exemption_title"]);
+      if (partialDestination && regimeReadError) throw new Error('Partial destination regime verification failed');
 
       const regimeCheckMap = new Map((regimeCheckFacts || []).map((f: any) => [f.fact_key, f.value_text]));
       const hasExemptionTitle = !!regimeCheckMap.get("regulatory.exemption_title");
       const hasRegimeCode = !!regimeCheckMap.get("customs.regime_code");
 
-      if (hasExemptionTitle && !hasRegimeCode) {
+      if (!hasRegimeCode && partialDestination) partialCustomsDependencies.add('customs.regime_code');
+      if (hasExemptionTitle && !hasRegimeCode && !partialDestination) {
         console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "customs.regime_code", scopeWantsDuties, incoterm: incotermEarly, pkg });
 
         const { data: regimeBlockerRunNumber } = await serviceClient
@@ -3157,7 +3188,9 @@ Deno.serve(async (req) => {
     // If !scopeWantsDuties → skip cargo value coherence check
 
     // ═══ LOT 4: Detect provisional mode for downstream handling ═══
-    const isProvisionalDdp = allow_provisional && scopeWantsDuties && (!inputs.cargoValue || inputs.cargoValue <= 0);
+    if (partialDestination && (!inputs.cargoValue || inputs.cargoValue <= 0)) partialCustomsDependencies.add('cargo.value');
+    const isProvisionalDdp = allow_provisional && scopeWantsDuties &&
+      ((!inputs.cargoValue || inputs.cargoValue <= 0) || (partialDestination && partialCustomsDependencies.size > 0));
 
     // 9. CTO FIX: Get next run number via ATOMIC RPC (prevents race conditions)
     const { data: runNumber, error: rpcError } = await serviceClient
@@ -3243,7 +3276,7 @@ Deno.serve(async (req) => {
           // P0-E: customs excluded (provisional DDP doctrine) AND the PAD markers excluded
           // from the enrichment — the PAD redevance keeps its own official line.
           const firmKeys = excludePadScopeKeysForEnrichment(
-            effectiveKeys.filter(k => !CUSTOMS_SERVICE_KEYS.has(k)),
+            partialDestination ? effectiveKeys : effectiveKeys.filter(k => !CUSTOMS_SERVICE_KEYS.has(k)),
           );
 
           console.log(`[PROVISIONAL-DDP-GUARD] Enriching ${firmKeys.length} firm service keys (excluded customs: ${effectiveKeys.filter(k => CUSTOMS_SERVICE_KEYS.has(k)).join(', ')})`);
@@ -3261,13 +3294,14 @@ Deno.serve(async (req) => {
             const pslRes = await fetch(pslUrl, {
               method: 'POST',
               headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ case_id, service_lines: serviceLineInputs }),
+              body: JSON.stringify({ case_id, service_lines: serviceLineInputs, ...(partialDestination ? { provisional_destination_quote: true } : {}) }),
             });
 
             const idToServiceKey = new Map(serviceLineInputs.map(sl => [sl.id, sl.service]));
 
             if (pslRes.ok) {
               const pslData = await pslRes.json();
+              if (partialDestination) assertPartialServiceResponse(pslData, serviceLineInputs.map(sl => sl.id));
               const pricedLines = pslData?.data?.priced_lines || [];
               const firmLines: any[] = [];
               for (const pl of pricedLines) {
@@ -3275,14 +3309,16 @@ Deno.serve(async (req) => {
                 if (pl.source === 'fee_rule_skipped') continue;
                 const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                 const label = feeLineLabels.get(serviceKey) || SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                const price = provisionalServicePrice(pl.rate, pl.source);
                 firmLines.push(canonicalizeLine({
                   category: serviceKey,
                   label: label,
-                  amount: pl.rate ?? 0,
+                  amount: price.amount,
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
-                  source: { type: pl.source || 'price-service-lines', reference: 'LOT4-provisional-firm', confidence: pl.confidence ?? 0 },
-                  quantity: pl.quantity_used ?? 1,
+                  ...(partialDestination && isInternalFeeServiceKey(serviceKey, feeLineCodes) ? { bloc: INTERNAL_FEE_BLOC } : {}),
+                  source: { type: price.sourceType, reference: 'LOT4-provisional-firm', confidence: pl.confidence ?? 0 },
+                  quantity: partialDestination && pl.quantity_used === null ? null : pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
                 }, { origin_layer: 'package_enrichment' }));
@@ -3290,6 +3326,7 @@ Deno.serve(async (req) => {
               engineResponse.lines = firmLines;
               console.log(`[PROVISIONAL-DDP-GUARD] Merged ${firmLines.length} firm service lines`);
             } else {
+              if (partialDestination) throw new Error(`Partial destination service pricing failed (${pslRes.status})`);
               console.warn(`[PROVISIONAL-DDP-GUARD] price-service-lines failed (${pslRes.status})`);
             }
           }
@@ -3298,16 +3335,16 @@ Deno.serve(async (req) => {
         // Add explicit reserve line (non-monetary, amount=0, not included in totals)
         engineResponse.lines.push({
           category: 'CUSTOMS_RESERVE',
-          label: 'Droits et taxes à confirmer après réception de la valeur marchandise',
+          label: partialDestination ? 'Droits et taxes à confirmer après revue des données douanières' : 'Droits et taxes à confirmer après réception de la valeur marchandise',
           amount: 0,
           currency: 'XOF',
           type: 'provisional_reserve',
           // Lot 4-A: aligned source.type on canonical TO_CONFIRM signal so QQM guards
           // (Lot 3D) and PDF renderer detect this reserve as "À confirmer", never "0 FCFA".
-          source: { type: 'TO_CONFIRM', reference: 'LOT4_DDP_CARGO_VALUE_MISSING', confidence: 0 },
+          source: { type: 'TO_CONFIRM', reference: partialDestination ? 'PARTIAL_DESTINATION_CUSTOMS_DATA' : 'LOT4_DDP_CARGO_VALUE_MISSING', confidence: 0 },
           quantity: 1,
           unit: 'forfait',
-          explanation: 'Réserve structurée — cargo.value absente, droits et taxes exclus du total',
+          explanation: partialDestination ? `Réserve structurée — ${[...partialCustomsDependencies].join(', ')} à confirmer ; droits et taxes exclus du total` : 'Réserve structurée — cargo.value absente, droits et taxes exclus du total',
         });
 
         // Compute totals from firm lines only (exclude reserve)
@@ -3315,9 +3352,10 @@ Deno.serve(async (req) => {
         let provOperationnel = 0;
         for (const line of engineResponse.lines) {
           if (line.type === 'provisional_reserve') continue;
+          if (partialDestination && isToConfirmLine(line)) continue;
           const amount = Number(line?.amount) || 0;
           const cat = String(line?.category || '').trim().toUpperCase();
-          if (EXPORT_HONORAIRES_KEYS.has(cat)) {
+          if (partialDestination ? isInternalFeeServiceKey(cat, feeLineCodes) : EXPORT_HONORAIRES_KEYS.has(cat)) {
             provHonoraires += amount;
           } else {
             provOperationnel += amount;
@@ -3571,6 +3609,7 @@ Deno.serve(async (req) => {
               method: 'POST',
               headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
               body: JSON.stringify({ case_id, service_lines: serviceLineInputs,
+                ...(partialDestination ? { provisional_destination_quote: true } : {}),
                 ...(inputs.imoGoodsPlan ? { pricing_context_override: { imo_facts: imoGoodsFeeFacts(inputs.imoGoodsPlan) } } : {}),
               }),
             });
@@ -3580,23 +3619,30 @@ Deno.serve(async (req) => {
 
             if (pslRes.ok) {
               const pslData = await pslRes.json();
+              if (partialDestination) assertPartialServiceResponse(pslData, serviceLineInputs.map(sl => sl.id));
               const pricedLines = pslData?.data?.priced_lines || [];
               // Inject into engineResponse.lines so tariffLines picks them up
               const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
+              // STRUCTURAL_PATCH_ALLOWED (local GO 2026-10-12): newly injected P5 handling joins operational totals once.
+              let packageAirHandling = 0;
+              const xofAliases = new Set(['XOF', 'FCFA', 'CFA']);
+              const engineCurrencyIsXof = xofAliases.has(String(engineResponse.currency || 'XOF').trim().toUpperCase());
               for (const pl of pricedLines) {
                 // H2-c2 : ligne d'honoraires conditionnelle non applicable au dossier — absente du devis.
                 if (pl.source === 'fee_rule_skipped') continue;
                 const serviceKey = idToServiceKey.get(pl.id) || pl.id;
                 const label = feeLineLabels.get(serviceKey) || SERVICE_KEY_LABELS[serviceKey] || serviceKey;
+                // STRUCTURAL_PATCH_ALLOWED (local GO 2026-10-10): P5 unknown prices keep the existing reserve contract.
+                const price = provisionalServicePrice(pl.rate, pl.source);
                 const packageLine = canonicalizeLine({
                   category: serviceKey,
                   label: label,
-                  amount: pl.rate ?? 0,
+                  amount: price.amount,
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
                   bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
-                  source: { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
-                  quantity: pl.quantity_used ?? 1,
+                  source: { type: price.sourceType, reference: 'P5', confidence: pl.confidence ?? 0 },
+                  quantity: partialDestination && pl.quantity_used === null ? null : pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
                   explanation: pl.explanation || '',
                 }, { origin_layer: 'package_enrichment' });
@@ -3605,6 +3651,12 @@ Deno.serve(async (req) => {
                     ? withLocalTransportDebours(packageLine)
                     : packageLine,
                 );
+                if (serviceKey === 'AIR_HANDLING' && !isInternalFeeServiceKey(serviceKey, feeLineCodes) &&
+                    !isLocalTransportRateSource(pl.source) && !isToConfirmLine(packageLine) &&
+                    engineCurrencyIsXof && xofAliases.has(String(packageLine.currency).trim().toUpperCase()) &&
+                    typeof price.amount === 'number' && price.amount > 0) {
+                  packageAirHandling += price.amount;
+                }
               }
               // Update engineResponse.lines so downstream tariffLines = engineResponse.lines picks them up
               engineResponse.lines = engineLines;
@@ -3623,12 +3675,22 @@ Deno.serve(async (req) => {
                   }
                   console.log(`[HONORAIRES-1] Mono-lot: honoraires package ajoutés aux totaux — ${packageInternalFees}`);
                 }
+                if (packageAirHandling > 0) {
+                  const t = engineResponse.totals as Record<string, unknown>;
+                  for (const field of ['operationnel', 'dap', 'ddp']) {
+                    if (typeof t[field] === 'number' && Number.isFinite(t[field] as number)) {
+                      t[field] = (t[field] as number) + packageAirHandling;
+                    }
+                  }
+                }
               }
             } else {
+              if (partialDestination) throw new Error(`Partial destination service pricing failed (${pslRes.status})`);
               console.warn(`[P5] price-service-lines failed (${pslRes.status}), continuing with engine lines only`);
             }
           }
         } catch (p5Error) {
+          if (partialDestination) throw p5Error;
           console.warn('[P5] Package enrichment failed, continuing:', p5Error);
         }
       }
@@ -4812,9 +4874,16 @@ ${JSON.stringify(refPayload)}`;
     // ═══ LOT 4: Inject quoteQualification for provisional DDP runs ═══
     if (isProvisionalDdp) {
       (outputsJson as any).quoteQualification = {
-        level: "provisional",
-        reasons: [{ code: "MISSING_CARGO_VALUE", message: "Droits et taxes à confirmer après réception de la valeur marchandise" }],
+        level: partialDestination ? "partial" : "provisional",
+        reasons: partialDestination ? [...partialCustomsDependencies].map(key => ({ code: 'CUSTOMS_DATA_TO_CONFIRM', message: `${key} à confirmer ; poste douanier réservé` })) : [{ code: "MISSING_CARGO_VALUE", message: "Droits et taxes à confirmer après réception de la valeur marchandise" }],
         firmTotalPolicy: "excludes_reserved_items",
+      };
+    }
+    if (partialDestination && !isProvisionalDdp && tariffLines.some(isToConfirmLine)) {
+      (outputsJson as { quoteQualification?: unknown }).quoteQualification = {
+        level: 'partial',
+        reasons: [{ code: 'SERVICE_DATA_TO_CONFIRM', message: 'Postes dépendant de données non confirmées exclus du total' }],
+        firmTotalPolicy: 'excludes_reserved_items',
       };
     }
 
@@ -4925,6 +4994,7 @@ ${JSON.stringify(refPayload)}`;
     }
 
     console.log(`Pricing run ${runNumber} for case ${case_id} completed in ${durationMs}ms`);
+    const partialQualification = (outputsJson as { quoteQualification?: { level?: string } }).quoteQualification;
 
     return new Response(
       JSON.stringify({
@@ -4936,6 +5006,7 @@ ${JSON.stringify(refPayload)}`;
         lines_count: tariffLines.length,
         duration_ms: durationMs,
         tariff_sources_count: tariffSources.length,
+        ...(partialDestination && partialQualification?.level === 'partial' ? { quoteQualification: partialQualification, partial_mode: true } : {}),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

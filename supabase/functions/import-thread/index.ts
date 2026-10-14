@@ -1,7 +1,11 @@
+import { ImapByteReader, readImapHeaders } from "../_shared/imap-headers.ts";
+import { readMailboxSecret, quoteImapString } from "../_shared/mailbox-secret.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
+import { assertImportSearchIdentity, imapAccountKey, imapAccountSnapshot, ImportIdentityConflict } from "../_shared/imap-import-identity.ts";
+import { requireImapCommandOk, searchFetchMessages } from "../_shared/imap-subject-search.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -715,12 +719,13 @@ function findPartNumberByPosition(structure: string, position: number): string {
 }
 
 // Simple IMAP client with attachment support
-class IMAPClient {
+export class IMAPClient {
+  uidValidity: number | null = null;
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
   private encoder = new TextEncoder();
-  private decoder = new TextDecoder();
+  private reader = new ImapByteReader(buffer => this.conn!.read(buffer));
   private tagCounter = 0;
-  private buffer = "";
+
 
   constructor(private host: string) {}
 
@@ -732,22 +737,7 @@ class IMAPClient {
     await this.startTls();
   }
 
-  private async readLine(): Promise<string> {
-    const buf = new Uint8Array(4096);
-    let result = this.buffer;
-    while (!result.includes('\r\n')) {
-      const n = await this.conn!.read(buf);
-      if (n === null) break;
-      result += this.decoder.decode(buf.subarray(0, n));
-    }
-    const idx = result.indexOf('\r\n');
-    if (idx >= 0) {
-      this.buffer = result.substring(idx + 2);
-      return result.substring(0, idx);
-    }
-    this.buffer = "";
-    return result;
-  }
+  private async readLine(): Promise<string> { return await this.reader.readLine(); }
 
   private async readUntilTag(tag: string): Promise<string> {
     let result = "";
@@ -776,35 +766,7 @@ class IMAPClient {
     return result;
   }
 
-  private async readBytes(count: number): Promise<Uint8Array> {
-    const chunks: Uint8Array[] = [];
-    let totalRead = 0;
-    
-    // First, use any buffered data
-    if (this.buffer.length > 0) {
-      const bufferedBytes = new TextEncoder().encode(this.buffer);
-      const toUse = Math.min(bufferedBytes.length, count);
-      chunks.push(bufferedBytes.subarray(0, toUse));
-      totalRead += toUse;
-      this.buffer = this.buffer.substring(toUse);
-    }
-    
-    while (totalRead < count) {
-      const buf = new Uint8Array(Math.min(8192, count - totalRead));
-      const n = await this.conn!.read(buf);
-      if (n === null) break;
-      chunks.push(buf.subarray(0, n));
-      totalRead += n;
-    }
-    
-    const result = new Uint8Array(totalRead);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return result;
-  }
+  private async readBytes(count: number): Promise<Uint8Array> { return await this.reader.readBytes(count); }
 
   private async writeCommand(command: string): Promise<void> {
     await this.conn!.write(this.encoder.encode(command + '\r\n'));
@@ -836,7 +798,7 @@ class IMAPClient {
         const response = await this.readUntilTag(tag);
         if (!response.includes(`${tag} OK`)) throw new Error("STARTTLS failed");
         
-        this.buffer = "";
+        this.reader.clear();
         const tcpConn = this.conn as Deno.TcpConn;
         this.conn = await Deno.startTls(tcpConn, { hostname: serverName });
         
@@ -846,7 +808,7 @@ class IMAPClient {
         return;
       } catch {
         try { this.conn?.close(); } catch { /* ignore */ }
-        this.buffer = "";
+        this.reader.clear();
         this.conn = await Deno.connect({ hostname: this.host, port: 143 });
         await this.readLine();
       }
@@ -855,12 +817,24 @@ class IMAPClient {
   }
 
   async login(username: string, password: string): Promise<boolean> {
-    const response = await this.sendCommand(`LOGIN "${username}" "${password}"`);
+    const response = await this.sendCommand(`LOGIN ${quoteImapString(username)} ${quoteImapString(password)}`);
     return response.includes("OK");
   }
 
   async select(mailbox: string): Promise<void> {
-    await this.sendCommand(`SELECT "${mailbox}"`);
+    const response = await this.sendCommand(`EXAMINE ${quoteImapString(mailbox)}`);
+    requireImapCommandOk(response, 'EXAMINE');
+    const validity = response.match(/\[UIDVALIDITY ([1-9]\d*)\]/i);
+    this.uidValidity = validity && Number.isSafeInteger(Number(validity[1])) ? Number(validity[1]) : null;
+    if (!this.uidValidity || this.uidValidity > 4294967295) throw new ImportIdentityConflict('UIDVALIDITY non vérifiable. Aucun import effectué.');
+  }
+
+  async fetchHeaders(uid: number) {
+    const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)]`);
+    requireImapCommandOk(response, 'UID FETCH headers');
+    const records = searchFetchMessages(response);
+    if (records.length !== 1 || records[0].uid !== uid) throw new ImportIdentityConflict('UID retourné absent ou ambigu. Aucun import effectué.');
+    return readImapHeaders(records[0].headerResponse, uid, decodeHeader);
   }
 
   async fetchBodyStructure(uid: number): Promise<AttachmentInfo[]> {
@@ -948,49 +922,7 @@ class IMAPClient {
     bodyHtml: string;
     attachments: AttachmentInfo[];
   }> {
-    // Fetch headers
-    const headerResp = await this.sendCommand(
-      `UID FETCH ${uid} BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)]`
-    );
-    
-    let subject = '(Sans sujet)';
-    let from = '';
-    let to: string[] = [];
-    let date = new Date().toISOString();
-    let messageId = `<${uid}@imported>`;
-    let references = '';
-
-    const headerMarker = headerResp.match(/BODY\[HEADER\.FIELDS[^\]]*\] \{(\d+)\}\r\n/i);
-    if (headerMarker) {
-      const headerSize = parseInt(headerMarker[1], 10);
-      const headerStart = headerResp.indexOf(headerMarker[0]) + headerMarker[0].length;
-      const h = headerResp.substring(headerStart, headerStart + headerSize);
-
-      console.log(`[IMAP] header literal size=${headerSize}, extracted=${h.length}`);
-
-      const sm = h.match(/Subject:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      if (sm) subject = decodeHeader(sm[1].trim());
-      const fm = h.match(/From:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      if (fm) {
-        from = fm[1].trim();
-        const em = from.match(/<([^>]+)>/);
-        if (em) from = em[1];
-      }
-      const tm = h.match(/To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      if (tm) {
-        to = tm[1].split(',').map(e => {
-          const m = e.match(/<([^>]+)>/);
-          return m ? m[1].trim() : e.trim();
-        }).filter(Boolean);
-      }
-      const dm = h.match(/Date:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      if (dm) date = dm[1].trim();
-      const midm = h.match(/Message-ID:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      if (midm) messageId = midm[1].trim();
-      const refm = h.match(/References:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const irm = h.match(/In-Reply-To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      references = refm?.[1]?.trim() || irm?.[1]?.trim() || '';
-    }
+    const { subject, from, to, date, messageId, references } = await this.fetchHeaders(uid);
 
     // Fetch body text with improved MIME parsing
     const bodyResp = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[TEXT]`);
@@ -1354,7 +1286,7 @@ async function processAttachment(
   }
 }
 
-serve(async (req) => {
+export const handler = async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -1366,12 +1298,17 @@ serve(async (req) => {
     const auth = await requireUser(req);
     if (auth instanceof Response) return auth;
 
-    const { configId, uids, learningCase, threadKey } = await req.json();
+    const { configId, uids, learningCase, threadKey, searchIdentity } = await req.json();
+    if (!Array.isArray(uids) || !uids.length || uids.length > 1000 ||
+        uids.some(uid => !Number.isSafeInteger(uid) || uid <= 0 || uid > 4294967295)) {
+      throw new ImportIdentityConflict("Liste de UID invalide. Aucun import effectué.");
+    }
+    const uniqueUids: number[] = [...new Set<number>(uids)];
     
     // Limit batch size to prevent CPU timeout
     const MAX_EMAILS_PER_BATCH = 10;
-    const batchUids = uids.slice(0, MAX_EMAILS_PER_BATCH);
-    const remainingUids = uids.slice(MAX_EMAILS_PER_BATCH);
+    const batchUids = uniqueUids.slice(0, MAX_EMAILS_PER_BATCH);
+    const remainingUids = uniqueUids.slice(MAX_EMAILS_PER_BATCH);
     
     console.log(`Processing batch of ${batchUids.length} emails (${remainingUids.length} remaining)`);
     
@@ -1382,7 +1319,7 @@ serve(async (req) => {
     // Get config
     const { data: config, error: configError } = await supabase
       .from('email_configs')
-      .select('*')
+      .select('id,name,host,port,username,folder,use_ssl,is_active,last_sync_at,created_at')
       .eq('id', configId)
       .single();
 
@@ -1390,394 +1327,99 @@ serve(async (req) => {
       throw new Error("Configuration email non trouvée");
     }
 
+    const imapPassword = await readMailboxSecret(supabase, config.id);
     client = new IMAPClient(config.host);
     await client.connect();
     
-    const loggedIn = await client.login(config.username, config.password_encrypted);
+    const loggedIn = await client.login(config.username, imapPassword);
     if (!loggedIn) throw new Error("Échec de l'authentification IMAP");
 
     await client.select(config.folder || 'INBOX');
 
-    const importedEmails: any[] = [];
-    const allAttachmentTexts: string[] = [];
-    let threadId: string | null = null;
-    let totalAttachments = 0;
+    const mailbox = config.folder || 'INBOX';
+    const accountKey = await imapAccountKey(config);
+    assertImportSearchIdentity(searchIdentity, { configId, mailbox, uidValidity: client.uidValidity, accountKey }, batchUids);
 
+    // Verify the entire batch's header identities before any database/file write.
+    const rootOf = (msg: { references: string; messageId: string }) => msg.references.split(/\s+/).filter(Boolean)[0] || msg.messageId;
+    const headers = [];
     for (const uid of batchUids) {
-      const msg = await client.fetchMessage(uid);
-      
-      // Check by actual message_id
-      const { data: existingByMsgId } = await supabase
-        .from('emails')
-        .select('id')
-        .eq('message_id', msg.messageId)
-        .maybeSingle();
-
-      let emailId: string;
-
-      if (existingByMsgId) {
-        emailId = existingByMsgId.id;
-        console.log(`Email ${msg.messageId} already exists (id: ${emailId})`);
-        
-        // ALWAYS update body_text with the newly parsed content (fixes corrupted/truncated body_text)
-        if (msg.bodyText && msg.bodyText.length > 0) {
-          const { error: updateError } = await supabase
-            .from('emails')
-            .update({
-              body_text: msg.bodyText,
-              body_html: msg.bodyHtml || null
-            })
-            .eq('id', emailId);
-          
-          if (updateError) {
-            console.error(`Failed to update body_text for ${emailId}:`, updateError);
-          } else {
-            console.log(`Updated body_text for existing email ${emailId} (${msg.bodyText.length} chars)`);
-          }
-        }
-        
-        // Check if attachments need to be processed for this existing email
-        // P0-2: Per-filename partial re-import — only process missing attachments
-        if (msg.attachments.length > 0) {
-          const { data: existingAttachments } = await supabase
-            .from('email_attachments')
-            .select('id, filename, storage_path, size')
-            .eq('email_id', emailId);
-          
-          const existingByAttachmentKey = new Map<string, any>();
-          const ghostByFilename = new Map<string, any>();
-
-          for (const existingAttachment of existingAttachments || []) {
-            const dedupKey = getAttachmentDedupKey(existingAttachment.filename, existingAttachment.size || 0);
-            const current = existingByAttachmentKey.get(dedupKey);
-            if (!current || (current.storage_path !== null && existingAttachment.storage_path === null)) {
-              existingByAttachmentKey.set(dedupKey, existingAttachment);
-            }
-
-            if (existingAttachment.storage_path === null && !ghostByFilename.has(existingAttachment.filename)) {
-              ghostByFilename.set(existingAttachment.filename, existingAttachment);
-            }
-          }
-          const missingAttachments = msg.attachments.filter(
-            (a: AttachmentInfo) => {
-              const existing = existingByAttachmentKey.get(getAttachmentDedupKey(a.filename, a.size));
-              // Re-process if missing OR if previous attempt left a ghost record (no file in storage)
-              return !existing || existing.storage_path === null;
-            }
-          );
-
-          if (missingAttachments.length > 0) {
-            console.log(`Processing ${missingAttachments.length} missing/ghost attachment(s) for existing email ${emailId} (${existingByAttachmentKey.size} attachment key(s) in DB)`);
-            
-            for (const attachment of missingAttachments) {
-              const exactExisting = existingByAttachmentKey.get(getAttachmentDedupKey(attachment.filename, attachment.size));
-              const ghostExisting = exactExisting?.storage_path === null ? exactExisting : ghostByFilename.get(attachment.filename);
-              const existingId = ghostExisting?.storage_path === null ? ghostExisting.id : undefined;
-              if (existingId) {
-                console.log(`Ghost record detected for ${attachment.filename} (id: ${existingId}) — will update in-place`);
-              }
-              console.log(`Calling processAttachment for: ${JSON.stringify(attachment)}`);
-              try {
-                const result = await processAttachment(client, uid, attachment, emailId, supabase, existingId);
-                if (result) {
-                  totalAttachments++;
-                  if (result.extractedText) {
-                    allAttachmentTexts.push(`[${attachment.filename}]\n${result.extractedText.substring(0, 5000)}`);
-                  }
-                }
-              } catch (attError) {
-                console.error(`Error processing attachment ${attachment.filename}:`, attError);
-              }
-            }
-          } else {
-            console.log(`Email ${emailId}: all ${existingByAttachmentKey.size} attachment key(s) already present with storage_path, skipping`);
-          }
-        }
-        
-        importedEmails.push({ id: emailId, ...msg, alreadyExists: true, bodyUpdated: true });
-        continue;
+      const header = await client.fetchHeaders(uid);
+      if (searchIdentity.messages.find(m => m.uid === uid)!.messageId !== header.messageId) {
+        throw new ImportIdentityConflict('Le message sélectionné a changé. Relancez la recherche.');
       }
-
-      // P0-A: Calculate thread_id locally for each email (not batch-wide)
-      const threadIdForEmail = msg.references
-        ? (msg.references.split(/\s+/).filter(Boolean)[0] || msg.messageId)
-        : msg.messageId;
-      
-      // Keep batch-level threadId for Phase 1 compat (derived from first email)
-      if (!threadId) {
-        threadId = threadIdForEmail;
-      }
-
-      const { data: inserted, error: insertError } = await supabase
-        .from('emails')
-        .insert({
-          email_config_id: configId,
-          message_id: msg.messageId,
-          thread_id: threadIdForEmail,
-          from_address: msg.from,
-          to_addresses: msg.to.length > 0 ? msg.to : [config.username],
-          subject: msg.subject,
-          body_text: msg.bodyText || null,
-          body_html: msg.bodyHtml || null,
-          sent_at: parseEmailDate(msg.date),
-          is_quotation_request: learningCase === 'quotation',
-          extracted_data: learningCase ? { learning_case: learningCase, imported_for_learning: true, attachments_count: msg.attachments.length } : null
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error("Error inserting email:", insertError);
-        continue;
-      }
-
-      emailId = inserted.id;
-
-      // Process attachments for new email
-      if (msg.attachments.length > 0) {
-        console.log(`Processing ${msg.attachments.length} attachment(s) for new email ${emailId}`);
-        
-        for (const attachment of msg.attachments) {
-          const result = await processAttachment(client, uid, attachment, emailId, supabase);
-          if (result) {
-            totalAttachments++;
-            if (result.extractedText) {
-              allAttachmentTexts.push(`[${attachment.filename}]\n${result.extractedText.substring(0, 5000)}`);
-            }
-          }
-        }
-      }
-
-      importedEmails.push(inserted);
-      console.log(`Imported: ${msg.subject.substring(0, 50)}... with ${msg.attachments.length} attachment(s)`);
+      headers.push({ uid, ...header });
     }
+    const roots = [...new Set(headers.map(rootOf))];
+    if (roots.length !== 1 || (threadKey !== undefined && threadKey !== roots[0])) {
+      throw new ImportIdentityConflict('Racines de conversation incompatibles. Aucun import effectué.');
+    }
+    const fetched = [];
+    for (const header of headers) {
+      const msg = await client.fetchMessage(header.uid);
+      if (msg.messageId !== header.messageId || rootOf(msg) !== roots[0]) {
+        throw new ImportIdentityConflict('Identité IMAP instable. Aucun import effectué.');
+      }
+      fetched.push({ uid: header.uid, ...msg });
+    }
+    await client.select(mailbox);
+    assertImportSearchIdentity(searchIdentity, { configId, mailbox, uidValidity: client.uidValidity, accountKey }, batchUids);
 
+    // One service-only transaction resolves provenance, adopts identity-only and
+    // links NULL thread_ref values. Legacy without reviewed proof fails closed.
+    const { data: persisted, error: persistError } = await supabase.rpc('persist_imap_import_batch', {
+      p_config_id: configId, p_account: imapAccountSnapshot(config), p_mailbox: mailbox,
+      p_uid_validity: client.uidValidity, p_root_message_id: roots[0],
+      p_messages: fetched.map(msg => ({
+        uid: msg.uid, message_id: msg.messageId, root_message_id: rootOf(msg),
+        from_address: msg.from, to_addresses: msg.to.length ? msg.to : [config.username],
+        subject: msg.subject, body_text: msg.bodyText || null, body_html: msg.bodyHtml || null,
+        sent_at: parseEmailDate(msg.date), is_quotation_request: learningCase === 'quotation',
+        extracted_data: learningCase ? { learning_case: learningCase, imported_for_learning: true, attachments_count: msg.attachments.length } : null,
+      })),
+    });
+    if (persistError || !persisted) {
+      if (persistError?.code === 'P0001' || persistError?.code === '23505' || persistError?.code === '22023') {
+        throw new ImportIdentityConflict('Identité ou rattachement ambigu, adoption préalable requise. Aucun lot enregistré.');
+      }
+      throw new Error('Persistance atomique IMAP indisponible. Aucun repli historique autorisé.');
+    }
+    const records = persisted.emails as Array<{ id: string; uid: number; created: boolean }>;
+    const allEmailIds = records.map(record => record.id);
+    const newIds = new Set(records.filter(record => record.created).map(record => record.id));
+    const existingEmailIds = records.filter(record => !record.created).map(record => record.id);
+    const threadId: string = persisted.thread_id;
+    const { data: storedEmails, error: readError } = await supabase.from('emails').select('*').in('id', allEmailIds);
+    if (readError || !storedEmails || storedEmails.length !== allEmailIds.length) {
+      throw new Error('Lot enregistré, relecture incomplète. Relancez pour retrouver les mêmes UUID.');
+    }
+    const importedEmails = storedEmails.map(email => ({ ...email,
+      messageId: email.message_id, alreadyExists: !newIds.has(email.id), bodyUpdated: false,
+    }));
+    const newlyImportedEmails = storedEmails.filter(email => newIds.has(email.id));
+    const allEmailsForAnalysis = storedEmails;
+    const allAttachmentTexts: string[] = [];
+    let totalAttachments = 0;
+    // Existing rows are immutable in this path: no body hydration, file repair,
+    // attachment insertion or extracted_data update on replay/adoption.
+    for (const record of records.filter(record => record.created)) {
+      const msg = fetched.find(message => message.uid === record.uid)!;
+      for (const attachment of msg.attachments) {
+        const result = await processAttachment(client, msg.uid, attachment, record.id, supabase);
+        if (result) {
+          totalAttachments++;
+          if (result.extractedText) allAttachmentTexts.push(`[${attachment.filename}]\n${result.extractedText.substring(0, 5000)}`);
+        }
+      }
+    }
     await client.logout();
     client = null;
-
-    const newlyImportedEmails = importedEmails.filter(e => !e.alreadyExists);
-    const existingEmailIds = importedEmails.filter(e => e.alreadyExists).map(e => e.id);
-    const allEmailIds = importedEmails.map(e => e.id);
-
-    // Fetch complete data for existing emails
-    let allEmailsForAnalysis = [...newlyImportedEmails];
-    if (existingEmailIds.length > 0) {
-      const { data: existingEmails } = await supabase
-        .from('emails')
-        .select('*')
-        .in('id', existingEmailIds);
-      
-      if (existingEmails) {
-        allEmailsForAnalysis = [...allEmailsForAnalysis, ...existingEmails];
-      }
-    }
-
-    // ========== PHASE 1: Create/Update email_threads entry ==========
-    // P1-C: Lookup/create by root_message_id instead of subject_normalized
-    if (allEmailIds.length > 0 && threadId) {
-      console.log('Creating/updating email_threads entry for imported thread...');
-      
-      // Normalize subject for metadata/display only (no longer used as lookup key)
-      function normalizeSubjectForThread(subject: string): string {
-        return (subject || '')
-          .replace(/^(Re:|Fwd:|Fw:|Spam:\**,?\s*)+/gi, '')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .toLowerCase();
-      }
-      
-      // P1-C: Determine batchRootMessageId for deterministic lookup
-      // Priority: threadKey from frontend payload > batch threadId (root of first email)
-      const batchRootMessageId = threadKey || threadId;
-      
-      // Count distinct root IDs in the batch for debug
-      const distinctRoots = new Set(
-        allEmailsForAnalysis.map(e => {
-          const tid = e.thread_id as string;
-          return tid || e.message_id;
-        })
-      );
-      console.log(`[P1-C] batchRootMessageId=${batchRootMessageId?.substring(0, 60)}, distinct roots in batch: ${distinctRoots.size}`);
-      
-      const firstEmailSubject = allEmailsForAnalysis[0]?.subject || '';
-      const normalizedSubject = normalizeSubjectForThread(firstEmailSubject);
-      const participants = [...new Set(allEmailsForAnalysis.flatMap(e => [e.from_address, ...(e.to_addresses || [])]))];
-      const dateFirst = allEmailsForAnalysis[allEmailsForAnalysis.length - 1]?.sent_at;
-      const dateLast = allEmailsForAnalysis[0]?.sent_at;
-      
-      // P1-C: Lookup by root_message_id first, fallback to subject_normalized for legacy compat
-      let existingThread: { id: string; email_count: number } | null = null;
-      
-      if (batchRootMessageId) {
-        const { data: byRoot } = await supabase
-          .from('email_threads')
-          .select('id, email_count')
-          .eq('root_message_id', batchRootMessageId)
-          .maybeSingle();
-        existingThread = byRoot;
-        if (byRoot) {
-          console.log(`[P1-C] Found existing thread by root_message_id: ${byRoot.id}`);
-        }
-      }
-      
-      // Only fallback to subject_normalized if root lookup found nothing
-      if (!existingThread) {
-        const { data: bySubject } = await supabase
-          .from('email_threads')
-          .select('id, email_count, root_message_id')
-          .eq('subject_normalized', normalizedSubject)
-          .maybeSingle();
-        
-        // Only reuse if the existing thread has NO root_message_id set (legacy thread)
-        if (bySubject && !bySubject.root_message_id) {
-          existingThread = bySubject;
-          console.log(`[P1-C] Found legacy thread by subject_normalized: ${bySubject.id} (will set root_message_id)`);
-        }
-      }
-      
-      // Determine if this is a quotation thread based on keywords
-      const THREAD_QUOTATION_KEYWORDS = [
-        'dap', 'cif', 'fob', 'exw', 'cfr', 'cpt', 'cip', 'ddp',
-        'cotation', 'quotation', 'devis', 'rfq', 'tarif',
-        'fret', 'freight', 'transport', 'conteneur', 'container'
-      ];
-      
-      const subjectLower = normalizedSubject.toLowerCase();
-      const hasQuotationKeyword = THREAD_QUOTATION_KEYWORDS.some(kw => subjectLower.includes(kw));
-      const hasQuotationEmail = allEmailsForAnalysis.some(e => e.is_quotation_request);
-      const isQuotationThread = hasQuotationKeyword || hasQuotationEmail || learningCase === 'quotation';
-      
-      const threadData = {
-        subject_normalized: normalizedSubject || firstEmailSubject.substring(0, 200),
-        root_message_id: batchRootMessageId,
-        first_message_at: dateFirst || new Date().toISOString(),
-        last_message_at: dateLast || new Date().toISOString(),
-        participants: participants.map(email => ({ email, role: 'participant' })),
-        email_count: allEmailIds.length,
-        is_quotation_thread: isQuotationThread,
-        status: 'active',
-        updated_at: new Date().toISOString()
-      };
-      
-      let resolvedThreadId: string | null = null;
-
-      if (existingThread) {
-        resolvedThreadId = existingThread.id;
-        console.log(`Updating existing email_thread ${existingThread.id} with ${allEmailIds.length} emails`);
-        
-        // Link emails to this thread
-        for (const emailId of allEmailIds) {
-          await supabase
-            .from('emails')
-            .update({ thread_ref: existingThread.id })
-            .eq('id', emailId);
-        }
-      } else {
-        // Create new thread entry
-        console.log(`[P1-C] Creating new email_thread with root_message_id=${batchRootMessageId?.substring(0, 50)} for "${normalizedSubject.substring(0, 50)}..." (${allEmailIds.length} emails)`);
-        const { data: newThread, error: insertError } = await supabase
-          .from('email_threads')
-          .insert({
-            ...threadData,
-            created_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-        
-        if (!insertError && newThread) {
-          resolvedThreadId = newThread.id;
-          for (const emailId of allEmailIds) {
-            await supabase
-              .from('emails')
-              .update({ thread_ref: newThread.id })
-              .eq('id', emailId);
-          }
-          console.log(`Created email_thread ${newThread.id} and linked ${allEmailIds.length} emails`);
-        } else if (insertError) {
-          // P1-C: Handle unique constraint conflict on root_message_id
-          if (insertError.code === '23505' && batchRootMessageId) {
-            console.log(`[P1-C] Unique conflict on root_message_id, retrying lookup...`);
-            const { data: conflictThread } = await supabase
-              .from('email_threads')
-              .select('id, email_count')
-              .eq('root_message_id', batchRootMessageId)
-              .maybeSingle();
-            if (conflictThread) {
-              resolvedThreadId = conflictThread.id;
-              for (const emailId of allEmailIds) {
-                await supabase
-                  .from('emails')
-                  .update({ thread_ref: conflictThread.id })
-                  .eq('id', emailId);
-              }
-              console.log(`[P1-C] Resolved conflict: linked ${allEmailIds.length} emails to existing thread ${conflictThread.id}`);
-            }
-          } else {
-            console.error('Error creating email_thread:', insertError);
-          }
-        }
-      }
-
-      // P1-B: Recalculate thread metadata from ALL emails in DB (not just current batch)
-      if (resolvedThreadId) {
-        try {
-          const { data: allThreadEmails } = await supabase
-            .from('emails')
-            .select('from_address, to_addresses, cc_addresses, sent_at')
-            .eq('thread_ref', resolvedThreadId)
-            .order('sent_at', { ascending: true });
-
-          if (allThreadEmails && allThreadEmails.length > 0) {
-            // Filter non-null dates for min/max
-            const validDates = allThreadEmails
-              .map(e => e.sent_at)
-              .filter((d): d is string => !!d)
-              .sort();
-
-            const allParticipants = [...new Set(
-              allThreadEmails.flatMap(e => [
-                e.from_address,
-                ...(e.to_addresses || []),
-                ...(e.cc_addresses || [])
-              ].filter(Boolean))
-            )];
-
-            const refreshData: Record<string, unknown> = {
-              email_count: allThreadEmails.length,
-              participants: allParticipants.map(email => ({ email, role: 'participant' })),
-              updated_at: new Date().toISOString(),
-            };
-
-            if (validDates.length > 0) {
-              refreshData.first_message_at = validDates[0];
-              refreshData.last_message_at = validDates[validDates.length - 1];
-            }
-
-            // Preserve root_message_id and is_quotation_thread (don't overwrite from batch)
-            if (batchRootMessageId) {
-              refreshData.root_message_id = batchRootMessageId;
-            }
-
-            await supabase
-              .from('email_threads')
-              .update(refreshData)
-              .eq('id', resolvedThreadId);
-
-            console.log(`[P1-B] Refreshed thread ${resolvedThreadId}: ${allThreadEmails.length} emails, ${allParticipants.length} participants`);
-          }
-        } catch (refreshError) {
-          console.error('[P1-B] Error refreshing thread metadata:', refreshError);
-          // Non-blocking
-        }
-      }
-    }
-    // ========== END PHASE 1 ==========
 
     // AI Analysis of the thread (even if all emails already exist)
     let analysisResult = null;
     let knowledgeStored = 0;
 
-    if (learningCase && allEmailsForAnalysis.length > 0) {
+    if (learningCase && newlyImportedEmails.length > 0) {
       console.log(`Starting AI analysis of thread with ${allEmailsForAnalysis.length} emails (${newlyImportedEmails.length} new, ${existingEmailIds.length} existing)...`);
       
       // Analyze the complete thread with attachment content
@@ -1840,7 +1482,7 @@ serve(async (req) => {
         }
 
         // Update all emails with analysis results
-        for (const email of allEmailsForAnalysis) {
+        for (const email of newlyImportedEmails) {
           await supabase
             .from('emails')
             .update({
@@ -1890,7 +1532,8 @@ serve(async (req) => {
         error: error instanceof Error ? error.message : "Erreur d'import",
         details: error instanceof Error ? error.stack : undefined
       }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: error instanceof ImportIdentityConflict ? 409 : 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+};
+if (Deno.env.get("MAIL_FUNCTION_DISABLE_SERVE") !== "1") serve(handler);

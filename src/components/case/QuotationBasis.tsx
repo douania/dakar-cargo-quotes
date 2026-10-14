@@ -1,3 +1,4 @@
+import { buildPricingCargoBasis, readQuotationCargoBasis, quotationCargoBasisText } from "../../../supabase/functions/_shared/quotation-cargo-basis";
 import { Button } from "@/components/ui/button";
 import { SourceText } from "@/components/SourceText";
 import { sourcePresentation } from "@/lib/sourcePresentation";
@@ -53,8 +54,8 @@ function InputValues({ inputs }: { inputs: unknown }) {
 }
 
 /** Saved data only. Current dossier values must never be substituted for missing history. */
-export function QuotationBasis({ context, inputs, facts, lots, assumptions, onReview, reviewLabel = "Revoir les bases dans Marchandise", collapsed = false }: {
-  context: string; inputs?: unknown; facts?: unknown; lots?: unknown; assumptions?: unknown; onReview?: () => void; reviewLabel?: string;
+export function QuotationBasis({ context, inputs, facts, lots, assumptions, pricingRun, onReview, reviewLabel = "Revoir les bases dans Marchandise", collapsed = false }: {
+  context: string; inputs?: unknown; facts?: unknown; lots?: unknown; assumptions?: unknown; pricingRun?: unknown; onReview?: () => void; reviewLabel?: string;
   /** Presentation only: folds the same saved bases behind a one-line digest. */
   collapsed?: boolean;
 }) {
@@ -62,7 +63,13 @@ export function QuotationBasis({ context, inputs, facts, lots, assumptions, onRe
   const savedLots = list(lots);
   const inputLots = list(record(inputs).lots);
   const savedInputs = record(inputs);
-  const digest = digestKeys.filter(key => present(savedInputs[key])).slice(0, 3)
+  let cargoBasis = null;
+  let cargoBasisError = false;
+  try { cargoBasis = pricingRun === undefined ? readQuotationCargoBasis(savedInputs.cargo_basis) : buildPricingCargoBasis(pricingRun); }
+  catch { cargoBasisError = true; }
+  const cargoText = cargoBasis ? quotationCargoBasisText(cargoBasis) : [];
+  const presentedInputs = cargoBasis || cargoBasisError ? Object.fromEntries(Object.entries(savedInputs).filter(([key]) => !["containers", "cargoWeight", "cargo_weight", "weightPerContainerKg"].includes(key))) : savedInputs;
+  const digest = cargoBasisError ? "Bases de poids indisponibles" : cargoText.length ? cargoText.join(" ") : digestKeys.filter(key => present(savedInputs[key])).slice(0, 3)
     .map(key => `${labels[key]} : ${displayValue(key, savedInputs[key])}`).join(" · ")
     || (savedFacts.length > 0 ? `${savedFacts.length} fait${savedFacts.length > 1 ? "s" : ""} conservé${savedFacts.length > 1 ? "s" : ""}` : "données enregistrées avec ce résultat");
   return <section aria-label={`Bases retenues — ${context}`} className="my-3 rounded-lg border bg-background p-4 text-sm">
@@ -72,8 +79,10 @@ export function QuotationBasis({ context, inputs, facts, lots, assumptions, onRe
         <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{context} · {sourcePresentation(readableReservationText(digest)).text}</span>
       </summary>
     {onReview && <Button variant="outline" size="sm" className="mt-3 h-auto min-h-9 whitespace-normal" onClick={onReview}>{reviewLabel}</Button>}
-    <InputValues inputs={inputs} />
-    {(savedLots.length > 0 || inputLots.length > 0) && <div className="space-y-3">
+    <InputValues inputs={presentedInputs} />
+    {cargoBasisError && <p role="alert">Bases de poids indisponibles : les valeurs globales ne peuvent pas remplacer les données par lot.</p>}
+    {cargoText.length > 0 && <section aria-label="Poids et conteneurs enregistrés par lot" className="space-y-2"><h4 className="font-medium">Bases de marchandise enregistrées</h4><ul className="space-y-2">{cargoText.map((line, index) => <li key={index}><SourceText text={line} /></li>)}</ul></section>}
+    {!cargoBasis && !cargoBasisError && (savedLots.length > 0 || inputLots.length > 0) && <div className="space-y-3">
       <h4 className="font-medium">Lots enregistrés</h4>
       {(savedLots.length ? savedLots : inputLots).map((lot, index) => {
         const lotInput = inputLots.find(item => item.lot_index === lot.lot_index);
