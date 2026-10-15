@@ -449,7 +449,7 @@ function getRegulatoryNotes(suggestions: HsCodeSuggestion[], destination?: strin
   }
 
   // Duty estimates
-  const highDutyItems = suggestions.filter(s => s.dd >= 20);
+  const highDutyItems = suggestions.filter(s => s.dd !== null && s.dd >= 20);
   if (highDutyItems.length > 0) {
     notes.push(`💰 Taux DD élevés (${highDutyItems[0].dd}%) sur: ${highDutyItems.map(s => s.item).join(', ')}`);
   }
