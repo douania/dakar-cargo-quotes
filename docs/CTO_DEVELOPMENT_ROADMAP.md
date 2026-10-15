@@ -202,6 +202,26 @@ Règles non négociables :
 - Base work/d176999 ; original et assemblage antérieur préservés. Preuves/diff/empreintes : task-3/dcq-activation-20261014/air-trace-pdf-lot. Runtime du delta et recette UI encore NOT_RUN à cette clôture locale ; CI GitHub/concordance de version à vérifier avant recette.
 - PASS_WITH_BASELINE local ; validité contractuelle des barèmes et classification/assiette/régime restent non attestés. Rollback : inverse du seul delta sous GO, redéployer les fonctions affectées ; ne pas réécrire les versions historiques.
 
+### 2.12 Référentiel HS et fiscalité inconnue - lot du 15 octobre 2026
+
+- GO humain du 15/10 12:04 : correction ciblée, tests, contre-revue et installation dans le projet de test Lovable existant ; aucune publication publique ni modification de compte/secret/sécurité.
+- STRUCTURAL_PATCH_ALLOWED limité à run-pricing/quotation-engine : distinguer NULL de zéro, comparer des profils fiscaux sans choisir de HS national ; formules et tarifs attestés inchangés.
+- Source nomenclature : image(8).png, Library libfile_1d4af24015d8819188c24223d4b31b48, observée le 15/10 par le parent ; pixels non vus par l'exécuteur local, aucune édition réglementaire globale inventée ni taux déduit.
+- Migration préparée 20261015121500 : 3004901000 Anti-paludéens, 3004902000 ORASEL, 3004909000 Autres ; deux UUID historiques conservés, aucun fait/run/snapshot réécrit.
+- 1000 et 2000 : chacun 16 taux + 2 indicateurs actifs NULL, statut unknown ; ancien profil complet 1000 archivé dans previous_row. Profil 9000 préservé, source distincte de toute preuve fiscale.
+- Importateurs protègent les trois références ; suggestions/admin conservent l'inconnu, export vide et filtre DD excluant unknown ; zéro explicite reste zéro.
+- Estimation facultative bornée au mono-AIR DDP destination provisoire : ensemble complet des candidats, preuves fiscales/bases/régime/exonérations et valeur XOF approuvée exigés ; profils incomplets/divergents ou devise non prouvée refusés.
+- Aucun HS10 ni gap validé automatiquement ; candidats/preuves capturés, sortie non ferme, snapshot/PDF et faits inchangés vérifiés en synthétique ; changement de preuve concurrent refusé avec restauration du statut.
+- CI finale npm run ci exit0 : 742 Vitest, 2120 Deno, 0 échec/6 ignorés ; config/bundles/types app/node/build PASS ; dette Deno49/5 et lint720/16 sans aggravation ni seuil relevé.
+- SQL PostgreSQL/WASM PGlite : 7 scénarios PASS, 36 NULL actifs, conservation des 18 valeurs archivées et du profil9000, rejeu et rollback/refus des dérives. SQL natif Cloud NOT_RUN.
+- Contre-revue indépendante PASS_WITH_BASELINE : 105 tests contre-exécutés, 7 recettes SQL finales ; aucun blocage technique identifié.
+- Base d8b2bd7 ; gardes publiées sur GitHub/work110431a, tree fonctions5923c20d0293a44e5ddbe89aedae91a20df97e70. Installation backend et migration Cloud encore NOT_RUN.
+- Préflight Lovable a créé deux commits de plan non sollicités (a161051/1421ab6) ; 110431a restaure exactement le plan de d8b2bd7. Aucune autre modification distante détectée.
+- Installation mise en attente par le contrôle humain natif Lovable plan--show (.lovable/plan.md) ; demande backend exacte déjà en file, aucun accusé de déploiement reçu.
+- Recette Cloud authentifiée NOT_RUN : navigateur Lovable déconnecté ; aucun nouveau compte/session/secret demandé. Équivalence réelle non activable sans preuves fiscales et valeur/régime approuvés.
+- Preuves : task-3/hs-reference-20261015/implementation ; original C:/Users/DELL/Projects/dakar-cargo-quotes et ses deux docs/.claude préservés.
+- Après livraison : garder les gardes NULL ; correction en avant, aucun retour à NULL=0 ni réécriture historique. Ne jamais déployer la migration avant les gardes et le délai des anciennes invocations.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

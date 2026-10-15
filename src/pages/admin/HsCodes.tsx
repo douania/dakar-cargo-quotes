@@ -1,3 +1,5 @@
+import type { Json } from "@/integrations/supabase/types";
+import { protectedHsReference } from "../../../supabase/functions/_shared/hs-tax-profile";
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,18 +38,20 @@ interface HsCode {
   id: string;
   code: string;
   code_normalized: string;
-  dd: number;
-  rs: number;
-  pcs: number;
-  pcc: number;
-  cosec: number;
-  tin: number;
-  tva: number;
-  t_conj: number;
-  bic: boolean;
-  mercurialis: boolean;
+  dd: number | null;
+  rs: number | null;
+  pcs: number | null;
+  pcc: number | null;
+  cosec: number | null;
+  tin: number | null;
+  tva: number | null;
+  t_conj: number | null;
+  bic: boolean | null;
+  mercurialis: boolean | null;
   description: string | null;
-  chapter: number;
+  chapter: number | null;
+  tax_profile_status?: string;
+  nomenclature_evidence?: Json | null;
 }
 
 export default function HsCodesAdmin() {
@@ -87,7 +91,7 @@ export default function HsCodesAdmin() {
         query = query.ilike("description", `%${searchDesc}%`);
       }
       if (filterDD !== "all") {
-        query = query.eq("dd", parseFloat(filterDD));
+        query = query.eq("dd", parseFloat(filterDD)).neq("tax_profile_status", "unknown");
       }
       if (filterChapter !== "all") {
         query = query.eq("chapter", parseInt(filterChapter));
@@ -105,11 +109,12 @@ export default function HsCodesAdmin() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("hs_codes")
-        .select("dd");
+        .select("dd, tax_profile_status");
       if (error) throw error;
       
       const counts = { 0: 0, 5: 0, 10: 0, 20: 0, 35: 0, other: 0 };
-      data?.forEach((item: { dd: number }) => {
+      data?.forEach((item) => {
+        if (item.dd == null || item.tax_profile_status === "unknown") { counts.other++; return; }
         const dd = Number(item.dd);
         if (dd === 0) counts[0]++;
         else if (dd === 5) counts[5]++;
@@ -260,10 +265,10 @@ export default function HsCodesAdmin() {
       
       if (error) throw error;
 
-      const headers = ["code", "description", "dd", "rs", "pcs", "pcc", "cosec", "tin", "tva", "t_conj", "bic", "mercurialis", "chapter"];
+      const headers = ["code", "description", "dd", "rs", "pcs", "pcc", "cosec", "tin", "tva", "t_conj", "bic", "mercurialis", "chapter", "tax_profile_status"];
       const csvContent = [
         headers.join(";"),
-        ...data.map(row => headers.map(h => row[h as keyof typeof row] ?? "").join(";"))
+        ...data.map(row => headers.map(h => row.tax_profile_status === "unknown" && !["code", "description", "chapter", "tax_profile_status"].includes(h) ? "" : row[h as keyof typeof row] ?? "").join(";"))
       ].join("\n");
 
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -678,12 +683,12 @@ export default function HsCodesAdmin() {
                     <TableCell className="max-w-[300px] truncate" title={code.description || ""}>
                       {code.description || "-"}
                     </TableCell>
-                    <TableCell className={getDDColorClass(code.dd)}>{code.dd}%</TableCell>
-                    <TableCell>{code.rs}%</TableCell>
-                    <TableCell>{code.pcs}%</TableCell>
-                    <TableCell>{code.tin > 0 ? `${code.tin}%` : "-"}</TableCell>
-                    <TableCell>{code.tva}%</TableCell>
-                    <TableCell>{code.t_conj > 0 ? `${code.t_conj}%` : "-"}</TableCell>
+                    <TableCell className={getDDColorClass(code.tax_profile_status === 'unknown' ? null : code.dd)}>{displayTax(code, "dd")}</TableCell>
+                    <TableCell>{displayTax(code, "rs")}</TableCell>
+                    <TableCell>{displayTax(code, "pcs")}</TableCell>
+                    <TableCell>{displayTax(code, "tin")}</TableCell>
+                    <TableCell>{displayTax(code, "tva")}</TableCell>
+                    <TableCell>{displayTax(code, "t_conj")}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Dialog>
@@ -691,6 +696,9 @@ export default function HsCodesAdmin() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              disabled={protectedHsReference({ ...code })}
+                              aria-label={`Modifier ${code.code}`}
+                              title={protectedHsReference({ ...code }) ? "Référence sourcée : révision contrôlée requise" : "Modifier"}
                               onClick={() => setEditingCode(code)}
                             >
                               <Edit2 className="h-4 w-4" />
@@ -712,6 +720,9 @@ export default function HsCodesAdmin() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          disabled={protectedHsReference({ ...code })}
+                          aria-label={`Supprimer ${code.code}`}
+                          title={protectedHsReference({ ...code }) ? "Référence sourcée : révision contrôlée requise" : "Supprimer"}
                           onClick={() => {
                             if (confirm("Supprimer ce code SH ?")) {
                               deleteMutation.mutate(code.id);
@@ -758,7 +769,11 @@ export default function HsCodesAdmin() {
   );
 }
 
-function getDDColorClass(dd: number): string {
+function displayTax(code: HsCode, key: 'dd' | 'rs' | 'pcs' | 'tin' | 'tva' | 't_conj'): string {
+  return code.tax_profile_status === 'unknown' || code[key] == null ? 'À confirmer' : `${code[key]}%`;
+}
+
+function getDDColorClass(dd: number | null): string {
   switch (dd) {
     case 0: return "text-green-600 font-medium";
     case 5: return "text-blue-600 font-medium";
@@ -797,7 +812,7 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit} className="space-y-4">
       <div>
         <Label>Description</Label>
         <Input
@@ -811,8 +826,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.dd}
-            onChange={(e) => setFormData({ ...formData, dd: parseFloat(e.target.value) || 0 })}
+            value={formData.dd ?? ""}
+            onChange={(e) => setFormData({ ...formData, dd: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
         <div>
@@ -820,8 +835,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.rs}
-            onChange={(e) => setFormData({ ...formData, rs: parseFloat(e.target.value) || 0 })}
+            value={formData.rs ?? ""}
+            onChange={(e) => setFormData({ ...formData, rs: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
         <div>
@@ -829,8 +844,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.pcs}
-            onChange={(e) => setFormData({ ...formData, pcs: parseFloat(e.target.value) || 0 })}
+            value={formData.pcs ?? ""}
+            onChange={(e) => setFormData({ ...formData, pcs: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
         <div>
@@ -838,8 +853,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.pcc}
-            onChange={(e) => setFormData({ ...formData, pcc: parseFloat(e.target.value) || 0 })}
+            value={formData.pcc ?? ""}
+            onChange={(e) => setFormData({ ...formData, pcc: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
         <div>
@@ -847,8 +862,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.cosec}
-            onChange={(e) => setFormData({ ...formData, cosec: parseFloat(e.target.value) || 0 })}
+            value={formData.cosec ?? ""}
+            onChange={(e) => setFormData({ ...formData, cosec: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
         <div>
@@ -856,8 +871,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.tin}
-            onChange={(e) => setFormData({ ...formData, tin: parseFloat(e.target.value) || 0 })}
+            value={formData.tin ?? ""}
+            onChange={(e) => setFormData({ ...formData, tin: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
         <div>
@@ -865,8 +880,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.tva}
-            onChange={(e) => setFormData({ ...formData, tva: parseFloat(e.target.value) || 0 })}
+            value={formData.tva ?? ""}
+            onChange={(e) => setFormData({ ...formData, tva: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
         <div>
@@ -874,8 +889,8 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
           <Input
             type="number"
             step="0.01"
-            value={formData.t_conj}
-            onChange={(e) => setFormData({ ...formData, t_conj: parseFloat(e.target.value) || 0 })}
+            value={formData.t_conj ?? ""}
+            onChange={(e) => setFormData({ ...formData, t_conj: e.target.value.trim() === "" ? null : Number(e.target.value) })}
           />
         </div>
       </div>
@@ -883,7 +898,7 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
-            checked={formData.bic}
+            checked={formData.bic ?? false}
             onChange={(e) => setFormData({ ...formData, bic: e.target.checked })}
           />
           <span>BIC applicable</span>
@@ -891,7 +906,7 @@ function EditCodeForm({ code, onSave, isLoading }: EditCodeFormProps) {
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
-            checked={formData.mercurialis}
+            checked={formData.mercurialis ?? false}
             onChange={(e) => setFormData({ ...formData, mercurialis: e.target.checked })}
           />
           <span>Mercurialis</span>
