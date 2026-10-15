@@ -1,30 +1,44 @@
-# Lot HS — préflight lecture seule (15/10/2026 12:38 UTC)
+# Onglet « Marchandise » — simplification (présentation seule)
 
-Statut : PARTIAL. Rien n'a été modifié ni déployé.
+## Constat (écran actuel, mode guidé)
+L'onglet empile deux gros blocs repliables et une dizaine de sous-blocs :
+- « Informations à vérifier » : chiffres (complétude, faits, questions), bouton Actualiser, zone « Actions cargo canonique », « Outils avancés » (cargo canonique, synchro, intent), bouton « Comprendre le périmètre », panneau de compréhension, alertes des questions ouvertes, clarifications client, hypothèses, demande consolidée.
+- « Bases de la marchandise » : lots, groupes/catégories PAD, aide à la classification, variantes et historique.
+Résultat : trop de boutons au même niveau, textes d'aide répétés, et l'opérateur ne voit pas par où commencer.
 
-## Identité actuelle
-- HEAD : `d8b2bd7ef1e1187698a0b9890ad0776e059afdf4`, égal à `origin/work`. Branche Lovable temporaire `edit/edt-11503ab5…`. Arbre propre.
-- `is_published=false`. La visibilité lue est `public`, pas `workspace_edit`. L'outil ne connaît que `public` et `private`. Je ne l'ai pas modifiée.
-- Les 5 dossiers existent. Dans `supabase/config.toml`, les 5 sont en `verify_jwt=false`. L'admission se fait dans le code.
+## Organisation cible : trois étapes numérotées, une action à la fois
+```text
+Marchandise
+ [Résumé en une ligne : lots · poids · catégories · X points à vérifier]
 
-## Ce que mes outils permettent (vérifié)
-- `supabase--deploy_edge_functions` accepte une liste de noms explicite. Il déploie le contenu local, sans choix de SHA et sans réécrire les sources.
-- Procédure : avancer en fast-forward uniquement vers le SHA fourni. Ensuite, vérifier HEAD, l'état de l'arbre et le hash de l'arbre `supabase/functions`. Enfin, déployer les 5 noms et capturer les accusés et les hashes.
-- Aucune migration, aucune publication, aucun changement de config.
+ 1. Ce qu'il faut compléter        (ouvert seulement s'il y a des questions)
+    - questions bloquantes puis non bloquantes, un champ + « Enregistrer » chacune
+    - un seul bouton secondaire : « Préparer les questions au client »
+    - suivi des clarifications client en liste compacte
+ 2. Lots et catégories portuaires  (ouvert par défaut)
+    - panneaux lots + groupes PAD existants, inchangés
+    - « Aide à la classification » repliée juste dessous
+ 3. Estimation et variantes         (replié)
+    - variantes, choix de l'estimation, historique
 
-## Limites
-- Fin des anciennes invocations : aucun outil ne fournit de signal de drain ni de liste des workers actifs. La seule référence est la limite Supabase documentée de 400 s par worker, tâches de fond comprises. Je n'ai pas de limite propre à Lovable.
-  - Protocole possible : noter l'heure UTC du dernier accusé, puis attendre au moins 400 s avant la migration.
-  - Ce délai ne vaut que si la limite Supabase s'applique bien à ce runtime. Il ne prouve pas que les invocations sont terminées.
-- Métadonnées distantes (id, version, statut, `verify_jwt` effectif) : UNKNOWN, elles ne sont pas exposées.
-- Recette synthétique de `generate` dans `quotation-engine` : impossible dans vos conditions.
-  - `LOVABLE_BROWSER_AUTH_STATUS=signed_out` : aucune session existante.
-  - En obtenir une exigerait d'ouvrir une nouvelle session, ce que vous interdisez.
-  - Le chemin `generate` (ligne 2793) lit les données avec un client service. `.update(` apparaît aux lignes 814 et 1349, dans des fonctions dont le déclenchement par `generate` n'est pas vérifié. L'absence totale d'écriture n'est donc pas prouvée.
-- Tests possibles sans secret : OPTIONS et POST sans jeton (401 attendu) sur les 5. Un 401 ne prouve pas que le nouveau code tourne, sauf s'il renvoie un marqueur.
+ Détails et outils (replié, en bas)
+    - chiffres du dossier, Actualiser, Comprendre le périmètre,
+      compréhension de la demande, hypothèses, demande consolidée,
+      outils avancés (cargo canonique, synchro, intent) et leurs boutons
+```
 
-## Étape suivante (sur GO avec SHA)
-1. Avancer en fast-forward vers le SHA, puis vérifier HEAD, l'état de l'arbre et les hashes.
-2. Déployer les 5 fonctions et relever les accusés et l'heure UTC de fin.
-3. Lancer les sondes OPTIONS et POST sans jeton.
-4. Attendre au moins 400 s après le dernier accusé avant votre migration.
+## Règles
+- Une étape n'affiche qu'un bouton principal ; les autres actions sont secondaires ou dans « Détails et outils ».
+- Un seul texte d'aide court par étape ; suppression des doublons (ex. « Les estimations restent consultables dans Devis », avertissement répété sur l'estimation).
+- L'étape 1 disparaît quand il n'y a rien à compléter, remplacée par « Rien à compléter ».
+- Présentation précédente (bascule existante) inchangée.
+
+## Hors périmètre
+Aucune modification de calcul, faits, questions, enregistrements, pricing automatique, fonctions serveur, base, Auth/RLS, ni des panneaux PAD/lots eux-mêmes (déplacement et libellés seulement). Pas de changement des autres onglets.
+
+## Détails techniques
+- Fichier : `src/pages/CaseView.tsx` uniquement (bloc TabsContent « marchandise », lignes ~1684–2162), plus test `cockpit-layout.test.tsx` si ancres/libellés affectés.
+- Mêmes instances de composants, simple réordonnancement JSX ; ancres conservées (`section-data`, `section-scenarios`, `section-scenario-variants`, `section-stay-assumptions`, `gap-review-*`) et mapping SECTION_TAB inchangé ; les fonctions d'ouverture ouvrent aussi le nouveau bloc parent.
+- Portails `cargo-canonical-action` / `cargo-legacy-sync-action` déplacés dans « Détails et outils ».
+- Contrôles : typecheck, Vitest ciblé puis complet (baseline LocalTransportEstimateFields connue), lint:baseline, build, capture 1280/375 px.
+- Gouvernance : exige un GO explicite pour ce lot ; rollback = revert du commit unique.

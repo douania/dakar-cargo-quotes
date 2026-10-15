@@ -1,3 +1,4 @@
+import { knownHsTaxProfile, equivalentHsTaxation, type HsTaxEquivalence } from "../_shared/hs-tax-profile.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
 import { partialServiceSource, tariffReferenceNotice } from '../_shared/selected-tariff-reference.ts';
@@ -140,6 +141,7 @@ interface PricingInputs {
   clientEmail?: string;
   clientCompany?: string;
   hsCode?: string;
+  customsHsEstimate?: HsTaxEquivalence;
   cnCode?: string;
   nhmCode?: string;
   nstCode?: string;
@@ -2871,12 +2873,13 @@ Deno.serve(async (req) => {
       } else {
         const { data: hsRow, error: hsReadError } = await serviceClient
           .from("hs_codes")
-          .select("code_normalized")
+          .select("*")
           .eq("code_normalized", hsDigits)
           .limit(1)
           .maybeSingle();
         if (partialDestination && hsReadError) throw new Error('Partial destination HS verification failed');
         if (!hsRow) hsBlocker = "HS_CODE_UNKNOWN";
+        else if (!knownHsTaxProfile(hsRow)) hsBlocker = "HS_TAX_PROFILE_UNKNOWN";
       }
 
       if (hsBlocker && partialDestination) partialCustomsDependencies.add('cargo.hs_code');
@@ -3032,6 +3035,36 @@ Deno.serve(async (req) => {
 
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
+    // STRUCTURAL_PATCH_ALLOWED (GO 2026-10-15): only the existing provisional mono-AIR
+    // destination flow; preserve facts/gaps/classification. The engine rechecks DB evidence.
+    let hsTaxEstimate: HsTaxEquivalence | undefined;
+    const sourceHsFact = (facts || []).find(f => f.fact_key === 'cargo.hs_code_documentary');
+    const sourceHsDigits = String(inputs.hsCode || sourceHsFact?.value_text || '').replace(/\D/g, '');
+    if (partialDestination && scopeWantsDuties && /^(?:\d{6}|\d{8})$/.test(sourceHsDigits)) {
+      const approved = (key: string) => (facts || []).find(f => f.fact_key === key &&
+        (f.is_validated === true || ['operator', 'operator_correction', 'manual_input'].includes(f.source_type ?? '')));
+      const value = approved('cargo.value'), currency = approved('cargo.value_currency');
+      const reviewed = approved('customs.exemptions_reviewed');
+      const [catalogue, regime] = await Promise.all([
+        serviceClient.from('hs_codes').select('*', { count: 'exact' }).like('code_normalized', `${sourceHsDigits.slice(0, 6)}%`).order('code_normalized').limit(101),
+        serviceClient.from('customs_regimes').select('*').eq('code', inputs.regimeCode || '').eq('is_active', true).maybeSingle(),
+      ]);
+      if (catalogue.error || regime.error) {
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, 'hs_equivalence_read_failed');
+        throw new Error('HS fiscal equivalence verification failed');
+      }
+      hsTaxEstimate = equivalentHsTaxation(catalogue.data || [], catalogue.count, {
+        sourceDigits: sourceHsDigits, allowEstimate: allow_provisional === true,
+        cargoValue: value?.value_number ?? undefined, currency: currency?.value_text ?? undefined,
+        regimeCode: inputs.regimeCode, regime: regime.data,
+        exemptionsReviewed: reviewed?.value_json === true || reviewed?.value_text === 'none',
+        exemptionTitle: (facts || []).find(f => f.fact_key === 'regulatory.exemption_title')?.value_text ?? undefined,
+        transportMode: 'aerien',
+      });
+      if (hsTaxEstimate.eligible) partialCustomsDependencies.delete('cargo.hs_code');
+      inputs.customsHsEstimate = hsTaxEstimate;
+    }
+
     // Commercial overlay only: facts/snapshot stay unchanged, all ordinary
     // engine weight consumers receive the explicitly retained total in tonnes.
     if (padGroupState?.retained_weight) inputs.cargoWeight = padGroupState.retained_weight.total_weight_kg / 1000;
@@ -3504,7 +3537,8 @@ Deno.serve(async (req) => {
         isIMO: resolveDangerousForEngine(inputs),
         weightPerContainerKg: inputs.weightPerContainerKg,
         clientCompany: inputs.clientCompany,
-        hsCode: inputs.hsCode,
+        hsCode: hsTaxEstimate?.eligible ? sourceHsDigits : inputs.hsCode,
+        ...(hsTaxEstimate?.eligible ? { hsEstimate: { enabled: true, exemptionsReviewed: true, caseId: case_id } } : {}),
         articlesDetail: inputs.articlesDetail,
         regimeCode: inputs.regimeCode || undefined,
         freightAmount: inputs.freightCost,
@@ -3532,6 +3566,17 @@ Deno.serve(async (req) => {
       }
 
       engineResponse = await engineRes.json();
+      if (hsTaxEstimate?.eligible) {
+        const taxLines = (engineResponse.lines || engineResponse.quotationLines || []) as Array<{ source?: { hs_tax_equivalence?: HsTaxEquivalence } }>;
+        const actual = taxLines.map(l => l.source?.hs_tax_equivalence).filter((p): p is Extract<HsTaxEquivalence,{ eligible:true }> => p?.eligible === true);
+        const canonical = (v: unknown): string => JSON.stringify(v, (_key, value) => value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(Object.entries(value).sort(([a],[b]) => a.localeCompare(b))) : value);
+        if (actual.length !== 1 || canonical(actual[0].proof) !== canonical(hsTaxEstimate.proof)) {
+          throw new Error('HS fiscal equivalence evidence changed during pricing; retry after review');
+        }
+        hsTaxEstimate = actual[0];
+      }
+
       // Fix CTO: construire tariffSources depuis les lignes (le moteur ne renvoie pas de champ global)
       const monoCanonicalLines = (engineResponse.lines || engineResponse.quotationLines || [])
         .map((l: any) => canonicalizeLine(l, { origin_layer: 'engine_structural' }));
@@ -4875,6 +4920,11 @@ ${JSON.stringify(refPayload)}`;
       },
     };
 
+    if (hsTaxEstimate?.eligible) {
+      (outputsJson as { quoteQualification?: unknown }).quoteQualification = { level: 'provisional',
+        reasons: [{ code: 'HS_CLASSIFICATION_PENDING_EQUIVALENT_TAXATION', message: 'Estimation des droits par équivalence fiscale prouvée ; classement HS à confirmer.' }],
+        hs_tax_equivalence: hsTaxEstimate };
+    }
     // ═══ LOT 4: Inject quoteQualification for provisional DDP runs ═══
     if (isProvisionalDdp) {
       (outputsJson as any).quoteQualification = {
@@ -4884,9 +4934,11 @@ ${JSON.stringify(refPayload)}`;
       };
     }
     if (partialDestination && !isProvisionalDdp && tariffLines.some(isToConfirmLine)) {
+      const previousQualification = (outputsJson as { quoteQualification?: { reasons?: unknown[] } }).quoteQualification;
       (outputsJson as { quoteQualification?: unknown }).quoteQualification = {
+        ...previousQualification,
         level: 'partial',
-        reasons: [{ code: 'SERVICE_DATA_TO_CONFIRM', message: 'Postes dépendant de données non confirmées exclus du total' }],
+        reasons: [...(previousQualification?.reasons ?? []), { code: 'SERVICE_DATA_TO_CONFIRM', message: 'Postes dépendant de données non confirmées exclus du total' }],
         firmTotalPolicy: 'excludes_reserved_items',
       };
     }

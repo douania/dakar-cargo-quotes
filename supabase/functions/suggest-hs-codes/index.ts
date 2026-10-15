@@ -1,3 +1,4 @@
+import { knownHsTaxProfile } from "../_shared/hs-tax-profile.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -6,14 +7,14 @@ interface HsCodeSuggestion {
   item: string;
   hs_code: string;
   description: string | null;
-  dd: number;
-  rs: number;
-  pcs: number;
-  pcc: number;
-  cosec: number;
-  tva: number;
+  dd: number | null;
+  rs: number | null;
+  pcs: number | null;
+  pcc: number | null;
+  cosec: number | null;
+  tva: number | null;
   confidence: 'high' | 'medium' | 'low';
-  estimated_total_rate: number;
+  estimated_total_rate: number | null;
 }
 
 interface SuggestHsCodesRequest {
@@ -78,7 +79,11 @@ Deno.serve(async (req) => {
       // Try to find exact or partial match in hs_codes table
       const hsCodeData = await findHsCodeInDatabase(supabase, aiItem.hs_code);
       
-      if (hsCodeData) {
+      if (hsCodeData && !knownHsTaxProfile(hsCodeData)) {
+        enrichedSuggestions.push({ item: aiItem.item, hs_code: hsCodeData.code,
+          description: hsCodeData.description, dd: null, rs: null, pcs: null, pcc: null,
+          cosec: null, tva: null, confidence: 'low', estimated_total_rate: null });
+      } else if (hsCodeData) {
         // Calculate estimated total duty rate
         const totalRate = (hsCodeData.dd || 0) + (hsCodeData.rs || 0) + 
                           (hsCodeData.pcs || 0) + (hsCodeData.pcc || 0) + 
@@ -103,14 +108,14 @@ Deno.serve(async (req) => {
           item: aiItem.item,
           hs_code: aiItem.hs_code,
           description: aiItem.description || null,
-          dd: aiItem.estimated_dd || 0,
-          rs: 1,
-          pcs: 0.8,
-          pcc: 0.5,
-          cosec: 0.4,
-          tva: 18,
+          dd: null,
+          rs: null,
+          pcs: null,
+          pcc: null,
+          cosec: null,
+          tva: null,
           confidence: 'low',
-          estimated_total_rate: (aiItem.estimated_dd || 0) + 1 + 0.8 + 0.5 + 0.4 + 18
+          estimated_total_rate: null
         });
       }
     }
@@ -277,7 +282,7 @@ function getKeywordBasedSuggestions(cargoDescription: string): { item: string; h
 async function findHsCodeInDatabase(
   supabase: any, 
   hsCode: string
-): Promise<{ code: string; description: string | null; dd: number; rs: number; pcs: number; pcc: number; cosec: number; tva: number } | null> {
+): Promise<({ code: string; description: string | null; dd: number; rs: number; pcs: number; pcc: number; cosec: number; tva: number } & Record<string, unknown>) | null> {
   
   // Normalize the code (remove dots and spaces)
   const normalizedCode = hsCode.replace(/[.\s]/g, '').padEnd(10, '0').substring(0, 10);
@@ -285,7 +290,7 @@ async function findHsCodeInDatabase(
   // Try exact match first
   let { data, error } = await supabase
     .from('hs_codes')
-    .select('code, description, dd, rs, pcs, pcc, cosec, tva')
+    .select('*')
     .eq('code_normalized', normalizedCode)
     .limit(1)
     .single();
@@ -296,9 +301,9 @@ async function findHsCodeInDatabase(
   const prefix8 = normalizedCode.substring(0, 8);
   ({ data, error } = await supabase
     .from('hs_codes')
-    .select('code, description, dd, rs, pcs, pcc, cosec, tva')
+    .select('*')
     .like('code_normalized', `${prefix8}%`)
-    .limit(1)
+    .limit(2)
     .single());
 
   if (data) return data;
@@ -307,9 +312,9 @@ async function findHsCodeInDatabase(
   const prefix6 = normalizedCode.substring(0, 6);
   ({ data, error } = await supabase
     .from('hs_codes')
-    .select('code, description, dd, rs, pcs, pcc, cosec, tva')
+    .select('*')
     .like('code_normalized', `${prefix6}%`)
-    .limit(1)
+    .limit(2)
     .single());
 
   if (data) return data;
@@ -318,9 +323,9 @@ async function findHsCodeInDatabase(
   const prefix4 = normalizedCode.substring(0, 4);
   ({ data, error } = await supabase
     .from('hs_codes')
-    .select('code, description, dd, rs, pcs, pcc, cosec, tva')
+    .select('*')
     .like('code_normalized', `${prefix4}%`)
-    .limit(1)
+    .limit(2)
     .single());
 
   return data || null;

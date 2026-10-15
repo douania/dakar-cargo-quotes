@@ -272,7 +272,7 @@ Deno.test("scenario DAP services: invalid opt-ins and contradictory groups fail 
 });
 
 Deno.test("scenario DAP services: known value and HS still exclude customs intentionally, not a zero-value workaround", async () => {
-  const tariffs = { hs_codes: [{ code: "850440", code_normalized: "850440", dd: 10 }] };
+  const tariffs = { hs_codes: [{ code: "850440", code_normalized: "850440", dd: 10, rs: 0, pcs: 0, pcc: 0, cosec: 0, surtaxe: 0, tin: 0, t_conj: 0, tva: 0 }] };
   const input = { ...request(), hsCode: "850440" };
   const before = JSON.stringify(input);
   const legacy = await generateQuotationLines(fakeDb(tariffs), input);

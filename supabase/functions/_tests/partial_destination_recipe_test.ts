@@ -1,3 +1,4 @@
+import { equivalentHsTaxation, HS_TAX_FIELDS, HS_TAX_BASIS_VERSION } from "../_shared/hs-tax-profile.ts";
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { generateDraftPdf } from '../export-quotation-version-pdf/index.ts';
 import { classifyClientLine } from '../_shared/client-quote-projection.ts';
@@ -42,7 +43,7 @@ async function pdfText(bytes: Uint8Array): Promise<string> {
   return out.join(' ').replace(/\s+/g, ' ');
 }
 type State = { tables: Record<string, Row[]>; calls: string[]; failTable: string | null; failSelect: string | null; failService: boolean; engineCalls: number;
-  engineResponse: Row | null; serviceMode: string | null;
+  engineResponse: Row | null; engineRequests: Row[]; engineTaxMutation: string | null; serviceMode: string | null;
   invoke: (name: string, body: Row) => Promise<{ status: number; body: Row }> };
 async function fixture(run: (state: State) => Promise<void>) {
   const oldFetch = globalThis.fetch;
@@ -74,7 +75,7 @@ async function fixture(run: (state: State) => Promise<void>) {
   tables.fee_lines = ['CUSTOMS_DAKAR', 'AGENCY'].map(code => ({ id: code, code, label_fr: `SYNTHETIC ${code}`, is_active: true }));
   tables.fee_rules = tables.fee_lines.map((line, i) => ({ id: line.id, fee_line_id: line.id, is_active: true,
     effective_from: '2026-01-01', direction: 'IMPORT', transport_mode: 'AIR', method: 'FIXED', amount: 300 + i * 100, currency: 'XOF' }));
-  const state: State = { tables, calls: [], failTable: null, failSelect: null, failService: false, engineCalls: 0, engineResponse: null, serviceMode: null,
+  const state: State = { tables, calls: [], failTable: null, failSelect: null, failService: false, engineCalls: 0, engineResponse: null, engineRequests: [], engineTaxMutation: null, serviceMode: null,
     invoke: async (name, body) => {
       const response = await handlers[name](new Request(`https://fixture.invalid/functions/v1/${name}`, { method: 'POST',
         headers: { Authorization: 'Bearer fixture-token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
@@ -93,8 +94,21 @@ async function fixture(run: (state: State) => Promise<void>) {
     if (url.pathname === '/auth/v1/user') return json({ id: 'fixture-user', email: 'operator@example.invalid' });
     if (url.pathname.includes('/functions/v1/')) {
       if (name === 'quotation-engine') {
-        state.engineCalls++;
-        if (state.engineResponse) return json(state.engineResponse);
+        state.engineCalls++; state.engineRequests.push(body);
+        if (state.engineResponse) {
+          if (body.params.hsEstimate?.enabled) {
+            if (state.engineTaxMutation === 'rates') tables.hs_codes.forEach(r => r.dd++);
+            if (state.engineTaxMutation === 'candidates') tables.hs_codes.splice(1);
+            if (state.engineTaxMutation === 'regime') tables.customs_regimes[0].tva = false;
+            const actual = equivalentHsTaxation(tables.hs_codes, tables.hs_codes.length, { sourceDigits:body.params.hsCode,
+              allowEstimate:true, cargoValue:body.params.cargoValue, currency:body.params.cargoCurrency,
+              regimeCode:body.params.regimeCode, regime:tables.customs_regimes[0] ?? null,
+              exemptionsReviewed:true, transportMode:'aerien' });
+            return json({ ...state.engineResponse, lines:[{ id:'duties_total', category:'Droits & Taxes', amount:123,
+              currency:'XOF', source:{ type:'CALCULATED',firm_eligible:false,hs_tax_equivalence:actual } }] });
+          }
+          return json(state.engineResponse);
+        }
         throw Error('Customs engine must not be called for missing customs inputs');
       }
       assertEquals(name, 'price-service-lines');
@@ -197,7 +211,7 @@ const airInput = { id: 'air', service: 'AIR_HANDLING', unit: 'kg', quantity: 1, 
 Deno.test('partial destination: complete customs inputs keep the standard engine path but never gross→taxable fallback', async () => fixture(async state => {
   state.tables.quote_gaps = [];
   state.tables.quote_facts.push(fact('cargo.hs_code', '1234567890'), fact('cargo.value', 10000), fact('cargo.value_currency', 'XOF'), fact('customs.regime_code', 'TEST'));
-  state.tables.hs_codes.push({ code_normalized: '1234567890' });
+  state.tables.hs_codes.push({ code_normalized: '1234567890', dd: 0, rs: 1, pcs: 0.8, pcc: 0.5, cosec: 0.4, surtaxe: 0, tin: 0, t_conj: 0, tva: 18 });
   // Deliberately empty upstream engine double: tests P5/qualification propagation,
   // never the unchanged customs engine's business calculations.
   state.engineResponse = { lines: [], totals: { honoraires: 0, debours: 0, operationnel: 0 }, currency: 'XOF', duty_breakdown: [] };
@@ -321,7 +335,7 @@ for (const missing of ['cargo.hs_code', 'customs.regime_code']) Deno.test(`parti
   for (const [key, value] of [['cargo.hs_code', '1234567890'], ['customs.regime_code', 'TEST'], ['cargo.value', 10000], ['cargo.value_currency', 'XOF']] as const) {
     if (key !== missing) state.tables.quote_facts.push(fact(key, value));
   }
-  state.tables.hs_codes.push({ code_normalized: '1234567890' });
+  state.tables.hs_codes.push({ code_normalized: '1234567890', dd: 0, rs: 1, pcs: 0.8, pcc: 0.5, cosec: 0.4, surtaxe: 0, tin: 0, t_conj: 0, tva: 18 });
   const result = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: true });
   assertEquals(result.status, 200, JSON.stringify(result.body)); assertEquals(state.engineCalls, 0);
   const run = state.tables.pricing_runs[0]; assertEquals(run.outputs_json.quoteQualification.level, 'partial');
@@ -344,7 +358,7 @@ Deno.test('partial destination: PAD or intent blocker cannot be bypassed by cust
 Deno.test('partial destination: complete firm request retains previous engine and KG path with no partial flag', async () => fixture(async state => {
   state.tables.quote_cases[0].status = 'ACK_READY_FOR_PRICING'; state.tables.quote_gaps = [];
   state.tables.quote_facts.push(fact('cargo.hs_code', '1234567890'), fact('cargo.value', 10000), fact('cargo.value_currency', 'XOF'), fact('customs.regime_code', 'TEST'));
-  state.tables.hs_codes.push({ code_normalized: '1234567890' });
+  state.tables.hs_codes.push({ code_normalized: '1234567890', dd: 0, rs: 1, pcs: 0.8, pcc: 0.5, cosec: 0.4, surtaxe: 0, tin: 0, t_conj: 0, tva: 18 });
   state.engineResponse = { lines: [], totals: { honoraires: 0, debours: 0, operationnel: 0 }, currency: 'XOF', duty_breakdown: [] };
   const result = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: false });
   assertEquals(result.status, 200, JSON.stringify(result.body)); assertEquals(result.body.partial_mode, undefined); assertEquals(state.engineCalls, 1);
@@ -433,7 +447,7 @@ Deno.test('partial pricing: selected provisional fee IDs and rule state survive 
 Deno.test('eligible AIR destination: fully known quantities do not make provisional fees firm in the run or version', async () => fixture(async state => {
   state.tables.quote_gaps = [];
   state.tables.quote_facts.push(fact('cargo.hs_code', '1234567890'), fact('cargo.value', 10000), fact('cargo.value_currency', 'XOF'), fact('customs.regime_code', 'TEST'));
-  state.tables.hs_codes.push({ code_normalized: '1234567890' });
+  state.tables.hs_codes.push({ code_normalized: '1234567890', dd: 0, rs: 1, pcs: 0.8, pcc: 0.5, cosec: 0.4, surtaxe: 0, tin: 0, t_conj: 0, tva: 18 });
   state.tables.service_quantity_rules.find(r => r.service_key === 'AIR_HANDLING')!.requires_fact_key = 'cargo.weight_kg';
   state.tables.fee_rules.forEach(r => { r.label = 'SYNTHETIC forfait provisoire'; });
   state.engineResponse = { lines: [], totals: { honoraires: 0, debours: 0, operationnel: 0 }, currency: 'XOF', duty_breakdown: [] };
@@ -448,4 +462,79 @@ Deno.test('eligible AIR destination: fully known quantities do not make provisio
   const version = await state.invoke('generate-quotation-version', { case_id: 'fixture-case', pricing_run_id: run.id });
   assertEquals(version.status, 200);
   assertEquals(state.tables.quotation_versions[0].snapshot.meta.quoteQualification.level, 'provisional');
+}));
+
+// Fiscal profiles and values below are explicitly synthetic, never real rates or approvals.
+function syntheticHsSetup(state: State) {
+  state.tables.quote_gaps = [{ gap_key: 'cargo.hs_code', is_blocking: true, status: 'open', case_id: 'fixture-case' }];
+  state.tables.quote_facts.push(fact('cargo.hs_code_documentary', '3004.9099', 'attachment_extracted'),
+    fact('cargo.value', 10000, 'operator'), fact('cargo.value_currency', 'XOF', 'operator'),
+    fact('customs.regime_code', 'TEST', 'operator'), fact('customs.exemptions_reviewed', 'none', 'operator'));
+  state.tables.hs_codes = ['3004901000','3004902000','3004909000'].map(code_normalized => ({
+    ...Object.fromEntries(HS_TAX_FIELDS.map(k => [k, 0])), code_normalized,
+    dd: 4, rs: 2, tva: 7, bic: false, mercurialis: false, tax_profile_status: 'verified',
+    tax_evidence: { source_ref: 'SYNTHETIC-ONLY', verified_at: '2026-01-01', basis_version: HS_TAX_BASIS_VERSION, exemptions: 'none', regime_codes: ['TEST'] },
+  }));
+  state.tables.customs_regimes = [{ code: 'TEST', is_active: true, ...Object.fromEntries(
+    ['dd','stx','rs','tin','tva','cosec','pcs','pcc','tpast','ta'].map(k => [k, true])), hors_promad: false, hors_bic: false }];
+  state.engineResponse = { lines: [], totals: { honoraires: 0, debours: 0, operationnel: 0 }, currency: 'XOF', duty_breakdown: [] };
+}
+Deno.test('HS estimate orchestration: proven synthetic equivalence reaches engine without creating a national HS fact or resolving gap', async () => fixture(async state => {
+  syntheticHsSetup(state);
+  const before = JSON.stringify(state.tables.quote_facts);
+  const result = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: true });
+  assertEquals(result.status, 200, JSON.stringify(result.body)); assertEquals(state.engineCalls, 1, JSON.stringify(state.tables.pricing_runs));
+  const request = state.engineRequests[0].params;
+  assertEquals(request.hsCode, '30049099'); assertEquals(request.hsEstimate, { enabled: true, exemptionsReviewed: true, caseId:'fixture-case' });
+  assertEquals(JSON.stringify(state.tables.quote_facts), before);
+  assertEquals(state.tables.quote_gaps[0].status, 'open');
+  const run = state.tables.pricing_runs.find(r => r.status === 'success')!;
+  assertEquals(run.inputs_json.hsCode, undefined);
+  assertEquals(run.inputs_json.customsHsEstimate.validated_hs_code, null);
+  assertEquals(run.inputs_json.customsHsEstimate.candidate_codes.length, 3);
+  assert(run.outputs_json.quoteQualification.reasons.some((r: Row) => r.code === 'HS_CLASSIFICATION_PENDING_EQUIVALENT_TAXATION'));
+  const version = await state.invoke('generate-quotation-version', { case_id: 'fixture-case', pricing_run_id: run.id });
+  assertEquals(version.status, 200, JSON.stringify(version.body));
+  const snap = state.tables.quotation_versions[0].snapshot;
+  const estimatedDuty = snap.raw_lines.find((l: Row) => l.source?.hs_tax_equivalence);
+  assert(estimatedDuty, JSON.stringify(snap.raw_lines));
+  assertEquals(estimatedDuty.source.firm_eligible, false);
+  assertEquals(estimatedDuty.source.hs_tax_equivalence.validated_hs_code, null);
+  assertEquals(estimatedDuty.source.hs_tax_equivalence.candidate_codes.length, 3);
+  assert(snap.meta.quoteQualification.level !== 'firm');
+  assert(snap.meta.quoteQualification.reasons.some((r: Row) => r.code === 'HS_CLASSIFICATION_PENDING_EQUIVALENT_TAXATION'));
+  const text = (await pdfText(await generateDraftPdf(snap, 'SYNTHETIC-HS'))).toLowerCase();
+  assertStringIncludes(text, 'confirmer');
+  assertEquals(JSON.stringify(state.tables.quote_facts), before);
+  assertEquals(state.tables.quote_gaps[0].status, 'open');
+}));
+for (const failure of ['unknown', 'different', 'valuation', 'regime', 'exemptions']) Deno.test(`HS estimate orchestration reserves only customs when ${failure}`, async () => fixture(async state => {
+  syntheticHsSetup(state);
+  if (failure === 'unknown') state.tables.hs_codes[1].tax_profile_status = 'unknown';
+  if (failure === 'different') state.tables.hs_codes[1].pcs = 9;
+  if (failure === 'valuation') state.tables.quote_facts.find(f => f.fact_key === 'cargo.value')!.source_type = 'attachment_extracted';
+  if (failure === 'regime') state.tables.customs_regimes = [];
+  if (failure === 'exemptions') state.tables.quote_facts = state.tables.quote_facts.filter(f => f.fact_key !== 'customs.exemptions_reviewed');
+  const result = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: true });
+  assertEquals(result.status, 200, JSON.stringify(result.body)); assertEquals(state.engineCalls, 0);
+  const run = state.tables.pricing_runs.find(r => r.status === 'success')!;
+  assert(run.tariff_lines.some((l: Row) => l.category === 'CUSTOMS_RESERVE' && l.source?.type === 'TO_CONFIRM'));
+  assert(run.tariff_lines.some((l: Row) => l.amount > 0), 'Other services must remain priced');
+  assertEquals(state.tables.quote_facts.some(f => f.fact_key === 'cargo.hs_code'), false);
+}));
+Deno.test('HS equivalence DB read failure restores status and creates no successful run', async () => fixture(async state => {
+  syntheticHsSetup(state); state.failTable = 'customs_regimes';
+  const result = await state.invoke('run-pricing', { case_id: 'fixture-case', allow_provisional: true });
+  assertEquals(result.status, 500); assertEquals(state.tables.quote_cases[0].status, 'NEED_INFO');
+  assertEquals(state.tables.pricing_runs.some(r => r.status === 'success'), false);
+}));
+
+for (const mutation of ['rates','candidates','regime']) Deno.test(`HS equivalence refuses concurrent ${mutation} changes and restores status`, async () => fixture(async state => {
+  syntheticHsSetup(state); state.engineTaxMutation = mutation;
+  const before = JSON.stringify(state.tables.quote_facts);
+  const result = await state.invoke('run-pricing', { case_id:'fixture-case', allow_provisional:true });
+  assertEquals(result.status,500); assertEquals(state.tables.quote_cases[0].status,'NEED_INFO');
+  assertEquals(state.tables.pricing_runs.some(r => r.status === 'success'),false);
+  assertEquals(JSON.stringify(state.tables.quote_facts),before);
+  assertEquals(state.tables.quotation_versions.length,0);
 }));

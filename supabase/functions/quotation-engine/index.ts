@@ -1,3 +1,6 @@
+import { partialDestinationDdpEligible } from "../_shared/partial-destination-quote.ts";
+import { readOverridesFromFacts, resolveEffectiveServiceKeys } from "../_shared/service-scope.ts";
+import { knownHsTaxProfile, equivalentHsTaxation, type HsTaxEquivalence } from "../_shared/hs-tax-profile.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createSupabaseClient } from "../_shared/supabase.ts";
@@ -445,6 +448,7 @@ interface QuotationRequest {
   
   // Code HS pour calcul droits
   hsCode?: string;
+  hsEstimate?: { enabled: boolean; exemptionsReviewed: boolean; caseId: string };
   
   // Régime douanier pour exonérations conditionnelles
   regimeCode?: string;
@@ -2550,6 +2554,9 @@ export async function generateQuotationLines(
 
       let totalAllDuties = 0;
       const missingCodes: string[] = [];
+      const unknownTaxCodes: string[] = [];
+      let hsEquivalence: HsTaxEquivalence | undefined;
+      let regimeEvidence: Record<string, unknown> | null = null;
 
       // --- Regime flags: load from customs_regimes if regimeCode provided ---
       let regimeFlags = { dd:true, stx:true, rs:true, tin:true, tva:true, cosec:true, pcs:true, pcc:true, tpast:true, ta:true };
@@ -2560,7 +2567,7 @@ export async function generateQuotationLines(
       if (request.regimeCode) {
         const { data: regime, error: regimeErr } = await supabase
           .from("customs_regimes")
-          .select("code,name,dd,stx,rs,tin,tva,cosec,pcs,pcc,tpast,ta,hors_promad,hors_bic,is_active")
+          .select("*")
           .eq("code", request.regimeCode)
           .eq("is_active", true)
           .maybeSingle();
@@ -2568,6 +2575,7 @@ export async function generateQuotationLines(
         if (regimeErr) console.error("[regime] load failed:", regimeErr.message);
 
         if (regime) {
+          regimeEvidence = regime;
           regimeFlags = {
             dd: regime.dd ?? true, stx: regime.stx ?? true, rs: regime.rs ?? true,
             tin: regime.tin ?? true, tva: regime.tva ?? true, cosec: regime.cosec ?? true,
@@ -2595,6 +2603,23 @@ export async function generateQuotationLines(
         if (promadRow) promadRate = parseFloat(promadRow.rate) || 0;
       }
 
+      let hsEstimateScopeAllowed = false;
+      if (request.hsEstimate?.enabled && request.hsEstimate.caseId && request.transportMode === 'aerien' &&
+        normalizedIncoterm === 'DDP' && hsCodes.length === 1 && !request.containers?.length && !request.articlesDetail?.length) {
+        const [caseRead, scopeRead, lotRead, factsRead] = await Promise.all([
+          supabase.from('quote_cases').select('request_type').eq('id', request.hsEstimate.caseId).maybeSingle(),
+          supabase.from('case_timeline_events').select('actor_type,event_data').eq('case_id', request.hsEstimate.caseId)
+            .eq('event_type','service_scope_v1').order('created_at',{ ascending:false }).limit(1).maybeSingle(),
+          supabase.from('quote_request_lines').select('id',{ count:'exact', head:true }).eq('case_id', request.hsEstimate.caseId),
+          supabase.from('quote_facts').select('fact_key,value_text,value_json').eq('case_id', request.hsEstimate.caseId).eq('is_current',true),
+        ]);
+        if (!caseRead.error && !scopeRead.error && !lotRead.error && !factsRead.error) {
+          const packageKey = factsRead.data?.find((f: { fact_key: string }) => f.fact_key === 'service.package')?.value_text ?? '';
+          hsEstimateScopeAllowed = partialDestinationDdpEligible({ allowProvisional:true, packageKey,
+            requestType:caseRead.data?.request_type ?? '', lotCount:lotRead.count, scopeEvent:scopeRead.data,
+            serviceKeys:resolveEffectiveServiceKeys(packageKey,readOverridesFromFacts(factsRead.data ?? [])) });
+        }
+      }
       for (const [idx, currentHsCode] of hsCodes.entries()) {
         const cafForArticle = cafDistribution[idx];
         const hsNormalized = currentHsCode.replace(/\D/g, '');
@@ -2603,6 +2628,7 @@ export async function generateQuotationLines(
         // STRUCTURAL_PATCH_ALLOWED — see docs/MASTER_CONTEXT.md
         let hsData: any[] | null = null;
 
+        if (!request.hsEstimate?.enabled) {
         // 1. Exact match (original behavior)
         const { data: exactMatch } = await supabase
           .from('hs_codes')
@@ -2628,6 +2654,25 @@ export async function generateQuotationLines(
           // If sh6Count > 1 or 0 → no resolution, stays in missingCodes (current behavior)
         }
 
+        }
+
+        // STRUCTURAL_PATCH_ALLOWED (GO 2026-10-15): compare sourced fiscal profiles,
+        // never select an arbitrary national HS and never change the formulas below.
+        if (hsEstimateScopeAllowed && request.hsEstimate?.enabled && hsCodes.length === 1 && /^(?:\d{6}|\d{8})$/.test(hsNormalized)) {
+          const { data: candidates, count, error } = await supabase.from('hs_codes')
+            .select('*', { count: 'exact' }).like('code_normalized', `${hsNormalized.slice(0, 6)}%`).order('code_normalized').limit(101);
+          if (!error) hsEquivalence = equivalentHsTaxation(candidates || [], count, {
+            sourceDigits: hsNormalized, allowEstimate: true, cargoValue: request.cargoValue,
+            currency: request.cargoCurrency, regimeCode: request.regimeCode, regime: regimeEvidence,
+            exemptionsReviewed: request.hsEstimate.exemptionsReviewed, transportMode: request.transportMode,
+          });
+          if (hsEquivalence?.eligible) hsData = [hsEquivalence.common_profile];
+        }
+        if (hsData && hsData.length > 0 && !knownHsTaxProfile(hsData[0])) {
+          unknownTaxCodes.push(currentHsCode);
+          warnings.push(`Fiscalité inconnue pour ${currentHsCode} : droits et taxes réservés, jamais assimilés à zéro.`);
+          continue;
+        }
         if (hsData && hsData.length > 0) {
           const hs = hsData[0];
           // Calculate all taxes with original formulas (untouched)
@@ -2678,6 +2723,7 @@ export async function generateQuotationLines(
           dutyBreakdown.push({
             article_index: idx + 1,
             hs_code: currentHsCode,
+            ...(hsEquivalence?.eligible ? { classification_status: "to_confirm", validated_hs_code: null, hs_tax_equivalence: hsEquivalence } : {}),
             description: articleDesc || undefined,
             caf: Math.round(cafForArticle),
             dd_rate: hs.dd || 0, dd_amount: Math.round(ddAmount),
@@ -2706,6 +2752,8 @@ export async function generateQuotationLines(
         }
       }
 
+      // Unknown article taxation makes the complete customs amount unknown, not a partial sum.
+      if (unknownTaxCodes.length) { dutyBreakdown.length = 0; totalAllDuties = 0; }
       // Push single duties_total line with cumulated amount
       if (dutyBreakdown.length > 0) {
         const cafNote = distributionMethod === 'proportional'
@@ -2722,11 +2770,12 @@ export async function generateQuotationLines(
           amount: Math.round(totalAllDuties),
           currency: 'FCFA',
           source: {
+            ...(hsEquivalence?.eligible ? { firm_eligible: false, hs_tax_equivalence: hsEquivalence } : {}),
             type: 'CALCULATED',
             reference: `TEC UEMOA — ${hsCodes.length} code(s) HS traité(s)${missingCodes.length > 0 ? `, ${missingCodes.length} non trouvé(s)` : ''}`,
             confidence: missingCodes.length > 0 ? 0.7 : 0.95
           },
-          notes: cafNote,
+          notes: hsEquivalence?.eligible ? `${cafNote}. Classement HS à confirmer ; candidats ${hsEquivalence.candidate_codes.join(", ")}. Estimation non ferme par équivalence fiscale prouvée.` : cafNote,
           isEditable: true
         });
       } else {
@@ -2740,7 +2789,7 @@ export async function generateQuotationLines(
           currency: 'FCFA',
           source: {
             type: 'TO_CONFIRM',
-            reference: `Code(s) HS ${request.hsCode} non trouvé(s)`,
+            reference: unknownTaxCodes.length ? `Fiscalité inconnue : ${unknownTaxCodes.join(", ")}` : `Code(s) HS ${request.hsCode} non trouvé(s)`,
             confidence: 0
           },
           notes: 'Code(s) HS à vérifier pour calcul des droits',

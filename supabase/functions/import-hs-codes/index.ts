@@ -1,3 +1,4 @@
+import { HS_TAX_FIELDS, knownHsTaxProfile, protectedHsReference } from "../_shared/hs-tax-profile.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -103,20 +104,19 @@ Deno.serve(async (req) => {
     const importMode = mode || 'full';
     console.log('Import mode:', importMode);
 
-    const parseNumber = (val: string): number => {
-      if (!val || val === '' || val.toUpperCase() === 'FALSE') return 0;
-      if (val.toUpperCase() === 'TRUE') return 1;
-      const num = parseFloat(val.replace(',', '.'));
-      return isNaN(num) ? 0 : num;
+    const parseNumber = (val: string): number | null => {
+      if (!val?.trim() || !/^[0-9]+(?:[.,][0-9]+)?$/.test(val.trim())) return null;
+      const n = Number(val.replace(',', '.')); return Number.isFinite(n) && n >= 0 ? n : null;
     };
-
-    const parseBool = (val: string): boolean => {
-      if (!val) return false;
-      return val.toUpperCase() === 'TRUE' || val === '1';
+    const parseBool = (val: string): boolean | null => {
+      if (['TRUE', '1'].includes(val?.toUpperCase())) return true;
+      if (['FALSE', '0'].includes(val?.toUpperCase())) return false;
+      return null;
     };
 
     // Parse all data
     const hsCodesData: any[] = [];
+    const protectedCodes: string[] = [];
 
     for (let i = 1; i < lines.length; i++) {
       const values = parseCSVLine(lines[i]);
@@ -137,6 +137,7 @@ Deno.serve(async (req) => {
 
       // Normalize code (remove dots, spaces, dashes)
       const codeNormalized = code.replace(/[.\s-]/g, '');
+      if (protectedHsReference({ code_normalized: codeNormalized })) { protectedCodes.push(codeNormalized); continue; }
       const chapter = parseInt(codeNormalized.substring(0, 2)) || 0;
 
     if (importMode === 'descriptions_only') {
@@ -153,13 +154,13 @@ Deno.serve(async (req) => {
         chapter: chapter,
         dd: parseNumber(getVal(['dd'])),
         surtaxe: parseNumber(getVal(['surtaxe'])),
-        rs: parseNumber(getVal(['rs'])) || 1,
-        pcs: parseNumber(getVal(['pcs'])) || 0.8,
-        pcc: parseNumber(getVal(['pcc'])) || 0.5,
-        cosec: parseNumber(getVal(['cosec'])) || 0.4,
-        uemoa: parseNumber(getVal(['uemoa'])) || 5,
+        rs: parseNumber(getVal(['rs'])),
+        pcs: parseNumber(getVal(['pcs'])),
+        pcc: parseNumber(getVal(['pcc'])),
+        cosec: parseNumber(getVal(['cosec'])),
+        uemoa: parseNumber(getVal(['uemoa'])),
         tin: parseNumber(getVal(['tin'])),
-        tva: parseNumber(getVal(['tva'])) || 18,
+        tva: parseNumber(getVal(['tva'])),
         tev: parseNumber(getVal(['tev'])),
         ta: parseNumber(getVal(['ta'])),
         t_past: parseNumber(getVal(['t_past', 'tpast'])),
@@ -179,6 +180,7 @@ Deno.serve(async (req) => {
   const batchSize = 500;
   let updatedCount = 0;
   let insertedCount = 0;
+  for (const row of hsCodesData) if (importMode !== 'descriptions_only' && !knownHsTaxProfile(row)) row.tax_profile_status = 'unknown';
   let preservedCount = 0;
   const errors: string[] = [];
 
@@ -217,16 +219,9 @@ Deno.serve(async (req) => {
       } else {
         const chapter = parseInt(item.code.substring(0, 2)) || 0;
         recordsToInsert.push({
-          code: item.code,
-          code_normalized: item.code,
-          description: item.description,
-          chapter: chapter,
-          dd: 0,
-          rs: 1,
-          pcs: 0.8,
-          pcc: 0.5,
-          cosec: 0.4,
-          tva: 18,
+          code: item.code, code_normalized: item.code, description: item.description, chapter,
+          ...Object.fromEntries(HS_TAX_FIELDS.map(k => [k, null])), bic: null, mercurialis: null,
+          tax_profile_status: 'unknown', tax_evidence: { status: 'unknown', reason: 'Description-only import contains no fiscal evidence' },
         });
       }
     }
@@ -393,6 +388,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        protected_codes_preserved: [...new Set(protectedCodes)],
         message: `Import completed`,
         stats: {
           totalLines: lines.length - 1,

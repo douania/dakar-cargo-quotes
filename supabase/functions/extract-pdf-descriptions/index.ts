@@ -1,3 +1,4 @@
+import { protectedHsReference } from "../_shared/hs-tax-profile.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser } from "../_shared/auth.ts";
@@ -265,6 +266,7 @@ serve(async (req) => {
     const notFoundCodes: string[] = [];
     
     for (const item of extractedCodes) {
+      if (protectedHsReference({ code_normalized: item.codeNormalized })) continue;
       // Try to find by normalized code
       const { data: existing, error: selectError } = await supabase
         .from('hs_codes')
