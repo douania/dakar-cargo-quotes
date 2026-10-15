@@ -3147,20 +3147,23 @@ export type Database = {
       }
       hs_codes: {
         Row: {
+          tax_profile_status: string
+          nomenclature_evidence: Json | null
+          tax_evidence: Json | null
           bic: boolean | null
           chapter: number | null
           code: string
           code_normalized: string
-          cosec: number
+          cosec: number | null
           created_at: string | null
-          dd: number
+          dd: number | null
           description: string | null
           id: string
           mercurialis: boolean | null
-          pcc: number
-          pcs: number
+          pcc: number | null
+          pcs: number | null
           ref: number | null
-          rs: number
+          rs: number | null
           surtaxe: number | null
           t_ciment: number | null
           t_conj: number | null
@@ -3169,25 +3172,28 @@ export type Database = {
           ta: number | null
           tev: number | null
           tin: number | null
-          tva: number
+          tva: number | null
           uemoa: number | null
           updated_at: string | null
         }
         Insert: {
+          tax_profile_status?: string
+          nomenclature_evidence?: Json | null
+          tax_evidence?: Json | null
           bic?: boolean | null
           chapter?: number | null
           code: string
           code_normalized: string
-          cosec?: number
+          cosec?: number | null
           created_at?: string | null
-          dd?: number
+          dd?: number | null
           description?: string | null
           id?: string
           mercurialis?: boolean | null
-          pcc?: number
-          pcs?: number
+          pcc?: number | null
+          pcs?: number | null
           ref?: number | null
-          rs?: number
+          rs?: number | null
           surtaxe?: number | null
           t_ciment?: number | null
           t_conj?: number | null
@@ -3196,25 +3202,28 @@ export type Database = {
           ta?: number | null
           tev?: number | null
           tin?: number | null
-          tva?: number
+          tva?: number | null
           uemoa?: number | null
           updated_at?: string | null
         }
         Update: {
+          tax_profile_status?: string
+          nomenclature_evidence?: Json | null
+          tax_evidence?: Json | null
           bic?: boolean | null
           chapter?: number | null
           code?: string
           code_normalized?: string
-          cosec?: number
+          cosec?: number | null
           created_at?: string | null
-          dd?: number
+          dd?: number | null
           description?: string | null
           id?: string
           mercurialis?: boolean | null
-          pcc?: number
-          pcs?: number
+          pcc?: number | null
+          pcs?: number | null
           ref?: number | null
-          rs?: number
+          rs?: number | null
           surtaxe?: number | null
           t_ciment?: number | null
           t_conj?: number | null
@@ -3223,7 +3232,7 @@ export type Database = {
           ta?: number | null
           tev?: number | null
           tin?: number | null
-          tva?: number
+          tva?: number | null
           uemoa?: number | null
           updated_at?: string | null
         }

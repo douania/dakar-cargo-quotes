@@ -207,17 +207,17 @@ Règles non négociables :
 - GO humain du 15/10 12:04 : correction ciblée, tests, contre-revue et installation dans le projet de test Lovable existant ; aucune publication publique ni modification de compte/secret/sécurité.
 - STRUCTURAL_PATCH_ALLOWED limité à run-pricing/quotation-engine : distinguer NULL de zéro, comparer des profils fiscaux sans choisir de HS national ; formules et tarifs attestés inchangés.
 - Source nomenclature : image(8).png, Library libfile_1d4af24015d8819188c24223d4b31b48, observée le 15/10 par le parent ; pixels non vus par l'exécuteur local, aucune édition réglementaire globale inventée ni taux déduit.
-- Migration préparée 20261015121500 : 3004901000 Anti-paludéens, 3004902000 ORASEL, 3004909000 Autres ; deux UUID historiques conservés, aucun fait/run/snapshot réécrit.
+- Migration 20261015121500 appliquée via SQL Lovable le 15/10 à 12:56:59Z : 3004901000 Anti-paludéens, 3004902000 ORASEL, 3004909000 Autres ; deux UUID historiques conservés.
 - 1000 et 2000 : chacun 16 taux + 2 indicateurs actifs NULL, statut unknown ; ancien profil complet 1000 archivé dans previous_row. Profil 9000 préservé, source distincte de toute preuve fiscale.
 - Importateurs protègent les trois références ; suggestions/admin conservent l'inconnu, export vide et filtre DD excluant unknown ; zéro explicite reste zéro.
 - Estimation facultative bornée au mono-AIR DDP destination provisoire : ensemble complet des candidats, preuves fiscales/bases/régime/exonérations et valeur XOF approuvée exigés ; profils incomplets/divergents ou devise non prouvée refusés.
 - Aucun HS10 ni gap validé automatiquement ; candidats/preuves capturés, sortie non ferme, snapshot/PDF et faits inchangés vérifiés en synthétique ; changement de preuve concurrent refusé avec restauration du statut.
-- CI finale npm run ci exit0 : 742 Vitest, 2120 Deno, 0 échec/6 ignorés ; config/bundles/types app/node/build PASS ; dette Deno49/5 et lint720/16 sans aggravation ni seuil relevé.
-- SQL PostgreSQL/WASM PGlite : 7 scénarios PASS, 36 NULL actifs, conservation des 18 valeurs archivées et du profil9000, rejeu et rollback/refus des dérives. SQL natif Cloud NOT_RUN.
-- Contre-revue indépendante PASS_WITH_BASELINE : 105 tests contre-exécutés, 7 recettes SQL finales ; aucun blocage technique identifié.
-- Base d8b2bd7 ; gardes publiées sur GitHub/work110431a, tree fonctions5923c20d0293a44e5ddbe89aedae91a20df97e70. Installation backend et migration Cloud encore NOT_RUN.
-- Préflight Lovable a créé deux commits de plan non sollicités (a161051/1421ab6) ; 110431a restaure exactement le plan de d8b2bd7. Aucune autre modification distante détectée.
-- Installation mise en attente par le contrôle humain natif Lovable plan--show (.lovable/plan.md) ; demande backend exacte déjà en file, aucun accusé de déploiement reçu.
+- CI finale npm run ci exit 0 : 742 Vitest, 2120 Deno, 0 échec/6 ignorés ; config/bundles/types app/node/build PASS ; dette Deno 49/5 et lint 720/16 sans aggravation ni seuil relevé.
+- SQL PostgreSQL/WASM PGlite : 9 scénarios PASS, 36 NULL actifs, archivage des 18 valeurs, rejeu et rollbacks, registre atomique. Cloud natif : schéma/catalogue/provenance et registre vérifiés, MD5 source 452673b4d25fcca4e7a3ff7e9be3a5cb exact.
+- Contre-revue indépendante PASS_WITH_BASELINE : 105 tests contre-exécutés, 9 recettes SQL, filtre nullable repris ; aucun blocage technique identifié. Contrôle Deno explicite suggest-hs-codes PASS local et Lovable ; aperçu HTTP200.
+- Base d8b2bd7 ; cinq gardes déployées depuis 110431a à 12:48:47Z, suggestion seule redéployée depuis 1e61413 à 12:55:33Z ; tree fonctions final 2809d961a4dfaf5b0f42b27505d678ce9a9a9424. Aucun ID/version runtime distant exposé.
+- Préflight Lovable : commits de plan a161051/1421ab6 annulés par 110431a ; types régénérés depuis l'ancien schéma par 3f62776/5286acc, restaurés au fichier revu conforme au schéma natif. Aucun autre delta automatique accepté.
+- Contrôle humain Lovable plan--show approuvé ; SQL appliqué 492 s après les cinq gardes initiales, aucun run en cours. 21 versions/242 lignes/1550 faits/193 runs, 6130 autres HS/8 tax_rates/321 régimes : empreintes avant/après identiques ; projet non publié.
 - Recette Cloud authentifiée NOT_RUN : navigateur Lovable déconnecté ; aucun nouveau compte/session/secret demandé. Équivalence réelle non activable sans preuves fiscales et valeur/régime approuvés.
 - Preuves : task-3/hs-reference-20261015/implementation ; original C:/Users/DELL/Projects/dakar-cargo-quotes et ses deux docs/.claude préservés.
 - Après livraison : garder les gardes NULL ; correction en avant, aucun retour à NULL=0 ni réécriture historique. Ne jamais déployer la migration avant les gardes et le délai des anciennes invocations.
