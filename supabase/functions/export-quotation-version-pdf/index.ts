@@ -846,7 +846,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
 // HANDLER
 // ============================================================================
 
-if (import.meta.main) Deno.serve(async (req) => {
+export async function handlePdfExportRequest(req: Request): Promise<Response> {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
@@ -892,7 +892,10 @@ if (import.meta.main) Deno.serve(async (req) => {
     );
 
     // --- Parse body ---
-    const { version_id } = await req.json();
+    const { version_id, download_existing } = await req.json();
+    if (download_existing !== undefined && typeof download_existing !== 'boolean') {
+      return respondError({ code: 'VALIDATION_FAILED', message: 'download_existing must be boolean', correlationId });
+    }
     if (!version_id) {
       await logRuntimeEvent(serviceClient, {
         correlationId, functionName: FUNCTION_NAME, op: 'validate',
@@ -999,7 +1002,7 @@ if (import.meta.main) Deno.serve(async (req) => {
     }
 
     // --- Idempotence: check existing PDF for this version ---
-    const { data: existingDoc } = await serviceClient
+    const { data: existingDoc, error: existingDocError } = await serviceClient
       .from('quotation_documents')
       .select('id, file_path, file_hash, file_size')
       .eq('quotation_version_id', version_id)
@@ -1008,11 +1011,21 @@ if (import.meta.main) Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
+    if (existingDocError) {
+      return respondError({ code: 'UPSTREAM_DB_ERROR', message: 'Unable to read existing PDF', correlationId });
+    }
+
     if (existingDoc) {
       // Micro-fix 1: handle signedUrl failure explicitly
       const { data: existingSignedData, error: signedErr } = await serviceClient.storage
         .from('quotation-attachments')
-        .createSignedUrl(existingDoc.file_path, 3600);
+        .createSignedUrl(existingDoc.file_path, 3600, download_existing
+          ? { download: `devis-v${version.version_number}.pdf` }
+          : undefined);
+
+      if (signedErr || !existingSignedData?.signedUrl) {
+        return respondError({ code: 'UPSTREAM_DB_ERROR', message: 'Unable to prepare existing PDF download', correlationId });
+      }
 
       await logRuntimeEvent(serviceClient, {
         correlationId, functionName: FUNCTION_NAME, op: 'idempotent_hit',
@@ -1021,7 +1034,7 @@ if (import.meta.main) Deno.serve(async (req) => {
         meta: {
           document_id: existingDoc.id,
           version_id,
-          signed_url_error: signedErr?.message ?? null,
+          signed_url_error: null,
         },
       });
 
@@ -1034,7 +1047,13 @@ if (import.meta.main) Deno.serve(async (req) => {
         file_size: existingDoc.file_size,
         url: existingSignedData?.signedUrl ?? null,
         idempotent: true,
+        delivery: download_existing ? 'attachment' : 'inline',
       }, correlationId);
+    }
+
+    // Download is read-only for documents: never fall through to generation.
+    if (download_existing) {
+      return respondError({ code: 'CONFLICT_INVALID_STATE', message: 'Existing PDF is unavailable; generate it explicitly first', correlationId });
     }
 
     // Phase 19B C3-A: SENT without existing doc = cannot generate new PDF
@@ -1160,4 +1179,6 @@ if (import.meta.main) Deno.serve(async (req) => {
     } catch (_) { /* best-effort */ }
     return respondError({ code: 'UNKNOWN', message: errMsg, correlationId });
   }
-});
+}
+
+if (import.meta.main) Deno.serve(handlePdfExportRequest);
