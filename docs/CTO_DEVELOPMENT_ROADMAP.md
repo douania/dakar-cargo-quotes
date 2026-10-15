@@ -222,6 +222,20 @@ Règles non négociables :
 - Preuves : task-3/hs-reference-20261015/implementation ; original C:/Users/DELL/Projects/dakar-cargo-quotes et ses deux docs/.claude préservés.
 - Après livraison : garder les gardes NULL ; correction en avant, aucun retour à NULL=0 ni réécriture historique. Ne jamais déployer la migration avant les gardes et le délai des anciennes invocations.
 
+### 2.13 Téléchargement du PDF existant — clôture du 15 octobre 2026
+
+- Statut : PASS_WITH_BASELINE technique ; téléchargement Chrome et contrôle réel V3 PASS sur le seul dossier de développement 1d6202e8… ; aperçu non publié.
+- GO Ramzi du 15/10 à 16:11 UTC : correction ciblée, contre-revue, livraison privée et recette du PDF existant ; aucune protection, donnée fiscale, calcul ou version à modifier.
+- Backend c2bcf29 : mode download_existing strict, signature attachment fraîche (1 h), refus sans génération si document absent/lecture/signature impossible ; gardes inchangées. Frontend 748ad25 : bouton sur document persisté, aucun window.open/cache URL, double clic et réponse obsolète bloqués.
+- Backend déployé seul avant activation frontend ; accusé natif « Successfully deployed edge functions: export-quotation-version-pdf », arbre fonctions d75e72a… ; aucune migration/publication. IDs/hash du runtime natif non exposés.
+- Deux commits automatiques plateforme 49e62ed/8271e21 (previewAuthStorage uniquement) conservés par fast-forward, contre-revue bornée PASS/6 scénarios ; aucun réglage d'origine/destinataire ou protection changé par l'exécutant.
+- CI locale complète PASS : 748 Vitest, 2130 Deno/0 échec/6 ignorés, type app/node et build PASS, types Deno 49/5 et lint720/16 sans aggravation. CI GitHub code 38769336528 SUCCESS sur 748ad25 ; contre-revue indépendante : 33 UI/27 PDF PASS, aucun blocage.
+- Un clic Chrome « Télécharger le PDF » à 16:32 UTC : document 96cbce2b… réutilisé (idempotent_hit200), V3 215e9450… ; 4126 octets, SHA256 f8a330b790876c12b9e8c118d46c14bbc82f2db988594fb8aca0571cccb76e7e identique au registre initial.
+- Deux pages extraites/rendues et inspectées : offre partielle649000XOF (550000HT +99000TVA), handling/transport/droits exclus et « À confirmer », réserves HS/valeur/régime, forfaits provisoires, « Un poste non chiffre n'est pas gratuit », DRAFT non contractuel ; aucun zéro fictif visible.
+- Empreintes globales avant/après identiques : 22versions/247lignes/1550faits/194calculs/20documents, V1/V2 et V3 intactes ; source de projection PDF byte-identique avant handler. Dépôt original/deux docs/.claude préservés ; aucun secret réel consulté.
+- Preuves hors dépôt : task-3/pdf-download-runtime-20261015 (PDF, deux rendus, texte, reçu/hash et clôture), pdf-download-ci.log et pdf-download-counter-review.txt ; audit UI strict114 constats préexistants, aucune conformité globale revendiquée.
+- Retour arrière : revert UI748ad25 puis backendc2bcf29 et redéployer cette seule fonction depuis e68872f ; conserver documents/snapshots et commits plateforme. Fiscalité réelle et gouvernance générale des comptes restent hors de cette recette.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
