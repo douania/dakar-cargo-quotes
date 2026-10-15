@@ -3147,9 +3147,6 @@ export type Database = {
       }
       hs_codes: {
         Row: {
-          tax_profile_status: string
-          nomenclature_evidence: Json | null
-          tax_evidence: Json | null
           bic: boolean | null
           chapter: number | null
           code: string
@@ -3160,6 +3157,7 @@ export type Database = {
           description: string | null
           id: string
           mercurialis: boolean | null
+          nomenclature_evidence: Json | null
           pcc: number | null
           pcs: number | null
           ref: number | null
@@ -3170,6 +3168,8 @@ export type Database = {
           t_para: number | null
           t_past: number | null
           ta: number | null
+          tax_evidence: Json | null
+          tax_profile_status: string
           tev: number | null
           tin: number | null
           tva: number | null
@@ -3177,9 +3177,6 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
-          tax_profile_status?: string
-          nomenclature_evidence?: Json | null
-          tax_evidence?: Json | null
           bic?: boolean | null
           chapter?: number | null
           code: string
@@ -3190,6 +3187,7 @@ export type Database = {
           description?: string | null
           id?: string
           mercurialis?: boolean | null
+          nomenclature_evidence?: Json | null
           pcc?: number | null
           pcs?: number | null
           ref?: number | null
@@ -3200,6 +3198,8 @@ export type Database = {
           t_para?: number | null
           t_past?: number | null
           ta?: number | null
+          tax_evidence?: Json | null
+          tax_profile_status?: string
           tev?: number | null
           tin?: number | null
           tva?: number | null
@@ -3207,9 +3207,6 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
-          tax_profile_status?: string
-          nomenclature_evidence?: Json | null
-          tax_evidence?: Json | null
           bic?: boolean | null
           chapter?: number | null
           code?: string
@@ -3220,6 +3217,7 @@ export type Database = {
           description?: string | null
           id?: string
           mercurialis?: boolean | null
+          nomenclature_evidence?: Json | null
           pcc?: number | null
           pcs?: number | null
           ref?: number | null
@@ -3230,6 +3228,8 @@ export type Database = {
           t_para?: number | null
           t_past?: number | null
           ta?: number | null
+          tax_evidence?: Json | null
+          tax_profile_status?: string
           tev?: number | null
           tin?: number | null
           tva?: number | null
