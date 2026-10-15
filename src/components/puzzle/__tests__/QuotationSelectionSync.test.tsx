@@ -133,7 +133,12 @@ function createTableBuilder(table: string): FixtureBuilder {
     return { data: error ? null : finalize()[0] ?? null, error };
   };
   const builder: FixtureBuilder = {
-    select: () => builder,
+    select: (columns?: string) => {
+      if (table === 'quotation_versions' && columns?.includes('quotation_documents(')) {
+        rows = rows.map(row => ({ ...row, quotation_documents: db.quotation_documents.filter(doc => doc.quotation_version_id === row.id) }));
+      }
+      return builder;
+    },
     eq: (col, val) => { if (col === 'case_id') scopedCase = val; rows = rows.filter(r => r[col] === val); return builder; },
     neq: (col, val) => { rows = rows.filter(r => r[col] !== val); return builder; },
     in: (col, vals) => { rows = rows.filter(r => vals.includes(r[col])); return builder; },
@@ -194,6 +199,8 @@ describe('L1 refresh after PDF export and sent marking', () => {
     await userEvent.click(pair.card().getAllByRole('button', { name: 'Générer le PDF' })[1]);
     await pair.panel().findByText('PDF détecté côté interface');
     expect(invokeMock).toHaveBeenCalledWith('export-quotation-version-pdf', { body: { version_id: 'case-a-v1' } });
+    expect(open).not.toHaveBeenCalled();
+    expect(pair.card().getByRole('button', { name: 'Télécharger le PDF' })).toBeInTheDocument();
     open.mockRestore();
   });
 
@@ -219,6 +226,85 @@ describe('L1 refresh after PDF export and sent marking', () => {
     expect(screen.getByTestId('status-case-b')).toHaveTextContent('QUOTED_VERSIONED');
     expect(client.getQueryState(['case-view', 'case-b'])).toEqual(otherState);
     client.clear();
+  });
+});
+
+describe('existing version PDF download', () => {
+  function seedPdf() {
+    seedTwoVersions('case-a');
+    db.quotation_documents.push({ id: 'pdf-a', quotation_version_id: 'case-a-v2', document_type: 'pdf' });
+  }
+
+  it('finds a persisted PDF after mounting and requests a fresh attachment on each keyboard/click action', async () => {
+    seedPdf();
+    const before = JSON.stringify(db);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const clicked: Array<{ href: string; download: string; target: string }> = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push({ href: this.href, download: this.download, target: this.target });
+    });
+    invokeMock.mockResolvedValue({ data: { ok: true, data: { idempotent: true, delivery: 'attachment', url: 'https://example.test/existing.pdf?request=1' } }, error: null });
+    const pair = renderPair('case-a');
+    const button = await pair.card().findByRole('button', { name: 'Télécharger le PDF' });
+    expect(invokeMock).not.toHaveBeenCalled();
+    button.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    invokeMock.mockResolvedValue({ data: { ok: true, data: { idempotent: true, delivery: 'attachment', url: 'https://example.test/existing.pdf?request=2' } }, error: null });
+    await userEvent.click(pair.card().getByRole('button', { name: 'Télécharger le PDF' }));
+    await waitFor(() => expect(clicked).toHaveLength(2));
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'export-quotation-version-pdf', { body: { version_id: 'case-a-v2', download_existing: true } });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'export-quotation-version-pdf', { body: { version_id: 'case-a-v2', download_existing: true } });
+    expect(clicked.map(item => item.href)).toEqual(['https://example.test/existing.pdf?request=1', 'https://example.test/existing.pdf?request=2']);
+    expect(clicked.every(item => item.download === 'devis-v2.pdf' && item.target === '')).toBe(true);
+    expect(open).not.toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(JSON.stringify(db)).toBe(before);
+    click.mockRestore(); open.mockRestore(); pair.client.clear();
+  });
+
+  it.each([
+    { data: { ok: true, data: { url: 'https://example.test/old-server.pdf' } }, error: null },
+    { data: { ok: true, data: { idempotent: false, delivery: 'attachment', url: 'https://example.test/new.pdf' } }, error: null },
+    { data: { ok: true, data: { idempotent: true, delivery: 'attachment', url: 'javascript:void(0)' } }, error: null },
+    { data: null, error: { message: 'Access denied' } },
+  ])('fails closed without opening, generating or leaking an unavailable download %#', async response => {
+    seedPdf();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    invokeMock.mockResolvedValue(response);
+    const pair = renderPair('case-a');
+    await userEvent.click(await pair.card().findByRole('button', { name: 'Télécharger le PDF' }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Téléchargement indisponible', expect.any(Object)));
+    expect(click).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith('export-quotation-version-pdf', { body: { version_id: 'case-a-v2', download_existing: true } });
+    expect(pair.card().getByRole('button', { name: 'Télécharger le PDF' })).toBeEnabled();
+    click.mockRestore(); open.mockRestore(); pair.client.clear();
+  });
+
+  it('blocks duplicate actions and discards the response after leaving the dossier', async () => {
+    seedPdf();
+    seedTwoVersions('case-b');
+    const gate = createDeferred();
+    invokeMock.mockImplementation(async () => {
+      await gate.promise;
+      return { data: { ok: true, data: { idempotent: true, delivery: 'attachment', url: 'https://example.test/case-a.pdf' } }, error: null };
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (caseId: string) => <QueryClientProvider client={client}><QuotationVersionCard caseId={caseId} /></QueryClientProvider>;
+    const view = render(tree('case-a'));
+    const button = await screen.findByRole('button', { name: 'Télécharger le PDF' });
+    fireEvent.click(button); fireEvent.click(button);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Téléchargement…' })).toBeDisabled();
+    view.rerender(tree('case-b'));
+    await screen.findAllByRole('button', { name: 'Générer le PDF' });
+    await act(async () => { gate.resolve(); await gate.promise; });
+    expect(click).not.toHaveBeenCalled(); expect(toastSuccess).not.toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+    click.mockRestore(); client.clear();
   });
 });
 

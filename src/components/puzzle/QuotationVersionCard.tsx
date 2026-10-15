@@ -16,13 +16,13 @@ import { readableReservations } from "@/lib/reservationPresentation";
  * - Sinon fallback via raw_lines[].source.type === "TO_CONFIRM"
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SourceText } from '@/components/SourceText';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Check, FileDown, Loader2, Clock, FileText, ExternalLink, AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Check, FileDown, Loader2, Clock, FileText, AlertTriangle, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -147,6 +147,10 @@ interface QuotationVersionCardProps {
   onReviewBasis?: () => void;
 }
 
+type VersionWithDocuments = QuotationVersion & {
+  quotation_documents?: Array<{ id: string; document_type: string }>;
+};
+
 export function QuotationVersionCard(props: QuotationVersionCardProps) {
   // Isolate in-flight mutations and transient PDF state when changing dossiers.
   return <QuotationVersionCardInner key={props.caseId} {...props} />;
@@ -154,15 +158,22 @@ export function QuotationVersionCard(props: QuotationVersionCardProps) {
 
 function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onReviewBasis }: QuotationVersionCardProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
-  const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({});
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [generatedPdfIds, setGeneratedPdfIds] = useState<Record<string, boolean>>({});
+  const pdfBusy = useRef(false);
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
   const queryClient = useQueryClient();
   // This card must observe errors from the very read it displays, not a separate
   // confirmation query. Keep the existing historical scenario exclusion unchanged.
   const { data: versions = [], isError: versionsError, refetch: refetchVersions } = useQuery({
     queryKey: ['quotation-versions', caseId, refreshToken],
-    queryFn: async (): Promise<QuotationVersion[]> => {
+    queryFn: async (): Promise<VersionWithDocuments[]> => {
       const { data, error } = await supabase.from('quotation_versions')
-        .select('id, version_number, status, is_selected, snapshot, created_at, created_by, pricing_run_id')
+        .select('id, version_number, status, is_selected, snapshot, created_at, created_by, pricing_run_id, quotation_documents(id, document_type)')
         .eq('case_id', caseId).order('version_number', { ascending: false });
       if (error) throw error;
       return (data ?? []).filter((version) => {
@@ -250,12 +261,15 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
   };
 
   const handleExportPdf = async (version: QuotationVersion) => {
+    if (pdfBusy.current) return;
+    pdfBusy.current = true;
     setExportingId(version.id);
     try {
       const { data: response, error } = await supabase.functions.invoke('export-quotation-version-pdf', {
         body: { version_id: version.id }
       });
       if (error) throw error;
+      if (!active.current) return;
 
       // Contrat runtime Phase 14-15 : { ok, data, correlation_id }
       // Compat ancien format : { success, url }
@@ -263,11 +277,11 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
       const url = payload?.url;
 
       if (url) {
-        setDownloadUrls(prev => ({ ...prev, [version.id]: url }));
-        window.open(url, '_blank');
+        setGeneratedPdfIds(prev => ({ ...prev, [version.id]: true }));
         await queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId], exact: true });
+        if (!active.current) return;
         toast.success(`PDF v${version.version_number} généré`, {
-          description: 'PDF exporté. Vous pouvez maintenant finaliser la revue du brouillon avant marquage comme envoyé.',
+          description: 'Le PDF est disponible. Utilisez « Télécharger le PDF » pour l’enregistrer.',
         });
       } else {
         const message =
@@ -279,12 +293,47 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
         throw new Error(typeof message === 'string' ? message : 'Échec de génération');
       }
     } catch (err) {
-      console.error('Export PDF error:', err);
+      if (!active.current) return;
       toast.error('Erreur génération PDF', {
         description: err instanceof Error ? err.message : 'Erreur inconnue',
       });
     } finally {
+      pdfBusy.current = false;
       setExportingId(null);
+    }
+  };
+
+  const handleDownloadPdf = async (version: QuotationVersion) => {
+    if (pdfBusy.current) return;
+    pdfBusy.current = true;
+    setDownloadingId(version.id);
+    try {
+      const { data: response, error } = await supabase.functions.invoke('export-quotation-version-pdf', {
+        body: { version_id: version.id, download_existing: true },
+      });
+      if (error) throw error;
+      if (!active.current) return;
+      const payload = response?.ok === true ? response.data : null;
+      // Fail closed during a staggered deployment or malformed response.
+      if (payload?.delivery !== 'attachment' || payload?.idempotent !== true || typeof payload?.url !== 'string') {
+        throw new Error('PDF_DOWNLOAD_UNAVAILABLE');
+      }
+      const url = new URL(payload.url);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('PDF_DOWNLOAD_UNAVAILABLE');
+      const link = document.createElement('a');
+      link.href = url.href;
+      link.download = `devis-v${version.version_number}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success(`Téléchargement du PDF v${version.version_number} demandé`);
+    } catch {
+      if (active.current) toast.error('Téléchargement indisponible', {
+        description: 'Le PDF existant n’a pas pu être téléchargé. Réessayez après actualisation du dossier.',
+      });
+    } finally {
+      pdfBusy.current = false;
+      setDownloadingId(null);
     }
   };
 
@@ -360,7 +409,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
               const totalHt = Number(snapshot?.totals?.total_ht);
               const currency = String(snapshot?.totals?.currency || 'XOF');
               const linesCount = snapshot?.lines?.length || 0;
-              const hasDownloadUrl = !!downloadUrls[version.id];
+              const hasPdf = generatedPdfIds[version.id] || version.quotation_documents?.some(doc => doc.document_type === 'pdf');
               const qualification = resolveQuoteQualification(snapshot);
               const previousVersion = versions[index + 1];
               const previousSnapshot = previousVersion?.snapshot as { totals?: Record<string, unknown> } | null;
@@ -443,22 +492,24 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
                         </Button>
                       )}
 
-                      {hasDownloadUrl ? (
+                      {hasPdf ? (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(downloadUrls[version.id], '_blank')}
+                          onClick={() => void handleDownloadPdf(version)}
+                          disabled={!!exportingId || !!downloadingId}
+                          aria-busy={downloadingId === version.id}
                           className="gap-1 text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-700"
                         >
-                          <ExternalLink className="h-3 w-3" />
-                          Ouvrir le PDF
+                          {downloadingId === version.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileDown className="h-3 w-3" />}
+                          {downloadingId === version.id ? 'Téléchargement…' : 'Télécharger le PDF'}
                         </Button>
                       ) : (
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => handleExportPdf(version)}
-                          disabled={exportingId === version.id}
+                          disabled={!!exportingId || !!downloadingId}
                           className="gap-1"
                         >
                           {exportingId === version.id ? (
