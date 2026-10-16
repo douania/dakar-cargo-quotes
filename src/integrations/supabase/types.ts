@@ -14,6 +14,116 @@ export type Database = {
   }
   public: {
     Tables: {
+      air_handling_profiles: {
+        Row: {
+          airport: string
+          cargo_class: string
+          created_at: string
+          created_by: string | null
+          direction: string
+          effective_from: string
+          effective_to: string | null
+          evidence: Json
+          id: string
+          parent_id: string | null
+          rates: Json
+          revision: number
+          source_reference: string
+          supplier: string
+        }
+        Insert: {
+          airport: string
+          cargo_class: string
+          created_at?: string
+          created_by?: string | null
+          direction: string
+          effective_from: string
+          effective_to?: string | null
+          evidence: Json
+          id: string
+          parent_id?: string | null
+          rates: Json
+          revision: number
+          source_reference: string
+          supplier: string
+        }
+        Update: {
+          airport?: string
+          cargo_class?: string
+          created_at?: string
+          created_by?: string | null
+          direction?: string
+          effective_from?: string
+          effective_to?: string | null
+          evidence?: Json
+          id?: string
+          parent_id?: string | null
+          rates?: Json
+          revision?: number
+          source_reference?: string
+          supplier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_handling_profiles_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: true
+            referencedRelation: "air_handling_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_handling_selections: {
+        Row: {
+          case_id: string
+          context_hash: string
+          created_at: string
+          created_by: string
+          id: string
+          profile_id: string | null
+          source_reference: string
+          version: number
+          warehouse_bracket_confirmed: boolean
+        }
+        Insert: {
+          case_id: string
+          context_hash: string
+          created_at?: string
+          created_by: string
+          id: string
+          profile_id?: string | null
+          source_reference: string
+          version: number
+          warehouse_bracket_confirmed?: boolean
+        }
+        Update: {
+          case_id?: string
+          context_hash?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          profile_id?: string | null
+          source_reference?: string
+          version?: number
+          warehouse_bracket_confirmed?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_handling_selections_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_handling_selections_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "air_handling_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_roles: {
         Row: {
           created_at: string
@@ -8302,6 +8412,44 @@ export type Database = {
           p_scenario_pricing_run_id: string
         }
         Returns: Json
+      }
+      air_handling_context_hash: {
+        Args: { p_case_id: string }
+        Returns: string
+      }
+      air_handling_finish: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_result: Json
+          p_run_id: string
+          p_selection_id: string
+        }
+        Returns: undefined
+      }
+      air_handling_publish: {
+        Args: {
+          p_effective_from: string
+          p_effective_to: string
+          p_id: string
+          p_parent_id: string
+          p_rates: Json
+          p_source_reference: string
+        }
+        Returns: string
+      }
+      air_handling_read: { Args: { p_case_id?: string }; Returns: Json }
+      air_handling_select: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_expected_id: string
+          p_id: string
+          p_profile_id: string
+          p_source_reference: string
+          p_warehouse_bracket_confirmed: boolean
+        }
+        Returns: string
       }
       assert_pad_weight_head: {
         Args: {
