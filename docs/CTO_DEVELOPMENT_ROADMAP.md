@@ -236,6 +236,24 @@ Règles non négociables :
 - Preuves hors dépôt : task-3/pdf-download-runtime-20261015 (PDF, deux rendus, texte, reçu/hash et clôture), pdf-download-ci.log et pdf-download-counter-review.txt ; audit UI strict114 constats préexistants, aucune conformité globale revendiquée.
 - Retour arrière : revert UI748ad25 puis backendc2bcf29 et redéployer cette seule fonction depuis e68872f ; conserver documents/snapshots et commits plateforme. Fiscalité réelle et gouvernance générale des comptes restent hors de cette recette.
 
+### 2.14 Handling aéroportuaire 2AS — livraison privée du 16 octobre 2026
+
+- GO humain : applicabilité CargoSpot chez 2AS, réalisation et exception STRUCTURAL_PATCH_ALLOWED AIR_HANDLING ; GO distinct du16/10 pour commit/push, migration, trois fonctions, interface privée et recette Chrome, sans publication publique.
+- Profils fournisseur et sélections dossier append-only ; admission/rôle tarifaire existants, idempotence/CAS et sources conservées ; validité prospective depuis le16/10, aucune date passée déduite de «2024».
+- Import DSS general cargo mono-lot explicite, taxable validé sous1000kg : collecte20/kg, sécurité10/kg ; documents25000, passage6000 sous attestation séparée, informatique1500. Aucune nature ni base de poids inventée.
+- Achat HT distinct de la vente ; TVA/ANACIM/timbre, magasinage, tranches supérieures et vente à confirmer, exclus du payable. Trois exemples34420/48850/40540HT reproduits localement et via simulation Edge dans Chrome ; aucun TTC fournisseur forcé.
+- Grille relue en texte Library ; LTA/factures selon deux lectures indépendantes du parent, pixels non lus ici (copie Library Windows indisponible). Dossier médicaments sans taxable conservé inconnu.
+- UI : cinq paramètres et dates modifiables par tariff_admin en nouvelle révision ; session non-admin réellement en lecture seule. Sauvegarde admin10tests UI et SQL PASS ; recette de sauvegarde avec session admin existante encore NOT_RUN, réponse humaine attendue.
+- Raccord avant repli catalogue/client ; lectures défaillantes, couverture concurrente et preuve manquante refusées. Profil/sélection/bases figés ; finalisation service-only atomique, locks cas et tous faits/lignes avant hash.
+- Backend3c31616 poussé, CI38893754112 SUCCESS ; types plateforme4dff6c1/b9defb1 conservés et relus ; frontend80034b7 poussé, CI38894991448 SUCCESS. Trois fonctions preview-air-handling/price-service-lines/run-pricing déployées, arbre b94b715a ; accusé natif reçu, versions/hash runtime individuels non exposés.
+- Migrations20261016110000 et20261016120000 appliquées/enregistrées, sources exactes ; seconde corrige uniquement enum request_type::text !~, défaut42883 rencontré en recette. Registre de la première corrigé par CAS après détection d’un échappement dollar, DDL initial inchangé ; ACL/OID/owner/search_path préservés.
+- Contre-revue indépendante PASS : B1/B2/B3 et complément admin repris ;25SQL PGlite avec enum réel/échec ancien reproduit ; PostgreSQL15.18 : deux chevauchements PASS et témoin sans verrous reproduisant le défaut ; conteneur isolé supprimé.
+- CI locale complète exit0 :758Vitest/60fichiers,2171Deno/0échec/6ignorés, types app/node/build PASS ; Deno49/5 et lint720/16 sans aggravation. Correctif SQL final contre-testé ; audit UI114 préexistants +2 faux positifs Select Radix, aucune conformité globale revendiquée.
+- Chrome ouvert manuellement après refus automatique de lancement : recette via aperçu intégré Lovable PASS ; URL autonome toujours404, cause UNKNOWN. Projet non publié, aucune protection/compte/rôle/secret modifié ni envoi.
+- Fixture identifiée TEST_AIR_HANDLING_20261016/5dd749bf seule :8faits fictifs,1sélection494cc1a8,1run24e66e77,1version9ace6e97 DRAFT et1PDFfb241b82 ; coût achat34420HT figé, payable partiel649000 hors3réserves. PDF3921octets téléchargé/rendu2pages, aucun coût fournisseur divulgué.
+- Historiques hors fixture identiques :22versions/247lignes/1550faits/194runs/20PDF et cinq empreintes inchangés. Original C:/Users/DELL/Projects/dakar-cargo-quotes/deux docs/.claude préservés. Preuves/CI/diff/recevabilité finale : task-3/air-handling-20261016.
+- Retour ciblé UI puis trois fonctions sous GO ; conserver profils/sélections, anciens devis et snapshots. Privilégier correction en avant ; aucun retour aux règles inconnues ni suppression de preuve tarifaire.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
