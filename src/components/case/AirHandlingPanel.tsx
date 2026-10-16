@@ -12,15 +12,17 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AirCatalogueSelection } from './AirCatalogueSelection';
 
 export function AirHandlingResult({ result }: { result: AirResolution }) {
   return <div className="space-y-3" aria-live="polite">
     <dl className="grid gap-2 sm:grid-cols-2">{result.components.map(c => <div key={c.code} className="rounded-md border p-3">
-      <dt className="text-sm text-muted-foreground">{c.label}</dt><dd className="font-medium">{airMoney(c.supplier_ht_xof)} HT fournisseur</dd>
+      <dt className="text-sm text-muted-foreground">{c.code === 'warehouse_passage' ? 'Taxe fixe magasin — DMS' : c.label}</dt><dd className="font-medium">{airMoney(c.supplier_ht_xof)} HT fournisseur</dd>
       {c.reason && <dd className="text-sm text-muted-foreground">{c.reason}</dd>}
     </div>)}</dl>
     <p className="font-medium">Sous-total achat HT connu : {airMoney(result.supplier_known_ht_xof)}</p>
-    <p>HT des cinq composants de handling : {airMoney(result.supplier_complete_ht_xof)}</p>
+    <p>{result.schema_version === 2 ? 'HT des composants renseignés' : 'HT des cinq composants de handling'} : {airMoney(result.supplier_complete_ht_xof)}</p>
+    {result.supplier_estimated_ht_xof != null && <p>Hypothèse de magasinage : {airMoney(result.supplier_estimated_ht_xof)} HT fournisseur, exclue du sous-total connu.</p>}
     <p>TTC fournisseur et prix de vente SODATRA : à confirmer. Non ajoutés au total payable.</p>
     <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">{result.reserves.map(r => <li key={r}>{r}</li>)}</ul>
   </div>;
@@ -70,6 +72,8 @@ export function AirHandlingPanel({ caseId, isLocked }: { caseId: string; isLocke
   return <Card className="mb-6"><CardHeader><CardTitle>Handling aéroportuaire</CardTitle></CardHeader><CardContent className="space-y-4">
     <p className="text-sm text-muted-foreground">2AS · DSS · import general cargo · mono-lot. La nature du fret et le fournisseur doivent être confirmés ; un médicament n’est pas classé automatiquement.</p>
     <Link className="text-sm underline" to="/admin/air-handling">Consulter et paramétrer les profils fournisseur</Link>
+    <AirCatalogueSelection caseId={caseId} isLocked={isLocked}/>
+    <details className="space-y-3"><summary className="cursor-pointer font-medium">Choisir ou reprendre un profil historique à cinq montants</summary>
     {(state.isLoading || profiles.isLoading) && <p role="status">Chargement du paramétrage…</p>}
     {(state.isError || profiles.isError) && <Alert variant="destructive"><AlertDescription>Paramétrage indisponible. <Button variant="outline" onClick={() => { void state.refetch(); void profiles.refetch(); }}>Réessayer la lecture</Button></AlertDescription></Alert>}
     {state.data && profiles.data && <>
@@ -83,7 +87,7 @@ export function AirHandlingPanel({ caseId, isLocked }: { caseId: string; isLocke
           <SelectTrigger id="air-case-profile"><SelectValue placeholder="Choisir explicitement un profil" /></SelectTrigger><SelectContent>{profiles.data.profiles.map(p => <SelectItem value={p.id} key={p.id}>2AS · général · révision {p.revision} · {p.effective_from}</SelectItem>)}</SelectContent>
         </Select>
         <div className="flex items-start gap-2"><Checkbox id="air-general" checked={general} disabled={pending || isLocked} onCheckedChange={v => { changed(); setGeneral(v === true); }} /><Label htmlFor="air-general">La pièce citée confirme 2AS, DSS et la nature general cargo de ce dossier.</Label></div>
-        <div className="flex items-start gap-2"><Checkbox id="air-warehouse" checked={warehouse} disabled={pending || isLocked} onCheckedChange={v => { changed(); setWarehouse(v === true); }} /><Label htmlFor="air-warehouse">La pièce citée atteste séparément l’éligibilité au passage magasin de moins d’une tonne.</Label></div>
+        <div className="flex items-start gap-2"><Checkbox id="air-warehouse" checked={warehouse} disabled={pending || isLocked} onCheckedChange={v => { changed(); setWarehouse(v === true); }} /><Label htmlFor="air-warehouse">La pièce citée atteste séparément l’éligibilité à la taxe fixe magasin DMS de moins d’une tonne.</Label></div>
         <Label htmlFor="air-case-source">Pièce justificative et éléments confirmés</Label>
         <Textarea id="air-case-source" value={source} maxLength={2000} disabled={pending || isLocked} className="resize-none" onChange={e => { changed(); setSource(e.target.value); }} aria-describedby="air-case-help" />
         <p id="air-case-help" className="text-sm text-muted-foreground">Le poids taxable doit être un fait LTA validé dans le dossier. Cette association ne modifie aucun poids ni aucun devis existant.</p>
@@ -91,6 +95,6 @@ export function AirHandlingPanel({ caseId, isLocked }: { caseId: string; isLocke
       </form>
     </>}
     <p ref={errorRef} tabIndex={-1} role={error ? 'alert' : undefined} className="text-sm text-destructive">{error}</p>
-    {result && <AirHandlingResult result={result} />}
+    {result && <AirHandlingResult result={result} />}</details>
   </CardContent></Card>;
 }

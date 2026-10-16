@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { AirHandlingResult } from '@/components/case/AirHandlingPanel';
+import { AirCatalogueAdmin } from '@/components/case/AirCatalogueAdmin';
 import { readAirProfiles, previewAir, airMoney } from '@/lib/airHandlingApi';
 import { supabase } from '@/integrations/supabase/client';
 import { validAirRates, type AirRates, type AirResolution } from '../../../supabase/functions/_shared/air-handling';
@@ -16,7 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const fields: Array<[keyof AirRates, string]> = [['collection_per_kg', 'Collecte HT par kg taxable'], ['security_per_kg', 'Sécurité HT par kg taxable'],
-  ['documents', 'Remise documentaire HT'], ['warehouse_passage', 'Passage magasin HT, éligibilité attestée'], ['it', 'Informatique HT']];
+  ['documents', 'Remise documentaire HT'], ['warehouse_passage', 'Taxe fixe magasin DMS HT, éligibilité attestée'], ['it', 'Informatique HT']];
 export default function AirHandling() {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['air-handling-profiles'], queryFn: readAirProfiles, retry: false });
@@ -68,8 +69,10 @@ export default function AirHandling() {
     finally { lock.current = false; if (mounted.current) setPending(false); }
   }
   return <MainLayout><div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
-    <div><h1 className="text-2xl font-semibold">Handling aéroportuaire</h1><p className="text-muted-foreground">2AS · DSS · achats fournisseur en FCFA · import general cargo</p></div>
-    <Alert><AlertDescription>Profil limité aux charges pondérales sous 1 000 kg. Aucune nature de fret n’est déduite automatiquement. Magasinage, taxes et vente restent à confirmer ; aucune règle d’arrondi du simulateur source n’est activée.</AlertDescription></Alert>
+    <div><h1 className="text-2xl font-semibold">Handling aéroportuaire</h1><p className="text-muted-foreground">2AS · DSS · catalogue d’achat fournisseur en FCFA et profils historiques</p></div>
+    <AirCatalogueAdmin />
+    <details className="space-y-4 rounded-md border p-4"><summary className="cursor-pointer font-semibold">Profils historiques à cinq montants et simulation initiale</summary>
+    <Alert><AlertDescription>Ces profils historiques restent distincts du catalogue complet. Ils ne calculent pas le magasinage. Les anciens devis conservent leur paramétrage ; la rubrique de 6 000 FCFA correspond à la taxe fixe magasin DMS.</AlertDescription></Alert>
     {query.isLoading && <p role="status">Chargement des profils…</p>}
     {query.isError && <Alert variant="destructive"><AlertDescription>Profils indisponibles. <Button variant="outline" onClick={() => void query.refetch()}>Réessayer la lecture</Button></AlertDescription></Alert>}
     {query.data && !query.data.profiles.length && <p>Aucun profil fournisseur disponible.</p>}
@@ -100,13 +103,13 @@ export default function AirHandling() {
           <p className="text-sm text-muted-foreground">Simulation hors dossier à partir du profil enregistré. Aucun poids, calcul ou devis n’est créé.</p>
           <form noValidate onSubmit={e => { e.preventDefault(); void simulate(); }} className="space-y-3">
             <Label htmlFor="air-example-weight">Poids taxable LTA de l’exemple, en kg</Label><Input id="air-example-weight" className="max-w-xs" inputMode="decimal" value={weight} disabled={pending} onChange={e => { setWeight(e.target.value); setResult(null); }} />
-            <div className="flex items-start gap-2"><Checkbox id="air-example-warehouse" checked={warehouse} disabled={pending} onCheckedChange={v => { setWarehouse(v === true); setResult(null); }} /><Label htmlFor="air-example-warehouse">Éligibilité passage magasin moins d’une tonne attestée pour cet exemple</Label></div>
+            <div className="flex items-start gap-2"><Checkbox id="air-example-warehouse" checked={warehouse} disabled={pending} onCheckedChange={v => { setWarehouse(v === true); setResult(null); }} /><Label htmlFor="air-example-warehouse">Éligibilité taxe fixe magasin DMS moins d’une tonne attestée pour cet exemple</Label></div>
             <Button type="submit" variant="outline" disabled={pending}>Simuler l’achat fournisseur</Button>
           </form>
           {result && <AirHandlingResult result={result} />}
         </CardContent></Card>
       </>}
     </>}
-    <p ref={errorRef} role={error ? 'alert' : undefined} tabIndex={-1} className="text-sm text-destructive">{error}</p>
+    <p ref={errorRef} role={error ? 'alert' : undefined} tabIndex={-1} className="text-sm text-destructive">{error}</p></details>
   </div></MainLayout>;
 }

@@ -15,12 +15,13 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn() } }));
 const profile: AirProfile = { id:'profile-1',revision:1,supplier:'2AS',airport:'DSS',direction:'IMPORT',cargo_class:'GENERAL_CARGO',effective_from:'2026-10-16',effective_to:null,
   rates:{collection_per_kg:20,security_per_kg:10,documents:25000,warehouse_passage:6000,it:1500},source_reference:'Synthetic source reference',evidence:{} };
 const state: AirState = {selection:null,profile:null,context_hash:'facts-1',request_type:'AIR_IMPORT',lot_count:0,facts:[]};
-const wrap = (child: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions:{queries:{retry:false},mutations:{retry:false}} })}><MemoryRouter>{child}</MemoryRouter></QueryClientProvider>);
+const openLegacy = <T extends {container: HTMLElement}>(view:T):T => {view.container.querySelectorAll('details').forEach(d=>{d.open=true;});return view;};
+const wrap = (child: React.ReactNode) => openLegacy(render(<QueryClientProvider client={new QueryClient({ defaultOptions:{queries:{retry:false},mutations:{retry:false}} })}><MemoryRouter>{child}</MemoryRouter></QueryClientProvider>));
 beforeEach(() => {
   mock.canEdit=false;mock.failRead=false;mock.failWrite=false;mock.writes=[];
   mock.rpc.mockReset();mock.invoke.mockReset();
   mock.rpc.mockImplementation(async(name:string,args:Record<string,unknown>)=>{
-    if(name==='air_handling_read') return mock.failRead ? {error:{},data:null} : {error:null,data:args.p_case_id ? state : {profiles:[profile],can_edit:mock.canEdit}};
+    if(name==='air_handling_read' || name==='air_tariff_read') return mock.failRead ? {error:{},data:null} : {error:null,data:args.p_case_id ? state : {profiles:[profile],can_edit:mock.canEdit}};
     mock.writes.push(name);return {error:mock.failWrite?{}:null,data:null};
   });
   mock.invoke.mockImplementation(async(_name:string,{body}:{body:Record<string,unknown>})=>({error:null,data:{ok:true,data:{resolution:resolveAirHandling({ ...state, profile,
@@ -33,7 +34,7 @@ describe('AIR_HANDLING controlled supplier configuration',()=>{
     wrap(<AirHandling/>);await screen.findByText(/Source : Synthetic source reference/);
     expect(screen.getByRole('button',{name:'Enregistrer une nouvelle révision'})).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Poids taxable LTA de l’exemple, en kg'),{target:{value:'64'}});
-    fireEvent.click(screen.getByLabelText('Éligibilité passage magasin moins d’une tonne attestée pour cet exemple'));
+    fireEvent.click(screen.getByLabelText('Éligibilité taxe fixe magasin DMS moins d’une tonne attestée pour cet exemple'));
     fireEvent.click(screen.getByRole('button',{name:'Simuler l’achat fournisseur'}));
     await screen.findByText(/Sous-total achat HT connu : 34\s?420 FCFA/);
     expect(screen.getByText(/TTC fournisseur et prix de vente SODATRA : à confirmer/)).toBeInTheDocument();
@@ -71,7 +72,7 @@ describe('AIR_HANDLING controlled supplier configuration',()=>{
     mock.rpc.mockImplementation(async(_name:string,args:Record<string,unknown>)=>({error:null,data:args.p_case_id?bound:{profiles:[profile],can_edit:false}}));
     let resolvePreview!:(value:unknown)=>void;mock.invoke.mockImplementationOnce(()=>new Promise(resolve=>{resolvePreview=resolve;}));
     const q=new QueryClient({defaultOptions:{queries:{retry:false}}});
-    render(<QueryClientProvider client={q}><MemoryRouter><AirHandlingPanel caseId="case-1" isLocked={false}/></MemoryRouter></QueryClientProvider>);
+    openLegacy(render(<QueryClientProvider client={q}><MemoryRouter><AirHandlingPanel caseId="case-1" isLocked={false}/></MemoryRouter></QueryClientProvider>));
     await screen.findByText('Sélection enregistrée : 2AS révision 1');
     fireEvent.click(screen.getByRole('button',{name:'Simuler sans enregistrer de calcul'}));
     await act(async()=>{q.setQueryData(['air-handling-case','case-1'],{...bound,context_hash:'facts-2'});});
@@ -81,7 +82,7 @@ describe('AIR_HANDLING controlled supplier configuration',()=>{
   it('clears a completed preview when a new profile revision is saved',async()=>{
     mock.canEdit=true;let profiles=[profile];
     mock.rpc.mockImplementation(async(name:string,args:Record<string,unknown>)=>{
-      if(name==='air_handling_read')return {error:null,data:{profiles,can_edit:true}};
+      if(name==='air_handling_read' || name==='air_tariff_read')return {error:null,data:{profiles,can_edit:true}};
       profiles=[...profiles,{...profile,id:String(args.p_id),revision:2,source_reference:String(args.p_source_reference)}];return {error:null,data:args.p_id};
     });
     wrap(<AirHandling/>);await screen.findByText(/Source :/);
@@ -95,14 +96,14 @@ describe('AIR_HANDLING controlled supplier configuration',()=>{
   it('publishes all five edited rates and validity dates as a child revision without changing the original',async()=>{
     mock.canEdit=true;const original=structuredClone(profile);let profiles=[profile];
     mock.rpc.mockImplementation(async(name:string,args:Record<string,unknown>)=>{
-      if(name==='air_handling_read')return {error:null,data:{profiles,can_edit:true}};
+      if(name==='air_handling_read' || name==='air_tariff_read')return {error:null,data:{profiles,can_edit:true}};
       profiles=[...profiles,{...profile,id:String(args.p_id),revision:2,rates:args.p_rates as AirProfile['rates'],
         effective_from:String(args.p_effective_from),effective_to:String(args.p_effective_to),source_reference:String(args.p_source_reference)}];
       return {error:null,data:args.p_id};
     });
     wrap(<AirHandling/>);await screen.findByText(/Source :/);
     for(const [label,value] of [['Collecte HT par kg taxable','21'],['Sécurité HT par kg taxable','11'],['Remise documentaire HT','26000'],
-      ['Passage magasin HT, éligibilité attestée','6500'],['Informatique HT','1700']])fireEvent.change(screen.getByLabelText(label),{target:{value}});
+      ['Taxe fixe magasin DMS HT, éligibilité attestée','6500'],['Informatique HT','1700']])fireEvent.change(screen.getByLabelText(label),{target:{value}});
     fireEvent.change(screen.getByLabelText(/Début d.application \(AAAA-MM-JJ\)/),{target:{value:'2026-11-01'}});
     fireEvent.change(screen.getByLabelText(/Fin d.application, facultative \(AAAA-MM-JJ\)/),{target:{value:'2027-10-31'}});
     fireEvent.change(screen.getByLabelText('Référence du barème et validation de cette révision'),{target:{value:'Synthetic revised rates and validity conditions'}});
