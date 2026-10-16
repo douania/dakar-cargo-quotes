@@ -124,6 +124,83 @@ export type Database = {
           },
         ]
       }
+      air_tariff_bases: {
+        Row: {
+          basis: Json
+          catalogue_id: string
+          selection_id: string
+        }
+        Insert: {
+          basis: Json
+          catalogue_id: string
+          selection_id: string
+        }
+        Update: {
+          basis?: Json
+          catalogue_id?: string
+          selection_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_tariff_bases_catalogue_id_fkey"
+            columns: ["catalogue_id"]
+            isOneToOne: false
+            referencedRelation: "air_tariff_catalogues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_tariff_bases_selection_id_fkey"
+            columns: ["selection_id"]
+            isOneToOne: true
+            referencedRelation: "air_handling_selections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_tariff_catalogues: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          parent_id: string | null
+          payload: Json
+          revision: number
+          source_reference: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from: string
+          effective_to?: string | null
+          id: string
+          parent_id?: string | null
+          payload: Json
+          revision: number
+          source_reference: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          parent_id?: string | null
+          payload?: Json
+          revision?: number
+          source_reference?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_tariff_catalogues_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: true
+            referencedRelation: "air_tariff_catalogues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_roles: {
         Row: {
           created_at: string
@@ -8439,9 +8516,7 @@ export type Database = {
         Returns: string
       }
       air_handling_read: { Args: { p_case_id?: string }; Returns: Json }
-      air_tariff_read: { Args: { p_case_id?: string }; Returns: Json }
-      air_tariff_publish: { Args: { p_id: string; p_parent_id: string; p_payload: Json; p_effective_from: string; p_effective_to: string | null; p_source_reference: string }; Returns: string }
-      air_tariff_select: { Args: { p_id: string; p_case_id: string; p_expected_id: string | null; p_catalogue_id: string; p_basis: Json; p_source_reference: string; p_context_hash: string }; Returns: string }
+      air_handling_read_legacy: { Args: { p_case_id?: string }; Returns: Json }
       air_handling_select: {
         Args: {
           p_case_id: string
@@ -8451,6 +8526,52 @@ export type Database = {
           p_profile_id: string
           p_source_reference: string
           p_warehouse_bracket_confirmed: boolean
+        }
+        Returns: string
+      }
+      air_tariff_assert_result: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_inputs: Json
+          p_lines: Json
+          p_selection_id: string
+        }
+        Returns: undefined
+      }
+      air_tariff_basis_valid: { Args: { p: Json }; Returns: boolean }
+      air_tariff_finish: {
+        Args: {
+          p_case_id: string
+          p_context_hash: string
+          p_result: Json
+          p_run_id: string
+          p_selection_id: string
+        }
+        Returns: undefined
+      }
+      air_tariff_payload_valid: { Args: { p: Json }; Returns: boolean }
+      air_tariff_publish: {
+        Args: {
+          p_effective_from: string
+          p_effective_to: string
+          p_id: string
+          p_parent_id: string
+          p_payload: Json
+          p_source_reference: string
+        }
+        Returns: string
+      }
+      air_tariff_read: { Args: { p_case_id?: string }; Returns: Json }
+      air_tariff_select: {
+        Args: {
+          p_basis: Json
+          p_case_id: string
+          p_catalogue_id: string
+          p_context_hash: string
+          p_expected_id: string
+          p_id: string
+          p_source_reference: string
         }
         Returns: string
       }
