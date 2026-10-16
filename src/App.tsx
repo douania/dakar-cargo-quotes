@@ -35,6 +35,7 @@ import CommodityCategories from "./pages/admin/CommodityCategories";
 import TariffOverview from "./pages/admin/TariffOverview";
 import TerminalStorage from "./pages/admin/TerminalStorage";
 import Honoraires from "./pages/admin/Honoraires";
+import AirHandling from "./pages/admin/AirHandling";
 import Roles from "./pages/admin/Roles";
 
 const queryClient = new QueryClient();
@@ -76,6 +77,7 @@ const App = () => (
             <Route path="/admin/tariff-overview" element={<RequireAuth><TariffOverview /></RequireAuth>} />
             <Route path="/admin/terminal-storage" element={<RequireAuth><TerminalStorage /></RequireAuth>} />
             <Route path="/admin/honoraires" element={<RequireAuth><Honoraires /></RequireAuth>} />
+            <Route path="/admin/air-handling" element={<RequireAuth><AirHandling /></RequireAuth>} />
             <Route path="/admin/roles" element={<RequireAuth><Roles /></RequireAuth>} />
             <Route path="/truck-loading" element={<RequireAuth><TruckLoading /></RequireAuth>} />
             <Route path="/intake" element={<RequireAuth><Intake /></RequireAuth>} />

@@ -5,6 +5,7 @@ import { readOverridesFromFacts, resolveEffectiveServiceKeys } from "../../supab
 import React, { useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
+import { AirHandlingPanel } from "@/components/case/AirHandlingPanel";
 import { LotConfirmationsPanel } from "@/components/case/LotConfirmationsPanel";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
 import { PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
@@ -2707,6 +2708,7 @@ export default function CaseView() {
 
 
         {/* Derived Suggestions Panel — before pricing pipeline for optimal timing */}
+        {caseId && /^AIR_IMPORT(?:_|$)/.test(caseData.request_type || '') && <AirHandlingPanel key={caseId} caseId={caseId} isLocked={!!isLocked || caseData.status === 'PRICING_RUNNING'} />}
         {visibleSuggestions.length > 0 && !isLocked && (
           <Card className="mb-6 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
             <CardHeader className="py-3">

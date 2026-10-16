@@ -69,6 +69,7 @@ const mainNavItems = [
 import { TrendingUp, Briefcase, History, Coins, Layers, Eye, Warehouse, Receipt, ShieldCheck } from 'lucide-react';
 
 const adminItems = [
+  { title: 'Handling aéroportuaire', url: '/admin/air-handling', icon: Receipt },
   { title: 'Honoraires', url: '/admin/honoraires', icon: Receipt },
   { title: 'Rôles', url: '/admin/roles', icon: ShieldCheck },
   { title: 'Vue tarifs consolidée', url: '/admin/tariff-overview', icon: Eye },
