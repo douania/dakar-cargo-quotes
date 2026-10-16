@@ -43,6 +43,7 @@ async function pdfText(bytes: Uint8Array): Promise<string> {
   return out.join(' ').replace(/\s+/g, ' ');
 }
 type State = { tables: Record<string, Row[]>; calls: string[]; failTable: string | null; failSelect: string | null; failService: boolean; engineCalls: number;
+  airState: Row | null;
   engineResponse: Row | null; engineRequests: Row[]; engineTaxMutation: string | null; serviceMode: string | null;
   invoke: (name: string, body: Row) => Promise<{ status: number; body: Row }> };
 async function fixture(run: (state: State) => Promise<void>) {
@@ -75,7 +76,7 @@ async function fixture(run: (state: State) => Promise<void>) {
   tables.fee_lines = ['CUSTOMS_DAKAR', 'AGENCY'].map(code => ({ id: code, code, label_fr: `SYNTHETIC ${code}`, is_active: true }));
   tables.fee_rules = tables.fee_lines.map((line, i) => ({ id: line.id, fee_line_id: line.id, is_active: true,
     effective_from: '2026-01-01', direction: 'IMPORT', transport_mode: 'AIR', method: 'FIXED', amount: 300 + i * 100, currency: 'XOF' }));
-  const state: State = { tables, calls: [], failTable: null, failSelect: null, failService: false, engineCalls: 0, engineResponse: null, engineRequests: [], engineTaxMutation: null, serviceMode: null,
+  const state: State = { tables, calls: [], failTable: null, failSelect: null, failService: false, engineCalls: 0, engineResponse: null, engineRequests: [], engineTaxMutation: null, serviceMode: null, airState: null,
     invoke: async (name, body) => {
       const response = await handlers[name](new Request(`https://fixture.invalid/functions/v1/${name}`, { method: 'POST',
         headers: { Authorization: 'Bearer fixture-token', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
@@ -120,10 +121,20 @@ async function fixture(run: (state: State) => Promise<void>) {
       if (state.serviceMode === 'incomplete') lines.pop();
       if (state.serviceMode === 'duplicate') lines[1] = lines[0];
       if (state.serviceMode === 'reserved-finite') { lines[0].rate = 987654; lines[0].source = 'TO_CONFIRM+synthetic-note'; }
+      if (state.serviceMode === 'strip-air') lines.forEach((l: Row) => { delete l.air_handling; });
       return json(data);
     }
     if (url.pathname.includes('/rpc/')) {
       if (name === 'has_workspace_access') return json(true);
+      if (name === 'air_handling_read') {
+        if (state.failTable === name) return json({message:'Synthetic read unavailable'},0,503);
+        return json(state.airState ? { ...state.airState, facts: tables.quote_facts, request_type: tables.quote_cases[0].request_type, lot_count: tables.quote_request_lines.length } : {selection:null});
+      }
+      if (name === 'air_handling_finish') {
+        if (state.serviceMode === 'air-finish-race') state.airState!.selection.id='concurrent-selection';
+        if (body.p_selection_id !== state.airState?.selection.id || body.p_context_hash !== state.airState?.context_hash) return json({message:'Synthetic context conflict'},0,409);
+        Object.assign(tables.pricing_runs.find(r=>r.id===body.p_run_id)!,body.p_result);return json(null);
+      }
       if (name === 'read_pad_weight_context') return json({ case_id: 'fixture-case', case_status: tables.quote_cases[0].status, context_hash: 'fixture', request_count: tables.quote_request_lines.length,
         heads: [], facts: tables.quote_facts.map(f => ({ key: f.fact_key, text: f.value_text, number: f.value_number, json: f.value_json })), scenario: null, weight_facts: [], weight_reconciliation: null });
       if (name === 'get_next_pricing_run_number') return json(tables.pricing_runs.length + 1);
@@ -208,6 +219,68 @@ for (const [name, change] of [
 }));
 
 const airInput = { id: 'air', service: 'AIR_HANDLING', unit: 'kg', quantity: 1, currency: 'XOF' };
+function selectSyntheticAirProfile(state: State) {
+  state.airState = { selection: { id:'selected-air-v1',profile_id:'synthetic-air-profile',context_hash:'air-context',warehouse_bracket_confirmed:true,source_reference:'Synthetic explicit cargo and supplier source' },
+    profile: { id:'synthetic-air-profile',revision:1,supplier:'2AS',airport:'DSS',direction:'IMPORT',cargo_class:'GENERAL_CARGO',effective_from:'2026-10-16',effective_to:null,
+      rates:{collection_per_kg:20,security_per_kg:10,documents:25000,warehouse_passage:6000,it:1500},source_reference:'Synthetic source transcription',evidence:{kind:'test-only'} },context_hash:'air-context' };
+  state.tables.quote_facts.push(fact('cargo.chargeable_weight_kg',64,'operator'));
+}
+Deno.test('AIR_HANDLING selected source precedes catalogue/client overrides and keeps purchase outside commercial totals',async()=>fixture(async state=>{
+  selectSyntheticAirProfile(state);
+  state.tables.quote_facts.push(fact('client.code','SYNTHETIC'));
+  state.tables.pricing_client_overrides.push({id:'wrong-generic',client_code:'SYNTHETIC',service_code:'AIR_HANDLING',pricing_mode:'FIXED',base_price:999999,min_price:0,currency:'XOF',active:true});
+  const r=await state.invoke('price-service-lines',{case_id:'fixture-case',service_lines:[airInput]});
+  assertEquals(r.status,200);const line=r.body.data.priced_lines[0];
+  assertEquals(line.rate,null);assertEquals(line.source,'TO_CONFIRM');assertEquals(line.air_handling.supplier_complete_ht_xof,34420);
+  assertEquals(line.air_handling.selling_amount_xof,null);
+}));
+Deno.test('AIR_HANDLING pricing to immutable snapshot and real PDF preserves purchase evidence without changing payable',async()=>fixture(async state=>{
+  selectSyntheticAirProfile(state);const factsBefore=JSON.stringify(state.tables.quote_facts);
+  const result=await state.invoke('run-pricing',{case_id:'fixture-case',allow_provisional:true});
+  assertEquals(result.status,200,JSON.stringify(result.body));
+  const run=state.tables.pricing_runs.find(r=>r.status==='success')!;assert(run);
+  const line=run.tariff_lines.find((l:Row)=>l.category==='AIR_HANDLING');assertEquals(line.amount,null);
+  assertEquals(line.source.air_handling.supplier_complete_ht_xof,34420);assertEquals(line.source.air_handling.supplier_ttc_xof,null);
+  assert(run.total_ttc < 34420,'Purchase estimate must not be charged to customer');
+  assertEquals(run.outputs_json.quoteQualification.level,'partial');
+  const version=await state.invoke('generate-quotation-version',{case_id:'fixture-case',pricing_run_id:run.id});assertEquals(version.status,200,JSON.stringify(version.body));
+  const snap=state.tables.quotation_versions[0].snapshot;
+  const saved=snap.raw_lines.find((l:Row)=>l.category==='AIR_HANDLING');assertEquals(saved.source.air_handling.selection_id,'selected-air-v1');
+  assertEquals(saved.source.air_handling.profile.rates.collection_per_kg,20);
+  const frozen=JSON.stringify(snap);state.airState!.profile.rates.collection_per_kg=777;
+  assertEquals(JSON.stringify(snap),frozen,'Persisted evidence cannot track current profile');
+  const text=await pdfText(await generateDraftPdf(snap,'SYNTHETIC-AIR-HANDLING'));
+  assertStringIncludes(text,'confirmer');assert(!text.includes('34420'),'Internal supplier HT is not a client selling amount');
+  assertEquals(JSON.stringify(state.tables.quote_facts),factsBefore);
+}));
+Deno.test('AIR_HANDLING atomic finish conflict refuses result and restores pre-pricing status',async()=>fixture(async state=>{
+  selectSyntheticAirProfile(state);state.serviceMode='air-finish-race';
+  const before=state.tables.quote_cases[0].status;
+  const result=await state.invoke('run-pricing',{case_id:'fixture-case',allow_provisional:true});
+  assertEquals(result.status,409,JSON.stringify(result.body));assertEquals(state.tables.quote_cases[0].status,before);
+  assertEquals(state.tables.pricing_runs.some(r=>r.status==='success'),false);assertEquals(state.tables.quotation_versions.length,0);
+}));
+Deno.test('AIR_HANDLING unavailable source cannot fall back to a generic catalogue price',async()=>fixture(async state=>{
+  state.failTable='air_handling_read';const r=await state.invoke('price-service-lines',{case_id:'fixture-case',service_lines:[airInput]});
+  assertEquals(r.status,500);assertEquals(state.tables.quote_service_pricing.length,0);
+}));
+for(const failure of ['read','service','malformed','incomplete','covered','covered-raw','strip-air'] as const) Deno.test(`AIR_HANDLING standard DAP ${failure}: never returns successful empty or untraced quote`,async()=>fixture(async state=>{
+  selectSyntheticAirProfile(state);state.tables.quote_gaps=[];state.tables.quote_cases[0].status='ACK_READY_FOR_PRICING';
+  state.tables.quote_facts.find(f=>f.fact_key==='service.package')!.value_text='AIR_IMPORT_DAP';
+  state.tables.quote_facts.find(f=>f.fact_key==='routing.incoterm')!.value_text='DAP';
+  state.tables.quote_facts.push(fact('cargo.hs_code','1234567890'),fact('cargo.value',10000),fact('cargo.value_currency','XOF'),fact('customs.regime_code','TEST'));
+  state.engineResponse={lines:[],totals:{honoraires:0,debours:0,operationnel:0},currency:'XOF',duty_breakdown:[]};
+  if(failure==='read')state.failTable='air_handling_read';
+  if(failure==='service')state.failService=true;
+  if(['malformed','incomplete','strip-air'].includes(failure))state.serviceMode=failure;
+  if(failure==='covered'||failure==='covered-raw')state.engineResponse.lines=[{category:'AIR_HANDLING',amount:123,currency:'XOF',bloc:'operationnel',source:{type:'internal'},
+    ...(failure==='covered'?{canonical:{service_key:'AIR_HANDLING',origin_layer:'engine_structural'}}:{})}];
+  const previous=state.tables.quote_cases[0].status;const r=await state.invoke('run-pricing',{case_id:'fixture-case'});
+  assert(r.status>=400,JSON.stringify(r.body));assertEquals(state.tables.pricing_runs.some(run=>run.status==='success'),false);
+  assertEquals(state.engineCalls,failure==='read'?0:1,'The negative test must reach the intended production boundary, not a preceding FSM guard');
+  if(['service','malformed','incomplete','strip-air'].includes(failure))assert(state.calls.some(c=>c.endsWith('/functions/v1/price-service-lines')));
+  assertEquals(state.tables.quote_cases[0].status,previous);assertEquals(state.tables.quotation_versions.length,0);
+}));
 Deno.test('partial destination: complete customs inputs keep the standard engine path but never gross→taxable fallback', async () => fixture(async state => {
   state.tables.quote_gaps = [];
   state.tables.quote_facts.push(fact('cargo.hs_code', '1234567890'), fact('cargo.value', 10000), fact('cargo.value_currency', 'XOF'), fact('customs.regime_code', 'TEST'));

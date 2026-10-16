@@ -24,6 +24,7 @@
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { partialKgQuantity, partialDestinationDdpEligible, partialAirDeliveryCardApplicable, type PartialQuoteFact } from '../_shared/partial-destination-quote.ts';
 import { selectedTariffReference } from '../_shared/selected-tariff-reference.ts';
+import { loadAirHandling } from '../_shared/air-handling-store.ts';
 import { readOverridesFromFacts, resolveEffectiveServiceKeys } from '../_shared/service-scope.ts';
 import { handleCors } from "../_shared/cors.ts";
 import { collectFeeLineCodes, isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
@@ -169,6 +170,7 @@ interface PricingContext {
 }
 
 interface PricedLine {
+  air_handling?: import('../_shared/air-handling.ts').AirResolution;
   id: string;
   rate: number | null;
   currency: string;
@@ -1148,11 +1150,22 @@ Deno.serve(async (req) => {
       },
     });
 
+    // STRUCTURAL_PATCH_ALLOWED (GO Ramzi 2026-10-16): explicit AIR supplier selection
+    // is resolved before every generic override/catalogue fallback; no other service changes.
+    const airHandling = isAirMode && /^AIR_IMPORT(?:_|$)/.test(requestType) && service_lines.some(l => l.service === 'AIR_HANDLING')
+      ? await loadAirHandling(jwtClient, case_id) : null;
     // ═══ Price each line ═══
     const pricedLines: PricedLine[] = [];
     const missing: string[] = [];
 
     for (const line of service_lines) {
+      if (line.service === 'AIR_HANDLING' && airHandling) {
+        pricedLines.push({ id: line.id, rate: null, currency: 'XOF', source: 'TO_CONFIRM', confidence: 0,
+          explanation: 'Handling 2AS : détail achat fournisseur disponible en interne ; taxes, magasinage et vente à confirmer, exclus du total payable.',
+          quantity_used: 1, unit_used: 'forfait', rule_id: null, air_handling: airHandling });
+        missing.push('AIR_HANDLING');
+        continue;
+      }
       const serviceKey = line.service;
       if (!VALID_SERVICE_KEYS.has(serviceKey) && !feeLineCodes.has(serviceKey)) {
         structuredLog({ level: "warn", service: FUNCTION_NAME, op: "unknown_service_key", correlationId, meta: { service_key: serviceKey } });

@@ -2,6 +2,8 @@ import { knownHsTaxProfile, equivalentHsTaxation, type HsTaxEquivalence } from "
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
 import { partialServiceSource, tariffReferenceNotice } from '../_shared/selected-tariff-reference.ts';
+import { airHandlingSource } from '../_shared/air-handling.ts';
+import { assertAirHandlingFresh, loadAirHandling } from '../_shared/air-handling-store.ts';
 // F2-deploy-verify: 2026-03-27 runtime proof for M24b
 import { PAD_REVIEW_FR, PAD_REVIEW_EN } from "../_shared/pad-gap-review.ts";
 import { loadPadGroupState, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
@@ -119,6 +121,7 @@ interface RunPricingRequest {
 }
 
 interface PricingInputs {
+  airHandling?: import('../_shared/air-handling.ts').AirResolution;
   imoGoodsPlan?: ImoGoodsPricingPlan;
   originPort?: string;
   originAirport?: string;
@@ -1531,6 +1534,11 @@ Deno.serve(async (req) => {
 
     const servicePackageRaw = (scopeFacts || []).find((f: any) => f.fact_key === "service.package")?.value_text ?? "";
     const pkg = String(servicePackageRaw ?? "").trim().toUpperCase();
+    // Pin selected AIR evidence before creating a run or changing case status.
+    // Unavailable selected-source reads cannot degrade to a successful empty quote.
+    const selectedAirHandling = /^AIR_IMPORT(?:_|$)/.test(caseData.request_type || '') &&
+      resolveEffectiveServiceKeys(pkg, readOverridesFromFacts(scopeFacts || [])).includes('AIR_HANDLING')
+      ? await loadAirHandling(userClient, case_id) : null;
     const incotermEarlyRaw = (scopeFacts || []).find((f: any) => f.fact_key === "routing.incoterm")?.value_text ?? "";
     const incotermEarly = String(incotermEarlyRaw ?? "").trim().toUpperCase();
     const scopeWantsDuties = pkg.endsWith("_DDP") || pkg === "DDP" || incotermEarly === "DDP";
@@ -2358,7 +2366,7 @@ Deno.serve(async (req) => {
                       currency: pl.currency || 'XOF',
                       type: 'service_package',
                       bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
-                      source: unresolved
+                      source: pl.air_handling ? airHandlingSource(pl.air_handling) : unresolved
                         ? { type: 'TO_CONFIRM', reference: `P5:${pl.source || 'price-service-lines'}`, confidence: 0,
                             note: pl.explanation || `${label} : montant à confirmer.` }
                         : { type: pl.source || 'price-service-lines', reference: 'P5', confidence: pl.confidence ?? 0 },
@@ -3035,6 +3043,7 @@ Deno.serve(async (req) => {
 
     // 8. Build inputs_json from facts
     const inputs = buildPricingInputs(facts || []);
+    if (selectedAirHandling) inputs.airHandling = selectedAirHandling;
     // STRUCTURAL_PATCH_ALLOWED (GO 2026-10-15): only the existing provisional mono-AIR
     // destination flow; preserve facts/gaps/classification. The engine rechecks DB evidence.
     let hsTaxEstimate: HsTaxEquivalence | undefined;
@@ -3352,7 +3361,7 @@ Deno.serve(async (req) => {
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
                   ...(partialDestination && isInternalFeeServiceKey(serviceKey, feeLineCodes) ? { bloc: INTERNAL_FEE_BLOC } : {}),
-                  source: partialDestination ? partialServiceSource(pl, price.sourceType)
+                  source: pl.air_handling ? airHandlingSource(pl.air_handling) : partialDestination ? partialServiceSource(pl, price.sourceType)
                     : { type: price.sourceType, reference: 'LOT4-provisional-firm', confidence: pl.confidence ?? 0 },
                   quantity: partialDestination && pl.quantity_used === null ? null : pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -3625,6 +3634,8 @@ Deno.serve(async (req) => {
           const effectiveKeys = resolveEffectiveServiceKeys(packageKey, overrides);
           const coverage = inferCoveredServiceDiagnostics(engineResponse.lines || engineResponse.quotationLines || []);
           const coveredKeys = coverage.covered;
+          if (selectedAirHandling && (coveredKeys.has('AIR_HANDLING') || (engineResponse.lines || engineResponse.quotationLines || [])
+            .some((l: { category?: string }) => String(l.category || '').trim().toUpperCase() === 'AIR_HANDLING'))) throw new Error('AIR_HANDLING_CONFLICTING_ENGINE_COVERAGE');
           // P0-E: the PAD markers never go to price-service-lines (see
           // excludePadScopeKeysForEnrichment). effectiveServiceKeys computed earlier for
           // resolvePadScopeBlocker is a distinct, unfiltered list — the guard is untouched.
@@ -3667,7 +3678,7 @@ Deno.serve(async (req) => {
 
             if (pslRes.ok) {
               const pslData = await pslRes.json();
-              if (partialDestination) assertPartialServiceResponse(pslData, serviceLineInputs.map(sl => sl.id));
+              if (partialDestination || selectedAirHandling) assertPartialServiceResponse(pslData, serviceLineInputs.map(sl => sl.id));
               const pricedLines = pslData?.data?.priced_lines || [];
               // Inject into engineResponse.lines so tariffLines picks them up
               const engineLines = engineResponse.lines || engineResponse.quotationLines || [];
@@ -3689,7 +3700,7 @@ Deno.serve(async (req) => {
                   currency: pl.currency || 'XOF',
                   type: 'service_package',
                   bloc: isInternalFeeServiceKey(serviceKey, feeLineCodes) ? INTERNAL_FEE_BLOC : undefined,
-                  source: partialDestination ? partialServiceSource(pl, price.sourceType)
+                  source: pl.air_handling ? airHandlingSource(pl.air_handling) : partialDestination ? partialServiceSource(pl, price.sourceType)
                     : { type: price.sourceType, reference: 'P5', confidence: pl.confidence ?? 0 },
                   quantity: partialDestination && pl.quantity_used === null ? null : pl.quantity_used ?? 1,
                   unit: pl.unit_used ?? PACKAGE_SERVICE_DEFAULT_UNITS[serviceKey] ?? 'forfait',
@@ -3734,12 +3745,12 @@ Deno.serve(async (req) => {
                 }
               }
             } else {
-              if (partialDestination) throw new Error(`Partial destination service pricing failed (${pslRes.status})`);
+              if (partialDestination || selectedAirHandling) throw new Error(`Partial destination service pricing failed (${pslRes.status})`);
               console.warn(`[P5] price-service-lines failed (${pslRes.status}), continuing with engine lines only`);
             }
           }
         } catch (p5Error) {
-          if (partialDestination) throw p5Error;
+          if (partialDestination || selectedAirHandling) throw p5Error;
           console.warn('[P5] Package enrichment failed, continuing:', p5Error);
         }
       }
@@ -4967,6 +4978,21 @@ ${JSON.stringify(refPayload)}`;
     }
     const durationMs = Date.now() - startTime;
 
+    // STRUCTURAL_PATCH_ALLOWED (GO Ramzi 2026-10-16): preserve the explicit supplier
+    // selection in the immutable result; recheck it before atomic completion.
+    const airRows = tariffLines.filter((l: { source?: { air_handling?: unknown } }) => l.source?.air_handling);
+    if (selectedAirHandling || airRows.length) {
+      try {
+        const allAirRows = tariffLines.filter((l: { category?: string; canonical?: { service_key?: string } }) => l.category === 'AIR_HANDLING' || l.canonical?.service_key === 'AIR_HANDLING');
+        if (selectedAirHandling && (airRows.length !== 1 || allAirRows.length !== 1 || airRows[0].source.air_handling.selection_id !== selectedAirHandling.selection_id)) throw new Error('AIR_HANDLING_COVERAGE_MISSING');
+        await assertAirHandlingFresh(userClient, case_id, airRows);
+      }
+      catch {
+        await serviceClient.from('pricing_runs').update({ status: 'blocked', error_message: 'AIR_HANDLING_CONTEXT_CHANGED', completed_at: new Date().toISOString() }).eq('id', pricingRun.id);
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, 'air_handling_context_changed');
+        return new Response(JSON.stringify({ pricing_blockers: ['AIR_HANDLING_CONTEXT_CHANGED'], message: 'Le paramétrage handling ou ses sources ont changé. Reconfirmez avant de recalculer.' }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
     // 13. Update pricing_run with results
     const pricingResult = {
         status: "success",
@@ -4987,7 +5013,16 @@ ${JSON.stringify(refPayload)}`;
         completed_at: new Date().toISOString(),
         duration_ms: durationMs,
       };
-    if (padGroupState?.mode === "groups") {
+    if (airRows.length) {
+      const evidence = airRows[0].source.air_handling;
+      const saved = await serviceClient.rpc('air_handling_finish', { p_run_id: pricingRun.id, p_case_id: case_id,
+        p_selection_id: evidence.selection_id, p_context_hash: evidence.context_hash, p_result: pricingResult });
+      if (saved.error) {
+        await serviceClient.from('pricing_runs').update({ status: 'blocked', error_message: 'AIR_HANDLING_CONTEXT_CHANGED', completed_at: new Date().toISOString() }).eq('id', pricingRun.id).eq('status', 'running');
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient, case_id, previousStatus, 'air_handling_context_changed');
+        return new Response(JSON.stringify({ pricing_blockers: ['AIR_HANDLING_CONTEXT_CHANGED'] }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    } else if (padGroupState?.mode === "groups") {
       try {
       const freshPad = await loadPadGroupState(serviceClient, case_id);
       if (!freshPad.ready || freshPad.multi_lot || freshPad.context?.context_hash !== padGroupState.context?.context_hash ||

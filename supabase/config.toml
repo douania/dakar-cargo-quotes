@@ -324,3 +324,6 @@ verify_jwt = true
 
 [functions.get-active-exchange-rate]
 verify_jwt = true
+
+[functions.preview-air-handling]
+verify_jwt = false
