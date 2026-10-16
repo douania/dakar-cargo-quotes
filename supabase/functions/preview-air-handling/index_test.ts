@@ -10,7 +10,7 @@ async function fixture(run:(invoke:(body:unknown,auth?:boolean)=>Promise<Respons
     const json=(data:unknown)=>new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
     if(url.pathname==='/auth/v1/user')return json({id:'synthetic-user'});
     if(url.pathname.endsWith('/has_workspace_access'))return json(admitted);
-    assert(url.pathname.endsWith('/air_handling_read'),'No mutation or other RPC permitted');
+    assert((url.pathname.endsWith('/air_handling_read') || url.pathname.endsWith('/air_tariff_read')),'No mutation or other RPC permitted');
     const body=JSON.parse(String(init?.body??'{}'));
     return json(body.p_case_id ? {selection:null,context_hash:'fixture',request_type:'AIR_IMPORT',lot_count:0,facts:[]} : {profiles:[profile],can_edit:false});
   };

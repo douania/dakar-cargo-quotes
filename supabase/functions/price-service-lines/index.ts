@@ -1161,7 +1161,9 @@ Deno.serve(async (req) => {
     for (const line of service_lines) {
       if (line.service === 'AIR_HANDLING' && airHandling) {
         pricedLines.push({ id: line.id, rate: null, currency: 'XOF', source: 'TO_CONFIRM', confidence: 0,
-          explanation: 'Handling 2AS : détail achat fournisseur disponible en interne ; taxes, magasinage et vente à confirmer, exclus du total payable.',
+          explanation: airHandling.schema_version === 2
+            ? 'Handling 2AS : catalogue et bases d’achat fournisseur disponibles en interne ; taxes et vente à confirmer, exclus du total payable.'
+            : 'Handling 2AS : détail achat fournisseur disponible en interne ; taxes, magasinage et vente à confirmer, exclus du total payable.',
           quantity_used: 1, unit_used: 'forfait', rule_id: null, air_handling: airHandling });
         missing.push('AIR_HANDLING');
         continue;

@@ -5015,7 +5015,7 @@ ${JSON.stringify(refPayload)}`;
       };
     if (airRows.length) {
       const evidence = airRows[0].source.air_handling;
-      const saved = await serviceClient.rpc('air_handling_finish', { p_run_id: pricingRun.id, p_case_id: case_id,
+      const saved = await serviceClient.rpc(evidence.schema_version === 2 ? 'air_tariff_finish' : 'air_handling_finish', { p_run_id: pricingRun.id, p_case_id: case_id,
         p_selection_id: evidence.selection_id, p_context_hash: evidence.context_hash, p_result: pricingResult });
       if (saved.error) {
         await serviceClient.from('pricing_runs').update({ status: 'blocked', error_message: 'AIR_HANDLING_CONTEXT_CHANGED', completed_at: new Date().toISOString() }).eq('id', pricingRun.id).eq('status', 'running');

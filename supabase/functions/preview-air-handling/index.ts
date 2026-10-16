@@ -2,7 +2,8 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireUser } from '../_shared/auth.ts';
 import { handleCors } from '../_shared/cors.ts';
 import { getCorrelationId, respondError, respondOk } from '../_shared/runtime.ts';
-import { resolveAirHandling, type AirProfile, type AirState } from '../_shared/air-handling.ts';
+import { type AirProfile } from '../_shared/air-handling.ts';
+import { resolveAirTariff, type AirTariffState } from '../_shared/air-tariff.ts';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Read-only: exactly the resolver used by pricing; no fact/run/version writes. */
@@ -16,12 +17,12 @@ export async function handleAirPreview(req: Request): Promise<Response> {
     const client = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
       global: { headers: { Authorization: `Bearer ${auth.token}` } }, auth: { persistSession: false },
     });
-    let state: AirState;
+    let state: AirTariffState;
     let example = false;
     if (typeof body.case_id === 'string' && uuid.test(body.case_id)) {
-      const read = await client.rpc('air_handling_read', { p_case_id: body.case_id });
+      const read = await client.rpc('air_tariff_read', { p_case_id: body.case_id });
       if (read.error || !read.data) return respondError({ code: 'FORBIDDEN_OWNER', message: 'Dossier inaccessible', correlationId });
-      state = read.data as AirState;
+      state = read.data as AirTariffState;
     } else {
       if (!uuid.test(body.profile_id ?? '') || typeof body.taxable_kg !== 'number' || !Number.isFinite(body.taxable_kg)
         || body.taxable_kg <= 0 || body.general_cargo_confirmed !== true || typeof body.warehouse_bracket_confirmed !== 'boolean') throw new Error('Example input invalid');
@@ -35,7 +36,7 @@ export async function handleAirPreview(req: Request): Promise<Response> {
         warehouse_bracket_confirmed: body.warehouse_bracket_confirmed }, profile, context_hash: 'example', request_type: 'AIR_IMPORT', lot_count: 0,
         facts: [{ fact_key: 'cargo.chargeable_weight_kg', value_number: body.taxable_kg, source_type: 'operator' }] };
     }
-    return respondOk({ example, resolution: resolveAirHandling(state, new Date().toISOString().slice(0, 10)) }, correlationId);
+    return respondOk({ example, resolution: resolveAirTariff(state, new Date().toISOString().slice(0, 10)) }, correlationId);
   } catch {
     return respondError({ code: 'VALIDATION_FAILED', message: 'Paramètres incomplets ou profil indisponible', correlationId });
   }

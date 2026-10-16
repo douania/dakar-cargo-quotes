@@ -3,10 +3,11 @@ export type AirRates = { collection_per_kg: number; security_per_kg: number; doc
 export type AirProfile = { id: string; revision: number; supplier: string; airport: string; direction: string; cargo_class: string;
   effective_from: string; effective_to: string | null; rates: AirRates; source_reference: string; evidence: unknown };
 export type AirSelection = { id: string; profile_id: string | null; context_hash: string; source_reference: string; warehouse_bracket_confirmed: boolean };
-export type AirFact = { fact_key: string; value_number?: number | null; value_json?: unknown; source_type?: string | null; is_validated?: boolean };
+export type AirFact = { id?: string; fact_key: string; value_number?: number | null; value_json?: unknown; source_type?: string | null; is_validated?: boolean };
 export type AirState = { selection: AirSelection | null; profile: AirProfile | null; context_hash: string; request_type: string; lot_count: number; facts: AirFact[] };
-export type AirComponent = { code: string; label: string; quantity: number | null; unit_rate: number | null; supplier_ht_xof: number | null; reason: string | null };
-export type AirResolution = { schema_version: 1; selection_id: string; context_hash: string; profile: AirProfile | null;
+export type AirComponent = { code: string; label: string; quantity: number | null; unit_rate: number | null; supplier_ht_xof: number | null; reason: string | null; estimated_supplier_ht_xof?: number | null };
+export type AirResolution = { schema_version: 1 | 2; selection_id: string; context_hash: string; profile: AirProfile | null;
+  catalogue?: import('./air-tariff.ts').AirCatalogue; basis?: import('./air-tariff.ts').AirTariffBasis; supplier_estimated_ht_xof?: number | null;
   components: AirComponent[]; supplier_known_ht_xof: number | null; supplier_complete_ht_xof: number | null;
   supplier_tax_xof: null; supplier_ttc_xof: null; selling_amount_xof: null; reserves: string[]; explanation: string };
 const positive = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0;
@@ -56,6 +57,6 @@ export function resolveAirHandling(state: AirState, date: string): AirResolution
 }
 
 export function airHandlingSource(resolution: AirResolution) {
-  return { type: 'TO_CONFIRM', reference: `air_handling_profiles/${resolution.profile?.id ?? 'missing'}`, confidence: 0,
+  return { type: 'TO_CONFIRM', reference: `${resolution.schema_version === 2 ? 'air_tariff_catalogues' : 'air_handling_profiles'}/${resolution.catalogue?.id ?? resolution.profile?.id ?? 'missing'}`, confidence: 0,
     firm_eligible: false, air_handling: resolution };
 }

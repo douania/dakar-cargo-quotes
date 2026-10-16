@@ -8439,6 +8439,9 @@ export type Database = {
         Returns: string
       }
       air_handling_read: { Args: { p_case_id?: string }; Returns: Json }
+      air_tariff_read: { Args: { p_case_id?: string }; Returns: Json }
+      air_tariff_publish: { Args: { p_id: string; p_parent_id: string; p_payload: Json; p_effective_from: string; p_effective_to: string | null; p_source_reference: string }; Returns: string }
+      air_tariff_select: { Args: { p_id: string; p_case_id: string; p_expected_id: string | null; p_catalogue_id: string; p_basis: Json; p_source_reference: string; p_context_hash: string }; Returns: string }
       air_handling_select: {
         Args: {
           p_case_id: string

@@ -1,3 +1,4 @@
+import { airTariffSeed } from '../_shared/air-tariff-seed.ts';
 import { equivalentHsTaxation, HS_TAX_FIELDS, HS_TAX_BASIS_VERSION } from "../_shared/hs-tax-profile.ts";
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { generateDraftPdf } from '../export-quotation-version-pdf/index.ts';
@@ -126,11 +127,11 @@ async function fixture(run: (state: State) => Promise<void>) {
     }
     if (url.pathname.includes('/rpc/')) {
       if (name === 'has_workspace_access') return json(true);
-      if (name === 'air_handling_read') {
+      if (name === 'air_tariff_read') {
         if (state.failTable === name) return json({message:'Synthetic read unavailable'},0,503);
         return json(state.airState ? { ...state.airState, facts: tables.quote_facts, request_type: tables.quote_cases[0].request_type, lot_count: tables.quote_request_lines.length } : {selection:null});
       }
-      if (name === 'air_handling_finish') {
+      if (name === 'air_handling_finish' || name === 'air_tariff_finish') {
         if (state.serviceMode === 'air-finish-race') state.airState!.selection.id='concurrent-selection';
         if (body.p_selection_id !== state.airState?.selection.id || body.p_context_hash !== state.airState?.context_hash) return json({message:'Synthetic context conflict'},0,409);
         Object.assign(tables.pricing_runs.find(r=>r.id===body.p_run_id)!,body.p_result);return json(null);
@@ -261,7 +262,7 @@ Deno.test('AIR_HANDLING atomic finish conflict refuses result and restores pre-p
   assertEquals(state.tables.pricing_runs.some(r=>r.status==='success'),false);assertEquals(state.tables.quotation_versions.length,0);
 }));
 Deno.test('AIR_HANDLING unavailable source cannot fall back to a generic catalogue price',async()=>fixture(async state=>{
-  state.failTable='air_handling_read';const r=await state.invoke('price-service-lines',{case_id:'fixture-case',service_lines:[airInput]});
+  state.failTable='air_tariff_read';const r=await state.invoke('price-service-lines',{case_id:'fixture-case',service_lines:[airInput]});
   assertEquals(r.status,500);assertEquals(state.tables.quote_service_pricing.length,0);
 }));
 for(const failure of ['read','service','malformed','incomplete','covered','covered-raw','strip-air'] as const) Deno.test(`AIR_HANDLING standard DAP ${failure}: never returns successful empty or untraced quote`,async()=>fixture(async state=>{
@@ -270,7 +271,7 @@ for(const failure of ['read','service','malformed','incomplete','covered','cover
   state.tables.quote_facts.find(f=>f.fact_key==='routing.incoterm')!.value_text='DAP';
   state.tables.quote_facts.push(fact('cargo.hs_code','1234567890'),fact('cargo.value',10000),fact('cargo.value_currency','XOF'),fact('customs.regime_code','TEST'));
   state.engineResponse={lines:[],totals:{honoraires:0,debours:0,operationnel:0},currency:'XOF',duty_breakdown:[]};
-  if(failure==='read')state.failTable='air_handling_read';
+  if(failure==='read')state.failTable='air_tariff_read';
   if(failure==='service')state.failService=true;
   if(['malformed','incomplete','strip-air'].includes(failure))state.serviceMode=failure;
   if(failure==='covered'||failure==='covered-raw')state.engineResponse.lines=[{category:'AIR_HANDLING',amount:123,currency:'XOF',bloc:'operationnel',source:{type:'internal'},
@@ -610,4 +611,24 @@ for (const mutation of ['rates','candidates','regime']) Deno.test(`HS equivalenc
   assertEquals(state.tables.pricing_runs.some(r => r.status === 'success'),false);
   assertEquals(JSON.stringify(state.tables.quote_facts),before);
   assertEquals(state.tables.quotation_versions.length,0);
+}));
+
+Deno.test('AIR full catalogue and ordinary storage reach run, immutable version and PDF without supplier selling leakage',async()=>fixture(async state=>{
+  selectSyntheticAirProfile(state);
+  state.airState!.catalogue={id:'catalogue-v2',parent_id:null,revision:1,effective_from:'2026-10-16',effective_to:null,source_reference:'Synthetic full source catalogue',payload:structuredClone(airTariffSeed)};
+  state.airState!.basis={general_cargo_confirmed:true,warehouse_bracket_confirmed:true,ordinary_storage:{enabled:true,tariff_key:'storage_0',weight_fact_id:'cargo.weight_kg',billable_days:2,days_status:'confirmed',source_reference:'Synthetic confirmed gross weight and billable days'}};
+  state.airState!.selection.profile_id=null;
+  state.tables.quote_facts.find(f=>f.fact_key==='cargo.weight_kg')!.is_validated=true;
+  const historical=JSON.stringify(state.tables.quotation_versions);
+  const response=await state.invoke('run-pricing',{case_id:'fixture-case',allow_provisional:true});assertEquals(response.status,200,JSON.stringify(response.body));
+  const run=state.tables.pricing_runs.find(r=>r.status==='success')!,line=run.tariff_lines.find((l:Row)=>l.category==='AIR_HANDLING');
+  assertEquals(line.amount,null);assertEquals(line.source.air_handling.schema_version,2);assertEquals(line.source.air_handling.components.at(-1).supplier_ht_xof,7600);
+  assertEquals(line.source.air_handling.supplier_known_ht_xof,42020);assertEquals(run.inputs_json.airHandling.catalogue.payload.entries.length,180);
+  assert(state.calls.some(c=>c.includes('air_tariff_finish')));assertEquals(JSON.stringify(state.tables.quotation_versions),historical);
+  const version=await state.invoke('generate-quotation-version',{case_id:'fixture-case',pricing_run_id:run.id});assertEquals(version.status,200,JSON.stringify(version.body));
+  const snapshot=state.tables.quotation_versions[0].snapshot,pinned=snapshot.raw_lines.find((l:Row)=>l.category==='AIR_HANDLING').source.air_handling;
+  assertEquals(pinned.catalogue.payload.entries.length,180);assertEquals(pinned.basis.ordinary_storage.billable_days,2);
+  const before=JSON.stringify(snapshot);state.airState!.catalogue.payload.entries.find((e:Row)=>e.key==='storage_0').value=999;
+  assertEquals(JSON.stringify(snapshot),before);const text=await pdfText(await generateDraftPdf(snapshot,'SYNTHETIC-FULL-AIR'));
+  assertStringIncludes(text,'confirmer');assert(!text.includes('42020'));assert(!text.includes('7600'));
 }));
