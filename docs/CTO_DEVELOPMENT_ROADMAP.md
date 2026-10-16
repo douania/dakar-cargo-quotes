@@ -240,7 +240,7 @@ Règles non négociables :
 
 - GO humain : applicabilité CargoSpot chez 2AS, réalisation et exception STRUCTURAL_PATCH_ALLOWED AIR_HANDLING ; GO distinct du16/10 pour commit/push, migration, trois fonctions, interface privée et recette Chrome, sans publication publique.
 - Profils fournisseur et sélections dossier append-only ; admission/rôle tarifaire existants, idempotence/CAS et sources conservées ; validité prospective depuis le16/10, aucune date passée déduite de «2024».
-- Import DSS general cargo mono-lot explicite, taxable validé sous1000kg : collecte20/kg, sécurité10/kg ; documents25000, passage6000 sous attestation séparée, informatique1500. Aucune nature ni base de poids inventée.
+- Import DSS general cargo mono-lot explicite, taxable validé sous1000kg : collecte20/kg, sécurité10/kg ; documents25000, taxe fixe magasin DMS6000 sous attestation séparée, informatique1500. Aucune nature ni base de poids inventée.
 - Achat HT distinct de la vente ; TVA/ANACIM/timbre, magasinage, tranches supérieures et vente à confirmer, exclus du payable. Trois exemples34420/48850/40540HT reproduits localement et via simulation Edge dans Chrome ; aucun TTC fournisseur forcé.
 - Grille relue en texte Library ; LTA/factures selon deux lectures indépendantes du parent, pixels non lus ici (copie Library Windows indisponible). Dossier médicaments sans taxable conservé inconnu.
 - UI : cinq paramètres et dates modifiables par tariff_admin en nouvelle révision ; session non-admin réellement en lecture seule. Sauvegarde admin10tests UI et SQL PASS ; recette de sauvegarde avec session admin existante encore NOT_RUN, réponse humaine attendue.
@@ -253,6 +253,22 @@ Règles non négociables :
 - Fixture identifiée TEST_AIR_HANDLING_20261016/5dd749bf seule :8faits fictifs,1sélection494cc1a8,1run24e66e77,1version9ace6e97 DRAFT et1PDFfb241b82 ; coût achat34420HT figé, payable partiel649000 hors3réserves. PDF3921octets téléchargé/rendu2pages, aucun coût fournisseur divulgué.
 - Historiques hors fixture identiques :22versions/247lignes/1550faits/194runs/20PDF et cinq empreintes inchangés. Original C:/Users/DELL/Projects/dakar-cargo-quotes/deux docs/.claude préservés. Preuves/CI/diff/recevabilité finale : task-3/air-handling-20261016.
 - Retour ciblé UI puis trois fonctions sous GO ; conserver profils/sélections, anciens devis et snapshots. Privilégier correction en avant ; aucun retour aux règles inconnues ni suppression de preuve tarifaire.
+
+### 2.15 Catalogue aérien complet et magasinage ordinaire — clôture privée du 16 octobre 2026
+
+- GO humain : réaliser/tester/déployer le complément privé ; exception STRUCTURAL_PATCH_ALLOWED limitée au raccord AIR_HANDLING et à ses bases ; anciens devis, autres moteurs, rôles/secrets et publication générale préservés.
+- Cinq feuilles CargoSpot transcrites :180 entrées,6 natures ×4 colonnes,54 codes textuels,24 tarifs frigo +2 pourcentages non libellés,15 services annexes, taxes et23 références du simulateur ; blancs et contradiction export conservés, aucune formule Excel présumée.
+- Catalogue et bases append-only, provenance immuable, révision complète avec idempotence/CAS ; administration de montant/unité/minimum/bornes/franchise/seuil/condition/qualification ; toute condition non prise en charge reste réservée.
+- Sélection canonique commune v1/v2 ; wrapper v1 refuse une sélection v2 ; clôture service-only atomique et trigger bloquent les anciens workers, preuves altérées ou contexte périmé. Audit PSL best-effort non consommé pour les prix ; il ne prouve pas la sélection.
+- Magasinage depuis tarif enregistré × fait de poids explicitement choisi × jours facturables sourcés ; hypothèse estimée séparément, inconnue non assimilée à zéro ; aucune franchise ordinaire/assiette/arrondi/vente automatiquement déduit. DMS6000 distinct du PMG dont la colonne initiale est vide.
+- Backend99360b2, types plateforme645fe32 (+124/−3 seulement), frontend6c14b92 ; CI GitHub38934363007 SUCCESS. Migration20261016160000 appliquée, seed180 et source du registre exacts, RLS active ; trois fonctions déployées depuis arbre0f4c6d7d, accusés natifs conservés.
+- CI locale complète PASS :765Vitest/61fichiers,2216Deno/0échec/6ignorés, typecheck/build PASS ; types Deno49/5 et lint720/16 sans aggravation. Contre-revue indépendante17UI/106Deno et19SQL PASS ; banc autonome supabase/tests/air_tariff_catalogue.cjs :12 groupes PostgreSQL15.18 PASS, vrais chevauchements, isolation réseau et nettoyage vérifiés.
+- Recette administrateur intégrée : révision TEST7de26ad3,2099-01-01→02,8 familles modifiées dont minimum/franchise ;180 entrées et sources conservées, aucune sélection de cette révision future. Catalogue courant1 inchangé ; aucun nouveau compte ni transfert de session.
+- Fixture seule TEST_FULL_AIR_CATALOGUE_20261016/9c7460a1 :8faits,2sélections (hypothèse puis confirmation),1run dd995c58 success/partial,1version ee076de4 DRAFT ;64kg×20×2=2560, achat connu34420 puis36980HT ; payable649000 inchangé, frais fournisseur/taxes/vente réservés.
+- Snapshot v1 conserve catalogue180/bases/sélection90786309 et preuve du run exacte ; PDF27f288a0 de3920octets téléchargé à hash identique46a4f70b… et rendu2pages, partiel/réserves visibles, aucun achat divulgué, aucun envoi. Génération/téléchargement ne réécrivent pas le snapshot.
+- Hors fixture,23versions/252lignes/1558faits/195runs/21PDF/2anciensprofils/1ancienchoix et leurs7empreintes identiques avant/après ; dépôt original/deux docs/.claude inchangés. Coupure réseau reprise sans doublon ; maintiens éveillés libérés, aucun arrêt du PC ni réglage de sécurité/énergie modifié.
+- Limites : achat handling calculable mais prix de vente client non implémenté sans politique approuvée ; dossier médicaments1d6202e8 inchangé, dernier calcul15/10 sans sélection ni taxable/HS/valeur/régime confirmés. Fiscalité, tranches ambiguës et frigo progressif réservés ; métadonnées binaires Edge non exposées ; audit UI118 dont2nouveaux faux positifs Radix, aucune conformité globale revendiquée.
+- Preuves/accusés/diff/recettes : task-3/air-full-tariff-20261016. Retour : nouvelle sélection v1 ou désactivation explicite avant retour des fonctions/UI ; conserver catalogue, bases, profils, snapshots et artefacts historiques ; correction en avant privilégiée.
 
 ## 3. Travaux vérifiés comme terminés
 
