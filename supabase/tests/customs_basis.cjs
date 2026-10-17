@@ -22,8 +22,8 @@ async function wait(name,kind){for(let i=0;i<60;i++){const values=JSON.parse(sql
  CREATE TABLE app_roles(user_id uuid,role text,CONSTRAINT app_roles_role_check CHECK(role IN('role_admin','workspace_operator')));
  CREATE TABLE quote_cases(id uuid PRIMARY KEY,created_by uuid,assigned_to uuid,status text,request_type text,thread_id uuid);
  CREATE TABLE quote_facts(id uuid PRIMARY KEY,case_id uuid REFERENCES quote_cases(id),fact_key text,value_text text,value_number numeric,value_json jsonb,is_current boolean DEFAULT true);
- CREATE TABLE quote_request_lines(id uuid PRIMARY KEY,case_id uuid REFERENCES quote_cases(id));
- CREATE TABLE emails(id uuid PRIMARY KEY,thread_ref uuid);CREATE TABLE email_attachments(id uuid PRIMARY KEY,email_id uuid REFERENCES emails(id),filename text,extracted_data jsonb);
+ CREATE TABLE quote_request_lines(id uuid PRIMARY KEY,case_id uuid REFERENCES quote_cases(id),line_index integer,line_label text,source_email_id uuid);
+ CREATE TABLE emails(id uuid PRIMARY KEY,thread_ref uuid,sent_at timestamptz,received_at timestamptz,subject text,body_text text);CREATE TABLE email_attachments(id uuid PRIMARY KEY,email_id uuid REFERENCES emails(id),filename text,extracted_data jsonb,created_at timestamptz DEFAULT now());
  CREATE TABLE hs_codes(code_normalized text PRIMARY KEY,tax_profile_status text,tax_evidence jsonb);
  CREATE TABLE customs_regimes(code text PRIMARY KEY,is_active boolean);
  CREATE TABLE pricing_runs(id uuid PRIMARY KEY,case_id uuid,created_by uuid,engine_request jsonb,engine_response jsonb,outputs_json jsonb,status text);
@@ -32,16 +32,32 @@ async function wait(name,kind){for(let i=0;i<60;i++){const values=JSON.parse(sql
  INSERT INTO app_roles VALUES('${u}','workspace_operator'),('${u2}','workspace_operator'),('${u4}','workspace_operator');
  INSERT INTO quote_cases VALUES('${c}','${u}',NULL,'QUOTED_VERSIONED','AIR_IMPORT','${thread}');
  INSERT INTO quote_facts(id,case_id,fact_key,value_text) VALUES('${id(30)}','${c}','service.package','AIR_IMPORT_DDP'),('${id(31)}','${c}','routing.incoterm','DDP');
- INSERT INTO emails VALUES('${id(32)}','${thread}');INSERT INTO email_attachments VALUES('${attachment}','${id(32)}','SYNTHETIC.pdf','{"extracted_info":{"hs_code":"3004.9099","payment_terms":"FOC"}}');
+ INSERT INTO emails VALUES('${id(32)}','${thread}','2026-10-08T12:24:54Z','2026-10-09T11:50:54Z','SYNTHETIC source','Current request\nFrom: historical@example.invalid\nOLD LOT');INSERT INTO email_attachments(id,email_id,filename,extracted_data) VALUES('${attachment}','${id(32)}','SYNTHETIC.pdf','{"extracted_info":{"hs_code":"3004.9099","payment_terms":"FOC"}}');
  INSERT INTO hs_codes VALUES('3004909000','unknown',NULL);INSERT INTO customs_regimes VALUES('TEST',true);
  GRANT USAGE ON SCHEMA auth,public TO anon,authenticated,service_role;`);
  const security=fs.readFileSync(path.join(repo,'supabase/migrations/20261007120000_internal_workspace_access.sql'),'utf8').split('-- RESTRICTIVE')[0];sql(security+'\nCOMMIT;');
  const commercial=fs.readFileSync(path.join(repo,'supabase/migrations/20261017120000_commercial_revisions.sql'),'utf8');
  for(const name of ['commercial_actor_guard','commercial_immutable']){const match=commercial.match(new RegExp('CREATE FUNCTION public\\.'+name+'\\([\\s\\S]*?END; \\$\\$;'));assert(match,name);sql(match[0]);}
  sql(fs.readFileSync(path.join(repo,'supabase/migrations/20261017160000_customs_basis.sql'),'utf8'));
+ const oldContext=JSON.parse(sql(`SELECT customs_basis_context('${c}')`));
+ const aclBefore=sql("SELECT oid::text||':'||proacl::text FROM pg_proc WHERE oid='public.customs_basis_context(uuid)'::regprocedure");
+ sql(fs.readFileSync(path.join(repo,'supabase/migrations/20261017170000_customs_source_provenance.sql'),'utf8'));
  const decision={source_attachment_ids:[attachment],caf_xof:100000,valuation_basis:'SYNTHETIC operator retained CAF and FX evidence',hs_digits:'3004909000',regime_code:'TEST',exemptions_reviewed:true,commitment:'estimated',note:'SYNTHETIC private note'};
  const read=()=>JSON.parse(sql(settings('authenticated')+`SELECT customs_basis_read('${c}');`));
  let state=read();const oldFacts=sql('SELECT md5(jsonb_agg(to_jsonb(f) ORDER BY id)::text) FROM quote_facts f');
+ check('Source provenance migration preserves ACL/function identity and old context, adds own email/date context',()=>{
+  assert.equal(sql("SELECT oid::text||':'||proacl::text FROM pg_proc WHERE oid='public.customs_basis_context(uuid)'::regprocedure"),aclBefore);
+  assert.equal(oldContext.proposal_schema_version,undefined);assert.equal(state.context.proposal_schema_version,2);
+  const a=state.context.attachments[0];assert.equal(a.email_id,id(32));assert.equal(a.email_subject,'SYNTHETIC source');assert(a.email_sent_at.startsWith('2026-10-08'));
+  assert.equal(state.context.scope.case_id,c);assert.deepEqual(state.context.scope.request_lines,[]);
+ });
+ check('Email provenance and single-lot context changes invalidate the same CAS fingerprint',()=>{
+  const prior=state.context_hash;sql(`UPDATE emails SET subject='SYNTHETIC changed context' WHERE id='${id(32)}'`);assert.notEqual(read().context_hash,prior);
+  sql(`UPDATE emails SET subject='SYNTHETIC source' WHERE id='${id(32)}'`);assert.equal(read().context_hash,prior);
+  sql(`INSERT INTO quote_request_lines VALUES('${id(33)}','${c}',1,'SYNTHETIC lot A','${id(32)}')`);const single=read();assert.equal(single.context.scope.request_lines[0].line_label,'SYNTHETIC lot A');
+  sql(`UPDATE quote_request_lines SET line_label='SYNTHETIC lot B' WHERE id='${id(33)}'`);assert.notEqual(read().context_hash,single.context_hash);
+  sql(`DELETE FROM quote_request_lines WHERE id='${id(33)}'`);assert.equal(read().context_hash,prior);
+ });
  const save=(id,parent=null,d=decision,hash=state.context_hash,actor=u)=>`SELECT customs_basis_store('${actor}','${c}','${id}',${parent?q(parent):'NULL'},${q(hash)},${j(d)});`;
  check('Existing admission/ownership and client ACL preserved',()=>{
   for(const actor of [u3,u4])refused(settings('authenticated',actor)+`SELECT customs_basis_read('${c}');`,/forbidden/);

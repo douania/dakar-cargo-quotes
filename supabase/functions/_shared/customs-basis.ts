@@ -1,5 +1,6 @@
 /** Explicit operator valuation; never promotes documentary FOC/HS into client facts. */
 import { documentCargoEvidence } from './cargo-source-evidence.ts';
+import { documentaryCustomsProposals, assertDocumentarySources } from './customs-source-proposals.ts';
 import { equivalentHsTaxation, HS_TAX_BASIS_VERSION, HS_TAX_FIELDS, type TaxRow } from './hs-tax-profile.ts';
 
 export type CustomsRow = Record<string, unknown>;
@@ -17,6 +18,7 @@ export interface CustomsDecision {
   note: string;
 }
 export interface CustomsContext {
+  proposal_schema_version?: number;
   attachments: CustomsRow[];
   profiles: TaxRow[];
   regimes: TaxRow[];
@@ -38,7 +40,7 @@ export function validateCustomsDecision(value: unknown): CustomsDecision {
   return structuredClone(d) as unknown as CustomsDecision;
 }
 export function customsProposals(context: CustomsContext) {
-  return context.attachments.map(a => ({ attachment_id: String(a.id), filename: String(a.filename), ...documentCargoEvidence(a.extracted_data) }));
+  return documentaryCustomsProposals(context);
 }
 const regimeFlags = ['dd','stx','rs','tin','tva','cosec','pcs','pcc','tpast','ta','hors_promad','hors_bic'];
 function supportedProfile(p: TaxRow, regime: string): boolean {
@@ -53,6 +55,10 @@ export function assessCustomsDecision(d: CustomsDecision, context: CustomsContex
   if (!/^AIR_IMPORT(?:_|$)/.test(String(context.scope.request_type)) || Number(context.scope.lot_count) > 1 ||
     context.scope.package !== 'AIR_IMPORT_DDP' || context.scope.incoterm !== 'DDP') return {eligible:false,reason:'Périmètre aérien DDP mono-lot requis'};
   if (d.source_attachment_ids.some(id => !context.attachments.some(a => a.id === id))) throw new Error('Pièce source absente du dossier');
+  if (context.proposal_schema_version === 2) {
+    try { assertDocumentarySources(d.source_attachment_ids, context); }
+    catch { return {eligible:false,reason:'Sources documentaires à revoir : pièce sans preuve exploitable ou contexte ambigu'}; }
+  }
   const regime = context.regimes.find(r => r.code === d.regime_code);
   if (!regime || regime.is_active !== true || !regimeFlags.every(k => typeof regime[k] === 'boolean')) return {eligible:false,reason:'Régime actif complet non justifié'};
   if (d.hs_digits.length === 10) {
@@ -68,13 +74,16 @@ export function assessCustomsDecision(d: CustomsDecision, context: CustomsContex
 }
 export interface CustomsBasisSnapshot {
   schema_version: 1; id: string; case_id: string; revision: number; context_hash: string;
-  created_by: string; created_at: string; decision: CustomsDecision; sources: ReturnType<typeof customsProposals>;
+  created_by: string; created_at: string; decision: CustomsDecision; sources: Array<{attachment_id:string;filename:string;[key:string]:unknown}>;
   assessment: ReturnType<typeof assessCustomsDecision>;
 }
 export function customsBasisSnapshot(record: CustomsRow, context: CustomsContext): CustomsBasisSnapshot {
   const decision = validateCustomsDecision(record.decision);
+  // Immutable legacy contexts keep their original projection, including previously retained sources.
+  const sources = context.proposal_schema_version === 2 ? customsProposals(context)
+    : context.attachments.map(a => ({attachment_id:String(a.id),filename:String(a.filename),...documentCargoEvidence(a.extracted_data)}));
   return readCustomsBasisSnapshot({schema_version:1,id:record.id,case_id:record.case_id,revision:record.revision,context_hash:record.context_hash,
-    created_by:record.created_by,created_at:record.created_at,decision,sources:customsProposals(context).filter(p => decision.source_attachment_ids.includes(p.attachment_id)),
+    created_by:record.created_by,created_at:record.created_at,decision,sources:sources.filter(p => decision.source_attachment_ids.includes(p.attachment_id)),
     assessment:assessCustomsDecision(decision,context)})!;
 }
 export function readCustomsBasisSnapshot(value: unknown): CustomsBasisSnapshot | null {

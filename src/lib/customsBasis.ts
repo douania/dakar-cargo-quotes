@@ -1,4 +1,5 @@
 export { validateCustomsDecision, type CustomsDecision, type CustomsBasisSnapshot } from '../../supabase/functions/_shared/customs-basis';
+export type { CustomsSourceProposal, CustomsSourceGroup } from '../../supabase/functions/_shared/customs-source-proposals';
 /** Private to the caller; do not stringify opaque SDK errors or credentials. */
 export async function customsResponse(result: {data: unknown;error: {message?: string;context?: unknown}|null}) {
   if(result.error){let message='Opération indisponible. Votre saisie est conservée.';

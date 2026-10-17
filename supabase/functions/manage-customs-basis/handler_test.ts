@@ -38,11 +38,42 @@ Deno.test('Customs actual HTTP adoption derives actor server-side and persists a
    if(name==='has_workspace_access')data=true;
    if(name==='customs_basis_read')data={context:f.context,context_hash:f.record.context_hash,head:null,can_write:true};
    if(name==='customs_basis_store'){assertEquals(body.p_actor,f.record.created_by);assertEquals(body.p_decision,f.decision);assertEquals(body.p_parent,null);stored=true;data=f.record;}
-   if(name==='quote_customs_basis'){assert(stored);assertEquals(url.searchParams.get('case_id'),'eq.'+f.record.case_id);data={...f.record,context:f.context};}
+   if(name==='quote_customs_basis'){assertEquals(url.searchParams.get('case_id'),'eq.'+f.record.case_id);if(url.searchParams.get('select')!=='id'){assert(stored);data={...f.record,context:f.context};}}
    return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
  };
  try{
   const result=await handleCustomsBasis(new Request('https://fixture.invalid/functions/v1/manage-customs-basis',{method:'POST',headers:{Authorization:'Bearer synthetic-token'},body:JSON.stringify({action:'adopt',case_id:f.record.case_id,id:f.record.id,parent_id:null,context_hash:f.record.context_hash,decision:f.decision})}));
   assertEquals(result.status,200);const body=await result.json();assertEquals(body.basis.created_by,f.record.created_by);assertEquals(body.basis.assessment.eligible,false);assert(!calls.some(c=>c.includes('quote_facts')));assertEquals(calls.filter(c=>c==='POST:customs_basis_store').length,1);
+ }finally{globalThis.fetch=oldFetch;keys.forEach((k,i)=>old[i]===undefined?Deno.env.delete(k):Deno.env.set(k,old[i]!));}
+});
+for(const mode of ['logo','ambiguous','different-lots','replay','resolved-same-shipment'] as const)Deno.test(`Customs actual HTTP source guard: ${mode}`,async()=>{
+ const f=syntheticCustoms(),storedContext=structuredClone(f.context);f.context.proposal_schema_version=2;
+ const doc=(ref:string)=>({doc_type:'commercial_invoice',extracted_info:{invoice_no:ref,total_amount:321,total_currency:'EUR',hs_code:'3004.9099'}});
+ if(mode==='logo'||mode==='replay')f.context.attachments[0].extracted_data={type:'logo',extracted_info:{hs_code:'999999'}};
+ if(mode==='ambiguous')f.context.attachments[0].extracted_data={documents:[doc('A'),doc('B')]};
+ if(mode==='different-lots'){
+  f.context.attachments[0].extracted_data={documents:[doc('A')]};
+  f.context.attachments.push({id:'00000099-1111-4111-8111-111111111111',filename:'SYNTHETIC-other-lot.pdf',extracted_data:{documents:[doc('B')]}});
+  f.decision.source_attachment_ids.push(String(f.context.attachments[1].id));
+ }
+ if(mode==='resolved-same-shipment'){
+  f.context.attachments[0].extracted_data={documents:[doc('A')]};
+  f.context.attachments.push({id:'00000099-1111-4111-8111-111111111111',filename:'SYNTHETIC-conflict-same-shipment.pdf',extracted_data:{documents:[{...doc('A'),extracted_info:{...doc('A').extracted_info,hs_code:'999999',total_amount:999}}]}});
+  f.decision.source_attachment_ids.push(String(f.context.attachments[1].id));f.decision.note='SYNTHETIC explicit resolution: retain HS30049099 and reject999999; retained CAF justified separately.';
+ }
+ const oldFetch=globalThis.fetch,keys=['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY'],old=keys.map(k=>Deno.env.get(k));let stores=0;
+ keys.forEach((k,i)=>Deno.env.set(k,i===0?'https://fixture.invalid':'synthetic-not-a-real-key'));
+ globalThis.fetch=async(input,init)=>{const url=new URL(String(input)),name=url.pathname.split('/').pop();assertEquals(url.hostname,'fixture.invalid');let data:unknown=null;
+  if(url.pathname==='/auth/v1/user')data={id:f.record.created_by};if(name==='has_workspace_access')data=true;
+  if(name==='customs_basis_read')data={context:f.context,context_hash:f.record.context_hash,head:null,can_write:true};
+  if(name==='quote_customs_basis')data=url.searchParams.get('select')==='id'?(mode==='replay'?{id:f.record.id}:null):{...f.record,context:mode==='replay'?storedContext:f.context};
+  if(name==='customs_basis_store'){stores++;data=f.record;}
+  return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
+ };
+ try{
+  const result=await handleCustomsBasis(new Request('https://fixture.invalid/functions/v1/manage-customs-basis',{method:'POST',headers:{Authorization:'Bearer synthetic-token'},body:JSON.stringify({action:'adopt',case_id:f.record.case_id,id:f.record.id,parent_id:null,context_hash:f.record.context_hash,decision:f.decision})}));
+  const success=mode==='replay'||mode==='resolved-same-shipment';assertEquals(result.status,success?200:400);assertEquals(stores,success?1:0);
+  if(mode==='replay')assertEquals((await result.json()).basis.sources[0].filename,'SYNTHETIC-FOC.pdf');
+  if(mode==='resolved-same-shipment'){const basis=(await result.json()).basis;assertEquals(basis.sources.length,2);assertEquals(basis.decision.note,f.decision.note);assertEquals(basis.assessment.eligible,true);}
  }finally{globalThis.fetch=oldFetch;keys.forEach((k,i)=>old[i]===undefined?Deno.env.delete(k):Deno.env.set(k,old[i]!));}
 });

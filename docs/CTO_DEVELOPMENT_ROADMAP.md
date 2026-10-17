@@ -330,6 +330,21 @@ Règles non négociables :
 - PDF synthétique local4043octets, SHA256f318cfb0696c8c67b94ac571ef79abb3e0d8438a28a59ed03c0d59bce5a312bd : texte/rendu2pages inspectés, CAF100000, droits13420, TVA honoraires126, payable14246 ; aucune donnée/taxe réelle certifiée.
 - Limites : fiscalité réelle du dossier médicaments à justifier ; recette Cloud/navigateur connecté NOT_RUN, autonomie non démontrée. Audit UI strict120 constats =119 préexistants +1 faux positif sur Select Radix partagé ; aucune conformité UI globale revendiquée.
 - Migration20261017160000 locale seulement. Préserver les historiques ; retour arrière local par patch isolé après inspection, sans supprimer les décisions append-only après une éventuelle future livraison. Original et docs préexistants préservés ; preuves dans task-3/procedure-reprise-20261017.
+### 2.20 Propositions documentaires pertinentes — clôture locale du 17 octobre 2026
+
+- GO weekend transmis : corrections/tests/contre-revue puis commit/push, migration bornée et livraison privée ; aucun envoi, publication générale, changement de compte/rôle/secret ni adoption fiscale réelle.
+- Base af17117 alignée GitHub/Lovable ; le lot précédent95bff0e est livré (migration160000,7fonctions,CI39049461363 PASS). Ses limites métier et de recette restent ouvertes.
+- Défaut :12pièces du fil toutes proposées/cochées, dont10logos/temporaires/sans extraction ; provenance/date absentes, sous-documents et résumés aplatis susceptibles de mélanger les données.
+- Projection séparée par document, pièce/date/page/référence et courriel propre sans citations ; motifs FOC déclaratif/HS/montants/colisage, écarts visibles, aucune donnée fiscale inventée.
+- Préparation groupée par référence explicite, sans priorité au premier ou au plus récent : sources et HS documentaire seulement ; CAF/justifications conservées, attestation et ancien calcul invalidés, aucun appel d'adoption/pricing.
+- Garde serveur : sources incompatibles/citées/composites ambiguës ou résumé global contradictoire refusés ; même référence et écarts HS/montants arbitrables par décision/justifications existantes historisées. Poids/dimensions restent à valider séparément.
+- Migration170000 : remplace seulement customs_basis_context pour la provenance et le contexte de lot ; OID/ACL inchangés, empreinte CAS enrichie, décisions et projections historiques intactes.
+- npm run ci final exit0 :810Vitest,2271Deno/0échec/6ignorés ; types app/node/build PASS, Deno49/5 et lint720/16 sans aggravation. Ciblés45Deno/13Vitest, types dédiés PASS.
+- PostgreSQL natif15.18/11groupes et contre-revue indépendante finale PASS ; rejeu, ACL, rollback, concurrence réelle et nouveaux champs CAS vérifiés. Audit UI120constats inchangés,74violations préexistantes ; Select Radix faussement signalé natif.
+- Inspection en lecture seule des12pièces réelles : PL/INV proposées avec motifs et préparation groupée ;10écartées, FOC101,96EUR et composants conservés, aucune CAF retenue ni mutation du dossier.
+- Activation du présent delta préparée après ces contrôles ; état effectif, commits, reçus migration/déploiement et CI distante dans task-3/documentary-proposals-20261017/checkpoint.json. Recette connectée bloquée signed_out ; fiscalité réelle non validée.
+- Retour : correction en avant privilégiée ; revert ciblé/redéploiement sans supprimer de décision append-only ou d'historique. Original, ses deux docs et .claude préservés ; anti-veille existant maintenu, aucune automatisation installée.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
