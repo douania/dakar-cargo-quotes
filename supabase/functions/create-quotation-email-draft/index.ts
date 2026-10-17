@@ -227,7 +227,9 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
 
   // New snapshots distinguish supplier-TTC debours from SODATRA VAT. Legacy
   // snapshots retain the historical HT wording below.
-  if (totalPresentation.isDetailed) {
+  if (!totalPresentation.hasPayable) {
+    parts.push('', 'Total à payer : à confirmer. Aucun total chiffré ; les postes inconnus ne sont pas gratuits.');
+  } else if (totalPresentation.isDetailed) {
     parts.push("");
     const subtotalQualifier = qualification.level === "firm"
       ? ""

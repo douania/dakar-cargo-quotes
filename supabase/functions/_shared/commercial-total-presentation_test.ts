@@ -12,6 +12,7 @@ Deno.test("detailed totals keep supplier-TTC debours outside the SODATRA VAT lab
   });
 
   assertEquals(result, {
+    hasPayable: true,
     isDetailed: true,
     subtotalBeforeSodatraVat: 432600,
     honorairesVat: 18000,
@@ -28,6 +29,7 @@ Deno.test("legacy snapshots retain their historical total fields", () => {
   });
 
   assertEquals(result, {
+    hasPayable: true,
     isDetailed: false,
     subtotalBeforeSodatraVat: 250000,
     honorairesVat: null,

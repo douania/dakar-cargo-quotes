@@ -768,6 +768,8 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     currentPage.drawText(sanitize(`TOTAL INDICATIF TTC (NON FERME): ${formatAmount(scenarioContext.indicativeTotalTtc)} ${scenarioContext.currency}`), {
       x: margin, y, size: 12, font: fontBold, color: draftRed,
     });
+  } else if (!totalPresentation.hasPayable) {
+    currentPage.drawText(sanitize('TOTAL A PAYER : A CONFIRMER - AUCUN TOTAL CHIFFRE'), {x:margin,y,size:11,font:fontBold,color:draftRed});
   } else if (totalPresentation.isDetailed) {
     const subtotalLabel = getTotalLabel(qualification).replace('TOTAL HT', 'SOUS-TOTAL AVANT TVA SODATRA');
     currentPage.drawText(sanitize(`${subtotalLabel}: ${formatAmount(totalPresentation.subtotalBeforeSodatraVat)} ${totalPresentation.currency}`), {

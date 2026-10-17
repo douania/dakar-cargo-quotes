@@ -1,4 +1,5 @@
 export interface CommercialTotalPresentation {
+  hasPayable: boolean;
   isDetailed: boolean;
   subtotalBeforeSodatraVat: number;
   honorairesVat: number | null;
@@ -7,6 +8,7 @@ export interface CommercialTotalPresentation {
 }
 
 function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -22,6 +24,7 @@ export function resolveCommercialTotalPresentation(
   const isDetailed = detailedSubtotal !== null && detailedPayable !== null;
 
   return {
+    hasPayable: safeTotals.commercial_amounts !== true || detailedPayable !== null,
     isDetailed,
     subtotalBeforeSodatraVat: isDetailed ? detailedSubtotal : legacySubtotal,
     honorairesVat: isDetailed

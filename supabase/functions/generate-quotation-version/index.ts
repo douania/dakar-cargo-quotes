@@ -20,6 +20,7 @@ import { readOperatorBasis, type OperatorQuotationBasis } from "../_shared/opera
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
+import { generateCommercialVersion } from "../_shared/commercial-service.ts";
 import {
   getCorrelationId,
   respondOk,
@@ -197,7 +198,14 @@ Deno.serve(async (req) => {
     userId = auth.user.id;
 
     // ── Parse body ───────────────────────────────────────
-    const { case_id, pricing_run_id } = await req.json();
+    const { case_id, pricing_run_id, commercial_revision_id } = await req.json();
+    if (commercial_revision_id !== undefined) {
+      try { return await generateCommercialVersion(auth, case_id, commercial_revision_id, correlationId); }
+      catch (error) {
+        const e = error as Error & { status?: number };
+        return await fail(serviceClient, e.status === 409 ? 'CONFLICT_INVALID_STATE' : e.status === 403 ? 'FORBIDDEN_OWNER' : 'VALIDATION_FAILED', e.message, correlationId, t0, userId);
+      }
+    }
     if (!case_id) {
       return await fail(serviceClient, "VALIDATION_FAILED", "case_id is required", correlationId, t0, userId);
     }
@@ -261,6 +269,7 @@ Deno.serve(async (req) => {
       .select("id, version_number, snapshot, is_selected")
       .eq("case_id", case_id)
       .eq("pricing_run_id", pricingRun.id)
+      .is("commercial_revision_id", null)
       .order("version_number", { ascending: false })
       .limit(1)
       .maybeSingle();

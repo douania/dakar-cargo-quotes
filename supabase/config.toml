@@ -1,5 +1,8 @@
 project_id = "snjewofqxfsdmaszapux"
 
+[functions.manage-commercial-preparation]
+verify_jwt = false
+
 [functions.chat]
 verify_jwt = false
 

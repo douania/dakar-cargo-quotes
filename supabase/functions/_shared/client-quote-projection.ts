@@ -84,6 +84,12 @@ export function classifyClientLine(line: unknown, raw: unknown, index = 0): Clie
   const type = sourceType(line);
   const reference = str(source.reference);
   const amount = num(l.amount);
+  const commercial = row(l.commercial);
+  if (typeof commercial.line_id === 'string') {
+    if (commercial.included === false) return { index, status:'excluded',label:'Retiré par l’opérateur',amountText:'Exclu' };
+    if (amount === null || isToConfirmLine(l)) return { index,status:'to_confirm',label:'À confirmer',amountText:'À confirmer' };
+    return {index,status:'estimated',label:commercial.customs_estimate===true ? 'Provision douanière estimée, sans validation fiscale' : commercial.storage_estimate===true ? 'Magasinage estimé sous hypothèse de jours' : 'Montant retenu, estimatif et révisable',amountText:amount===0?'0 (montant explicitement retenu)':null};
+  }
   const category = str(l.category ?? r.category);
   const stay = row(r.stay_information ?? l.stay_information);
   const legacyDays = /franchise[^:]*:\s*(\d+)\s*jours/i.exec(str(l.description))?.[1];
@@ -580,6 +586,7 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
 
   // --- Conditions générales ---
   const general: string[] = [];
+  if (row(snapshot.commercial).schema_version === 1) general.push('Décisions commerciales opérateur ; montants estimatifs et révisables. Une provision douanière ne valide ni classement ni taux fiscal.');
   if (projected.some(l => l.status === "estimated")) general.push(lines.some(l => tariffReferenceNotice(sourceOf(l)))
     ? "Les montants provisoires ou estimés sont compris dans le total mais ne sont pas fermes."
     : "Les montants « Estimé » sont compris dans le total mais ne sont pas fermes.");
