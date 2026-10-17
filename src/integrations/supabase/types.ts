@@ -5878,7 +5878,7 @@ export type Database = {
       }
       quotation_version_lines: {
         Row: {
-          amount: number
+          amount: number | null
           breakdown: Json | null
           created_at: string
           currency: string
@@ -5888,10 +5888,10 @@ export type Database = {
           quantity: number
           quotation_version_id: string
           service_code: string
-          unit_price: number
+          unit_price: number | null
         }
         Insert: {
-          amount?: number
+          amount?: number | null
           breakdown?: Json | null
           created_at?: string
           currency?: string
@@ -5901,10 +5901,10 @@ export type Database = {
           quantity?: number
           quotation_version_id: string
           service_code: string
-          unit_price?: number
+          unit_price?: number | null
         }
         Update: {
-          amount?: number
+          amount?: number | null
           breakdown?: Json | null
           created_at?: string
           currency?: string
@@ -5914,7 +5914,7 @@ export type Database = {
           quantity?: number
           quotation_version_id?: string
           service_code?: string
-          unit_price?: number
+          unit_price?: number | null
         }
         Relationships: [
           {
@@ -5929,6 +5929,7 @@ export type Database = {
       quotation_versions: {
         Row: {
           case_id: string
+          commercial_revision_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -5942,6 +5943,7 @@ export type Database = {
         }
         Insert: {
           case_id: string
+          commercial_revision_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -5955,6 +5957,7 @@ export type Database = {
         }
         Update: {
           case_id?: string
+          commercial_revision_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -5972,6 +5975,13 @@ export type Database = {
             columns: ["case_id"]
             isOneToOne: false
             referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotation_versions_commercial_revision_id_fkey"
+            columns: ["commercial_revision_id"]
+            isOneToOne: false
+            referencedRelation: "quote_commercial_revisions"
             referencedColumns: ["id"]
           },
           {
@@ -6052,6 +6062,70 @@ export type Database = {
             columns: ["thread_id"]
             isOneToOne: true
             referencedRelation: "email_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_commercial_revisions: {
+        Row: {
+          case_id: string
+          context_hash: string
+          created_at: string
+          created_by: string
+          draft: Json
+          id: string
+          parent_id: string | null
+          request: Json
+          revision: number
+          source_hash: string
+          source_version_id: string
+        }
+        Insert: {
+          case_id: string
+          context_hash: string
+          created_at?: string
+          created_by: string
+          draft: Json
+          id: string
+          parent_id?: string | null
+          request: Json
+          revision: number
+          source_hash: string
+          source_version_id: string
+        }
+        Update: {
+          case_id?: string
+          context_hash?: string
+          created_at?: string
+          created_by?: string
+          draft?: Json
+          id?: string
+          parent_id?: string | null
+          request?: Json
+          revision?: number
+          source_hash?: string
+          source_version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_commercial_revisions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_commercial_revisions_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "quote_commercial_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_commercial_revisions_source_version_id_fkey"
+            columns: ["source_version_id"]
+            isOneToOne: false
+            referencedRelation: "quotation_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -8597,6 +8671,33 @@ export type Database = {
       claim_attachment_for_analysis: {
         Args: { p_attachment_id: string; p_claim_ts: string }
         Returns: string
+      }
+      commercial_actor_guard: {
+        Args: { p_actor: string; p_case: string }
+        Returns: undefined
+      }
+      commercial_create_version: {
+        Args: { p_actor: string; p_revision: string; p_snapshot: Json }
+        Returns: Json
+      }
+      commercial_read: { Args: { p_case_id: string }; Returns: Json }
+      commercial_source_context: {
+        Args: { p_case: string; p_source: string }
+        Returns: Json
+      }
+      commercial_store: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_context_hash: string
+          p_draft: Json
+          p_id: string
+          p_parent: string
+          p_request: Json
+          p_source: string
+          p_source_hash: string
+        }
+        Returns: Json
       }
       commit_decision_atomic: {
         Args: {
