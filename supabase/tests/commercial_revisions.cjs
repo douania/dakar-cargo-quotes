@@ -40,6 +40,9 @@ async function wait(name,kind){for(let i=0;i<60;i++){const values=JSON.parse(sql
  const airSql=fs.readFileSync(path.join(repo,'supabase/migrations/20261016110000_air_handling_profiles.sql'),'utf8');
  sql(airSql.slice(airSql.indexOf('CREATE FUNCTION public.air_handling_context_hash'),airSql.indexOf('CREATE FUNCTION public.air_handling_read')).replace('CREATE FUNCTION','CREATE OR REPLACE FUNCTION'));
  sql(fs.readFileSync(path.join(repo,'supabase/migrations/20261017120000_commercial_revisions.sql'),'utf8'));
+ sql(fs.readFileSync(path.join(repo,'supabase/migrations/20261017123000_commercial_selection_lock.sql'),'utf8'));
+ const accessSource=fs.readFileSync(path.join(repo,'supabase/migrations/20261007120000_internal_workspace_access.sql'),'utf8');
+ sql(accessSource.slice(accessSource.indexOf('CREATE OR REPLACE FUNCTION public.select_quotation_version'),accessSource.indexOf('-- Locks d’analyse')<0?accessSource.indexOf('-- Locks d\'analyse'):accessSource.indexOf('-- Locks d’analyse')));
  const snapshot={meta:{pricing_run_id:run},totals:{currency:'XOF',subtotal_before_sodatra_vat:100,honoraires_ht:100,honoraires_tva:18,total_payable:118},raw_lines:[{label:'Honoraires',amount:100,bloc:'honoraires',currency:'XOF'}],lines:[{description:'Honoraires',amount:100}]};
  sql(`INSERT INTO quotation_versions(id,case_id,pricing_run_id,version_number,status,is_selected,snapshot,created_by) VALUES('${v}','${c}','${run}',1,'draft',true,${j(snapshot)},'${u}');`);
  let ctx=JSON.parse(sql(settings()+`SELECT commercial_source_context('${c}','${v}')`));
@@ -107,6 +110,12 @@ async function wait(name,kind){for(let i=0;i<60;i++){const values=JSON.parse(sql
   assert.equal(sql(settings('authenticated',u2)+'SET ROLE authenticated;SELECT count(*) FROM quote_commercial_revisions;'),'0');
   assert.equal(sql(settings('authenticated',u)+'SET ROLE authenticated;SELECT count(*) FROM quote_commercial_revisions;'),'2');
  });
+ const heldSelection=session('commercial_selection_save',`BEGIN;${save(id(45),r2)}SELECT pg_sleep(1.2);ROLLBACK;`);await wait('commercial_selection_save','sleep');
+ const selection=session('commercial_selection_rpc',settings('authenticated')+`SELECT select_quotation_version('${v}','${c}');`);await wait('commercial_selection_rpc','lock');
+ const selected=await Promise.all([heldSelection,selection]);assert(selected.every(s=>s.code===0));
+ assert.equal(sql(`SELECT is_selected FROM quotation_versions WHERE id='${v}'`),'t');
+ sql(settings('authenticated')+`SELECT select_quotation_version('${saved.version_id}','${c}');`);
+ results.push({name:'Existing authenticated selection RPC serializes behind commercial save without changing historical snapshots',status:'PASS'});
  check('Sent cases and new facts/run block new saves; idempotent old replay does not mutate',()=>{
   sql(`UPDATE quote_cases SET status='SENT' WHERE id='${c}';`);refused(settings()+save(id(43),r2),/Case locked/);
   sql(`UPDATE quote_cases SET status='QUOTED_VERSIONED' WHERE id='${c}';INSERT INTO quote_facts(id,case_id,value) VALUES('${id(70)}','${c}','new fact');`);refused(settings()+save(id(43),r2),/context changed/);

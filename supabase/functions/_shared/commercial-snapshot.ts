@@ -1,5 +1,5 @@
 import type { CommercialPreparation } from './commercial-preparation.ts';
-import { computeCommercialTotals } from '../run-pricing/commercial-totals.ts';
+import { commercialFeeTotals } from './commercial-fee-totals.ts';
 import { isToConfirmLine } from './quotation-line-status.ts';
 
 type Row = Record<string, unknown>;
@@ -19,7 +19,7 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
   const pricedSource = original.filter(l => !isToConfirmLine(l) && number(l.amount));
   const originalSum = pricedSource.reduce((sum,l) => sum+(l.amount as number),0);
   const originalFees = pricedSource.filter(l=>l.bloc === 'honoraires').reduce((sum,l)=>sum+(l.amount as number),0);
-  const originalTax = computeCommercialTotals({engineTotals:{honoraires:originalFees,ddp:originalSum},lines:[]});
+  const originalTax = commercialFeeTotals(originalSum,originalFees);
   if (!number(totals.subtotal_before_sodatra_vat) || !number(totals.honoraires_ht) || !number(totals.honoraires_tva)
     || !same(originalSum,totals.subtotal_before_sodatra_vat) || !same(originalFees,totals.honoraires_ht)
     || !same(originalTax.honorairesTva,totals.honoraires_tva)) throw new Error('Base commerciale source non rapprochable ; revue requise');
@@ -49,7 +49,7 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
       commercial:{line_id:line.id,included:line.included,estimated:modified,basis:inherited ? taxable ? 'before_sodatra_vat' : 'taxes_included' : line.amount_basis,customs_estimate:customsEstimate,storage_estimate:line.kind==='storage_estimate'},
     };
   });
-  const calculated = computeCommercialTotals({engineTotals:{honoraires:fees,ddp:subtotal},lines:[]});
+  const calculated = commercialFeeTotals(subtotal,fees);
   if (![subtotal,fees,calculated.totalPayable].every(number)) throw new Error('Total commercial hors limites');
   return {inputs:source.inputs,client:source.client,...(source.operator_basis ? {operator_basis:source.operator_basis} : {}),
     meta:{...row(source.meta),version_id:null,version_number:null,created_at:null,
