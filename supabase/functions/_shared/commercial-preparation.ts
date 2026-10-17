@@ -62,7 +62,7 @@ export function prepareCommercialQuote(caseId: string, versionId: string, snapsh
   const lines = (original.raw_lines as unknown[]).map((value, index): CommercialLine => {
     const sourceLine = row(value), source = row(sourceLine.source), air = row(source.air_handling);
     const sourceCurrency = sourceLine.currency ?? row(original.totals).currency ?? original.currency;
-    const currencyIsXof = typeof sourceCurrency === 'string' && sourceCurrency.trim().toUpperCase() === 'XOF';
+    const currencyIsXof = typeof sourceCurrency === 'string' && ['XOF','FCFA','CFA'].includes(sourceCurrency.trim().toUpperCase());
     const airAmount = currencyIsXof ? amount(air.supplier_known_ht_xof) : null;
     const known = currencyIsXof && !isToConfirmLine(sourceLine) ? amount(sourceLine.amount) : null;
     return {

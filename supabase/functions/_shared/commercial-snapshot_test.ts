@@ -8,6 +8,27 @@ const source=()=>({meta:{pricing_run_id:'run',quoteQualification:{reasons:[]}},i
   raw_lines:[{label:'Frais source',amount:1000,bloc:'honoraires',currency:'XOF'},{label:'Handling',amount:null,currency:'XOF',source:{type:'TO_CONFIRM',air_handling:{supplier_known_ht_xof:34420,secret_proof:'INTERNAL_PURCHASE_PROOF'}}}]});
 function initial(){return prepareCommercialQuote('case','version',source());}
 const change=(d:ReturnType<typeof initial>,action:Parameters<typeof reviseCommercialPreparation>[1])=>reviseCommercialPreparation(d,action,{actor_id:'server-actor',operation_id:`operation-${d.revision}`,expected_revision:d.revision,occurred_at:'2026-10-17T12:00:00Z'});
+for(const currency of ['FCFA','CFA',' fcfa '])Deno.test(`commercial XOF aliases: ${currency} duties survive preparation and version without tax changes`,()=>{
+ const value={...source(),raw_lines:[...source().raw_lines,
+  {label:'Synthetic calculated duties',amount:13420,bloc:'debours',currency,source:{type:'CALCULATED'}},
+  {label:'Synthetic pending charge',amount:13420,currency,source:{type:'TO_CONFIRM'}},
+  {label:'Synthetic explicit free charge',amount:0,currency,source:{type:'CALCULATED'}}]};
+ Object.assign(value.totals,{subtotal_before_sodatra_vat:14420,total_payable:14600});
+ const before=structuredClone(value),draft=prepareCommercialQuote('case','version',value),snap=composeCommercialSnapshot(draft,'revision');
+ assertEquals(draft.lines[2].client_amount_xof,13420);assertEquals(draft.lines[2].status,'source');
+ assertEquals(draft.lines[3].client_amount_xof,null);assertEquals(draft.lines[4].client_amount_xof,0);
+ assertEquals(snap.lines[2].amount,13420);assertEquals(snap.lines[3].amount,null);assertEquals(snap.lines[4].amount,0);
+ assertEquals(snap.totals.total_payable,14600);assertEquals(snap.totals.honoraires_tva,180);
+ assertEquals(value,before);assertEquals(draft.source_snapshot,before);
+});
+Deno.test('commercial foreign or ambiguous currency stays unknown despite XOF source totals',()=>{
+ for(const currency of ['USD','EUR','XAF','','FCFA-West','FCFA USD']){
+  const value={totals:{currency:'XOF'},raw_lines:[{label:'Synthetic foreign charge',amount:13420,currency,source:{type:'CALCULATED'}}]};
+  const draft=prepareCommercialQuote('case','version',value);
+  assertEquals(draft.lines[0].client_amount_xof,null,currency);assertEquals(draft.lines[0].status,'to_confirm');
+  assertEquals(draft.source_snapshot,value);
+ }
+});
 Deno.test('commercial totals reuse fee-only VAT, TTC adds no VAT, no enrichment double count',()=>{
  let draft=change(initial(),{type:'edit',line_id:'source:1',amount:40000,basis:'taxes_included',reason:'Private reason must not be shown to client'});
  draft=change(draft,{type:'add',line_id:'operator:fees',kind:'additional',label:'Prestation SODATRA',amount:2500,basis:'before_sodatra_vat',reason:'Additional explicit SODATRA service fee'});

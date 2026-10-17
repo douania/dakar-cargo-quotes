@@ -360,6 +360,20 @@ Règles non négociables :
 - Livraison frontend seule ; aucun SQL ni déploiement Edge requis. Commit, CI distante et alignement privé à relire dans task-3/workflow-analysis-recovery-20261017/checkpoint.json ; aucun PASS global métier annoncé.
 - Original/deux docs/.claude préservés ; anti-veille temporaire existant jusqu’au19/10 18UTC, aucune automatisation ajoutée. Retour : revert ciblé de ce lot UI, aucun historique à supprimer.
 
+### 2.22 Parcours local intégré et devise commerciale — 17 octobre 2026
+
+- GO weekend et demande de parcours local poursuivis : bancs/fixtures réutilisés, navigateur headless à profil temporaire sur localhost seulement ; aucun profil/session Chrome personnel ni secret réel utilisé.
+- Défaut reproductible : le vrai moteur produit des droits13420 en FCFA ; l’initialisation commerciale ne reconnaissait que XOF et les excluait. Alias XOF/FCFA/CFA exacts après trim/casse désormais reconnus ; aucun taux/formule/change modifié.
+- Trois régressions FAIL avant puis PASS ; USD/EUR/XAF/chaînes ambiguës restent inconnus, TO_CONFIRM et zéro explicite préservés. Sources et révisions historiques non réécrites ; les préparations déjà enregistrées restent à corriger explicitement.
+- Navigateur isolé :9contrôles du vrai éditeur, magasinage64kg×20×2jours=2560achat/3000vente, handling34420achat/40000vente, panne simulée avant écriture/reprise identique, relecture, version/rejeu/sourcev1 conservés ; transport/Auth/persistance UI simulés.
+- Vrai calcul fiscal sur fixture existante CAF100000/profil fictif :13420 ; lectures DB secondaires simulées. Montants fictifs des autres services explicitement fournis, aucune donnée réelle validée.
+- Composer et renderer réels : v2total300960 dont TVA honoraires36540 ; PDF4371octets/hash e74b2f02…, texte/rendu2pages inspectés, achat34420/2560 absent. V1PDF3974octets/hash99030095… et snapshots conservés ; pas d’export HTTP/Storage ni téléchargement signé dans cette recette.
+- PostgreSQL15.18 natif :12groupes commerciaux,11douane,12catalogue PASS, RPC/RLS/ACL/concurrences/rollback réels sur schémas fictifs et claims locaux ; pas de GoTrue réel ni chaîne navigateur→SQL par ces tests.
+- npm run ci exit0 :835Vitest,2275Deno/0échec/6ignorés ; types app/node/build PASS, Deno49/5 et lint720/16 sans aggravation. Ciblés143UI/112Deno ; contre-revue indépendante15Deno/19Vitest PASS, aucun blocage.
+- Réutilisation bornée épuisée : une chaîne UI→serveur locale actuelle continue exige la remise à niveau du banc HTTP ancien arrêté, ses routes/migrations ; elle n’est pas déclarée exécutée. Analyse/OCR/IMAP réels et recette distante restent NOT_RUN.
+- Livraison requise : manage-commercial-preparation seule, aucune migration. Commit/CI/accusé privé et matrice de couverture dans task-3/workflow-local-integrated-20261017/checkpoint.json ; projet à conserver non publié, aucun envoi ni écriture métier réelle.
+- Original/deux docs/.claude et anti-veille temporaire conservés. Retour ciblé du lot puis redéploiement de cette seule fonction sous GO ; aucun historique supprimé. Point de reprise : capacité officielle authentifiée, puis décisions métier groupées et recette réelle.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
