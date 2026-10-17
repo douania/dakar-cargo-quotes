@@ -10,7 +10,7 @@ import { customsResponse, validateCustomsDecision, type CustomsDecision, type Cu
 interface State {context_hash:string;head:{id:string;context_hash:string;decision:CustomsDecision}|null;basis?:CustomsBasisSnapshot|null;can_write:boolean;proposals:CustomsSourceProposal[];source_groups?:CustomsSourceGroup[];excluded_attachments?:number;scope?:{request_lines?:Array<{id:string;line_index:number;line_label:string|null}>};profiles?:Array<{code:string;label:string;status:string}>;regimes:Array<{code:string;name:string}>;assessment:{eligible:boolean;reason:string}|null}
 const invoke=async(name:string,body:unknown)=>customsResponse(await supabase.functions.invoke(name,{body}));
 const sourceDate=(v:string|null|undefined)=>v&&Number.isFinite(Date.parse(v))?new Intl.DateTimeFormat('fr-FR',{dateStyle:'short',timeStyle:'short',timeZone:'UTC'}).format(new Date(v))+' UTC':'non précisée';
-export function CustomsBasisReview({caseId,isLocked,onCalculated}:{caseId:string;isLocked:boolean;onCalculated:()=>void}) {
+export function CustomsBasisReview({id,caseId,isLocked,onCalculated}:{id?:string;caseId:string;isLocked:boolean;onCalculated:()=>void}) {
   const [state,setState]=useState<State|null>(null),[caf,setCaf]=useState(''),[hs,setHs]=useState(''),[regime,setRegime]=useState('');
   const [valuation,setValuation]=useState(''),[note,setNote]=useState(''),[estimated,setEstimated]=useState(true),[sources,setSources]=useState<string[]>([]);
   const [attested,setAttested]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
@@ -44,7 +44,7 @@ export function CustomsBasisReview({caseId,isLocked,onCalculated}:{caseId:string
     if(typeof result.pricing_run_id!=='string'||!result.pricing_run_id)throw new Error('Réponse de calcul non enregistrée ou incomplète');
     if(mounted.current){setNotice('Calcul enregistré. Créez une nouvelle version pour figer ces bases et son PDF.');onCalculated();}});
   const writable=!!state?.can_write&&!isLocked&&!busy;
-  return <details className="mt-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">Bases douanières et valeur FOC</summary>
+  return <details id={id} className="mt-3 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">Bases douanières et valeur FOC</summary>
     <div className="mt-3 space-y-4" aria-busy={busy}>
       <p className="text-sm text-muted-foreground">Relisez les pièces, puis retenez les bases en une seule décision. Un poste non justifié reste à confirmer.</p>
       <Button variant="outline" disabled={busy} onClick={read}>{state?'Relire les pièces et les décisions':'Lire les propositions depuis les pièces'}</Button>

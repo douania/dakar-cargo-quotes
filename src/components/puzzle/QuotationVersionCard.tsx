@@ -280,7 +280,10 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
 
       if (url) {
         setGeneratedPdfIds(prev => ({ ...prev, [version.id]: true }));
-        await queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId], exact: true });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['send-quotation-data', caseId], exact: true }),
+          queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId], exact: true }),
+        ]);
         if (!active.current) return;
         toast.success(`PDF v${version.version_number} généré`, {
           description: 'Le PDF est disponible. Utilisez « Télécharger le PDF » pour l’enregistrer.',

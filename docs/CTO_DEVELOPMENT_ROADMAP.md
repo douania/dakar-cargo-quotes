@@ -398,6 +398,21 @@ Règles non négociables :
 - Livraison bornée : work et aperçu privé, quatre fonctions version/PDF/email/quotation-engine ; aucune migration nouvelle ni écriture métier Cloud/envoi/publication générale/rôle/compte/secret. Conserver les preuves historiques et tous anciens PDF.
 - Retour : revert ciblé de ce lot et redéploiement des quatre fonctions depuis ced372e ; ne supprimer ni décisions, versions ou documents append-only. Original/deux docs/.claude et anti-veille temporaire à conserver.
 
+### 2.25 Parcours CaseView complet et historique commercial - 17 octobre 2026
+
+- GO weekend applicable : corrections reproduites/tests/contre-revue puis work et livraison privée ; aucun envoi/publication générale, rôle/compte/secret ou écriture métier Cloud.
+- Bases AIR accessibles avant pricing, préparation commerciale avant l'historique, entrées nommées vers bases/handling ; composants/états de saisie et verrous existants conservés, aucune refonte.
+- Résumé À faire relu après création d'une version et génération de son PDF ; défauts avant/après reproduits dans App/CaseView réels, sans rechargement.
+- Troisième sauvegarde bloquée par duplication du catalogue180 dans chaque événement : nouvelles traces source_reference seulement si les preuves avant/après égalent la source figée ; preuve complète actuelle/source et événements anciens conservés, fallback complet sinon. Justification STRUCTURAL_PATCH_ALLOWED préalable, aucune formule/taux ni limite2Mo modifiés.
+- Recette localhost complète PASS14contrôles : connexion fictive existante, dossier vide/erreur explicite, navigation/saisie préservée, réponse200 perdue après commit/rejeu unique, refresh, version19 sélectionnée et PDF téléchargé.
+- PostgreSQL natif : révision7 de1511471octets, total55420XOF partiel et4inconnus ;21snapshots/10documents/6révisions préexistants, tous faits/comptes/rôles/bans inchangés depuis le point de contrôle.
+- PDFv19 :4495octets, SHA256 e03506f5df6141b38b0818d2e448a438b783a245c725bb44d26cf36b6fb57020 ;2pages texte/marges/rendu inspectées, réserves visibles, achat fournisseur absent. Recette autonome locale, aucune session Cloud démontrée.
+- Contrôles : CI complète843Vitest/2282Deno/6ignorés ; types app/node/build PASS, Deno49/5 et lint719/16 contre732/16 non aggravés. Ciblés138lifecycle/cockpit,27commercial,15Deno et19IMAP PASS ; audit UI120constats hérités.
+- Diagnostic réel parse-document/Storage/DB local : PDF textuel2170caractères sans IA ; image sans clé provider =HTTP200/success:true mais extractionStatus:error/texte vide. L'interface ne contrôle que HTTP ; prochain lot borné au contrat/retour d'erreur extraction, sans connexion nouvelle.
+- IMAP19tests synthétiques PASS ; TLS/boîte réelle, OCR/IA provider et chiffrement Vault natif NOT_RUN. Deux documents fictifs de diagnostic seulement ; aucun secret réel, courriel envoyé ou connexion mail créée.
+- Contre-revue et reçus CI/livraison privée/conservation : task-3/caseview-http-20261017/checkpoint.json ; backend manage-commercial-preparation seul requis, aucune migration. Ne pas assimiler sondes sans auth à une recette métier Cloud.
+- Retour : revert ciblé du lot/redéployer ce seul backend depuis2de40c8 ; conserver les décisions/versions/PDF append-only. Original/deux docs/.claude préservés ; anti-veille temporaire existant maintenu.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

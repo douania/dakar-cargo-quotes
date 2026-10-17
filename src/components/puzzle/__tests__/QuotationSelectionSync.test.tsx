@@ -187,6 +187,14 @@ function CaseStatusProbe({ caseId }: { caseId: string }) {
   return <output data-testid={'status-' + caseId}>{String(data?.status ?? '')}</output>;
 }
 
+function CockpitPdfProbe({ caseId }: { caseId: string }) {
+  const { data } = useQuery({ queryKey: ['cockpit-state', caseId], staleTime: Infinity, queryFn: async () => {
+    const selected = db.quotation_versions.find(row => row.case_id === caseId && row.is_selected);
+    return db.quotation_documents.some(row => row.quotation_version_id === selected?.id && row.document_type === 'pdf');
+  } });
+  return <output data-testid={'cockpit-pdf-' + caseId}>{data ? 'PDF présent' : 'PDF absent'}</output>;
+}
+
 describe('L1 refresh after PDF export and sent marking', () => {
   it('reads the pinned estimated customs proof on an old firm snapshot without rewriting it',async()=>{
     seedTwoVersions('case-a');const f=syntheticCustoms();
@@ -200,6 +208,10 @@ describe('L1 refresh after PDF export and sent marking', () => {
     seedTwoVersions('case-a');
     seedDraft('case-a-v1', {});
     const pair = renderPair('case-a');
+    render(<QueryClientProvider client={pair.client}><CockpitPdfProbe caseId="case-a" /><CockpitPdfProbe caseId="case-b" /></QueryClientProvider>);
+    await screen.findByText('PDF absent', { selector: '[data-testid="cockpit-pdf-case-a"]' });
+    await waitFor(() => expect(pair.client.getQueryData(['cockpit-state', 'case-b'])).toBe(false));
+    const otherCockpit = pair.client.getQueryState(['cockpit-state', 'case-b']);
     await pair.panel().findByText('PDF non détecté côté interface');
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     invokeMock.mockImplementation(async () => {
@@ -208,6 +220,8 @@ describe('L1 refresh after PDF export and sent marking', () => {
     });
     await userEvent.click(pair.card().getAllByRole('button', { name: 'Générer le PDF' })[1]);
     await pair.panel().findByText('PDF détecté côté interface');
+    await waitFor(() => expect(screen.getByTestId('cockpit-pdf-case-a')).toHaveTextContent('PDF présent'));
+    expect(pair.client.getQueryState(['cockpit-state', 'case-b'])).toEqual(otherCockpit);
     expect(invokeMock).toHaveBeenCalledWith('export-quotation-version-pdf', { body: { version_id: 'case-a-v1' } });
     expect(open).not.toHaveBeenCalled();
     expect(pair.card().getByRole('button', { name: 'Télécharger le PDF' })).toBeInTheDocument();

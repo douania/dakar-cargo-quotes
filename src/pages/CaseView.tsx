@@ -598,6 +598,12 @@ export default function CaseView() {
     handleRefresh();
   }, [handleRefresh]);
 
+  const handleVersionCreated = useCallback(() => {
+    setVersionRefreshToken(t => t + 1);
+    void queryClient.invalidateQueries({ queryKey: ['cockpit-state', caseId], exact: true });
+    void refetchCase();
+  }, [queryClient, caseId, refetchCase]);
+
   // ── CL1: Mark client gap requests as sent ──
   async function markClientGapRequestsSent(gapKeys?: string[]) {
     if (!caseId || isMarkingSent) return;
@@ -1372,6 +1378,8 @@ export default function CaseView() {
       target.focus({ preventScroll: true });
     });
   };
+  const hasAirPreparation = /^AIR_IMPORT(?:_|$)/.test(caseData?.request_type ?? '');
+  const hasCommercialPreparation = ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData?.status ?? '');
   const quoteVersioned = ['QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData?.status ?? "");
   const confirmedQuoteSummary = cockpitState ? [
     cockpitState.selectedVersionNumber !== null ? `version ${cockpitState.selectedVersionNumber}` : null,
@@ -1466,6 +1474,9 @@ export default function CaseView() {
             <Button variant="ghost" size="sm" onClick={togglePresentation} className="print:hidden">
               {guided ? "Présentation précédente" : "Présentation guidée"}
             </Button>
+            {(hasAirPreparation || hasCommercialPreparation) && <Button variant="outline" size="sm" onClick={() => openCoordinationBlock('section-quote-preparation', 'devis')} className="print:hidden">
+              {isLocked || isPostSentLocked ? 'Consulter les bases et montants' : 'Préparer les montants'}
+            </Button>}
             <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2 print:hidden">
               <Printer className="h-4 w-4" />
               Imprimer le dossier
@@ -1604,6 +1615,21 @@ export default function CaseView() {
               onAction={focusPilotageAction} onOpen={openGuidedSection} />
           </TabsContent>
           <TabsContent value="devis" forceMount hidden={activeTab !== "devis"} aria-labelledby={guided ? "guided-nav-devis" : undefined} className="mt-4 print:block">
+        {(hasAirPreparation || hasCommercialPreparation) && <section id="section-quote-preparation" tabIndex={-1} aria-labelledby="quote-preparation-heading" className="mb-6 space-y-3">
+          <h2 id="quote-preparation-heading" className="text-lg font-semibold">Préparation des montants</h2>
+          <p className="text-sm text-muted-foreground">Relisez les bases et les montants client. Les anciens calculs, versions et PDF restent conservés.</p>
+          {hasAirPreparation && <>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => openCoordinationBlock('section-customs-basis', 'devis')}>Bases douanières</Button>
+              <Button variant="outline" onClick={() => openCoordinationBlock('section-air-handling', 'echanges')}>Handling aéroportuaire</Button>
+            </div>
+            <CustomsBasisReview id="section-customs-basis" key={caseId} caseId={caseId!} isLocked={!!isLocked || !!isPostSentLocked} onCalculated={()=>{setVersionRefreshToken(t=>t+1);void refetchCase();void refetchEvents();}}/>
+          </>}
+          {hasCommercialPreparation ? <>
+            <h3 className="font-medium">Montants client</h3>
+            <CommercialPreparationWorkspace caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} onVersionCreated={handleVersionCreated} />
+          </> : <p className="text-sm text-muted-foreground">Les ajustements commerciaux seront disponibles après la création d'une version source depuis le calcul.</p>}
+        </section>}
         <QuotePresentation guided={guided} summary={confirmedQuoteSummary} setVariantsTarget={setVariantsTarget}
           versioned={quoteVersioned}
           hasCalculation={needsPadReview(gaps) || ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status)}
@@ -1796,7 +1822,7 @@ export default function CaseView() {
               refreshToken={pricingRefreshToken}
               isProvisional={pricingIsProvisional}
               onReviewBasis={() => openCoordinationBlock(guided ? "section-request" : "section-data", "marchandise")}
-              onVersionCreated={() => setVersionRefreshToken(t => t + 1)}
+              onVersionCreated={handleVersionCreated}
             />
           </details>
         ),
@@ -1805,8 +1831,7 @@ export default function CaseView() {
         versions: ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6" id="section-version">
             <QuotationVersionCard onReviewBasis={() => openCoordinationBlock(guided ? "section-request" : "section-data", "marchandise")} caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
-            {/^AIR_IMPORT(?:_|$)/.test(caseData.request_type??'')&&<CustomsBasisReview key={caseId} caseId={caseId!} isLocked={!!isPostSentLocked} onCalculated={()=>{setVersionRefreshToken(t=>t+1);void refetchCase();void refetchEvents();}}/>}
-            <CommercialPreparationWorkspace caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} onVersionCreated={() => setVersionRefreshToken(t => t + 1)} />
+
           </div>
         ),
 
@@ -2723,7 +2748,7 @@ export default function CaseView() {
 
 
         {/* Derived Suggestions Panel — before pricing pipeline for optimal timing */}
-        {caseId && /^AIR_IMPORT(?:_|$)/.test(caseData.request_type || '') && <AirHandlingPanel key={caseId} caseId={caseId} isLocked={!!isLocked || caseData.status === 'PRICING_RUNNING'} />}
+        {caseId && hasAirPreparation && <div id="section-air-handling"><AirHandlingPanel key={caseId} caseId={caseId} isLocked={!!isLocked || caseData.status === 'PRICING_RUNNING'} /></div>}
         {visibleSuggestions.length > 0 && !isLocked && (
           <Card className="mb-6 border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
             <CardHeader className="py-3">

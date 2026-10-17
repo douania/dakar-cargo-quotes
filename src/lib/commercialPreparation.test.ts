@@ -161,3 +161,25 @@ describe('Commercial preparation, isolated from canonical prices', () => {
     expect(added.lines[added.lines.length - 1].supplier).toBeNull();
   });
 });
+
+
+it('supports repeated client edits with the full180-entry catalogue under the existing2MB draft bound and recoverable pinned proof',()=>{
+ const {draft:initial,snapshot}=fixture();let draft=initial;
+ for(let i=0;i<24;i++)draft=change(draft,{type:'edit',line_id:'source:0',amount:40000,basis:'taxes_included',reason});
+ expect(new TextEncoder().encode(JSON.stringify(draft)).length).toBeLessThan(2000000);
+ expect(draft.source_snapshot).toEqual(snapshot);expect(draft.lines[0].supplier).toEqual(initial.lines[0].supplier);
+ for(const event of draft.events){expect(event.source_reference).toEqual({version_id:'fixture-version',line_index:0});expect(event.before?.client_amount_xof).toBe(event.revision===1?null:40000);expect(event.after.client_amount_xof).toBe(40000);expect(event.actor_id).toBe('fixture-operator');}
+ expect((draft.source_snapshot.raw_lines as unknown[])[draft.events[0].source_reference!.line_index]).toEqual(snapshot.raw_lines[0]);
+});
+it('preserves legacy events byte-for-byte and exact old retries while a new edit references only equal immutable evidence',()=>{
+ const action:CommercialAction={type:'edit',line_id:'source:0',amount:40000,basis:'taxes_included',reason};let draft=change(fixture().draft,action);
+ const legacy=structuredClone(draft),event=legacy.events[0];delete event.source_reference;event.before=structuredClone(fixture().draft.lines[0]);event.after=structuredClone(legacy.lines[0]);const prior=JSON.stringify(legacy.events);
+ expect(change(legacy,action,{operation_id:'fixture-op-1',expected_revision:0})).toEqual(legacy);
+ draft=change(legacy,{...action,amount:41000});expect(JSON.stringify(draft.events.slice(0,1))).toBe(prior);expect(draft.events[1].source_reference).toEqual({version_id:'fixture-version',line_index:0});
+ const divergent=fixture().draft;divergent.lines[0].supplier!.evidence={different:'must remain recorded'};
+ const kept=change(divergent,action).events[0];expect(kept.source_reference).toBeUndefined();expect(kept.after.supplier!.evidence).toEqual({different:'must remain recorded'});expect(kept.after.original).toEqual(divergent.lines[0].original);
+});
+it('retains evolving storage proofs in full, including before and after the billable-day change',()=>{
+ const {draft,air}=fixture(),first=change(change(draft,storageAdd),storageEstimate,{air,air_case_id:'fixture-case'}),next=change(first,{...storageEstimate,billable_days:3},{air,air_case_id:'fixture-case'}),event=next.events.at(-1)!;
+ expect(event.source_reference).toBeUndefined();expect(event.before!.supplier!.amount_ht_xof).toBe(2560);expect(event.after.supplier!.amount_ht_xof).toBe(3840);expect(event.before!.supplier!.evidence).toEqual(first.lines.at(-1)!.supplier!.evidence);
+});

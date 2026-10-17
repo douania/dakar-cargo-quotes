@@ -804,3 +804,22 @@ it('preserves the same scenario draft through tab navigation and both presentati
   expect(input).toHaveValue('Variante à revoir');
   expect(invoke).not.toHaveBeenCalled(); expect(estimateAction).not.toHaveBeenCalled();
 });
+
+
+it.each([true,false])('opens AIR customs preparation before pricing from the real case navigation, guided=%s',async(guided)=>{
+  status='NEED_INFO';requestType='AIR_IMPORT';localStorage.setItem(CASE_PRESENTATION_KEY,guided?'guided':'previous');mount();
+  await userEvent.click(screen.getByRole('button',{name:'Préparer les montants'}));
+  const target=screen.getByRole('region',{name:'Préparation des montants'});expect(target).toBeVisible();expect(target).toHaveFocus();
+  await userEvent.click(within(target).getByRole('button',{name:'Bases douanières'}));
+  expect(screen.getByRole('button',{name:'Lire les propositions depuis les pièces'})).toBeVisible();
+  expect(document.getElementById('section-customs-basis')).toHaveFocus();expect(invoke).not.toHaveBeenCalled();
+});
+it('keeps commercial preparation before version history and mounted once across presentations',async()=>{
+  status='QUOTED_VERSIONED';requestType='AIR_IMPORT';localStorage.setItem(CASE_PRESENTATION_KEY,'guided');mount();
+  await userEvent.click(screen.getByRole('button',{name:'Préparer les montants'}));
+  const preparation=screen.getByRole('region',{name:'Préparation des montants'}),versions=document.getElementById('section-version')!;
+  expect(preparation.compareDocumentPosition(versions)&Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  expect(within(preparation).getByText('CommercialPreparationWorkspace')).toBeVisible();
+  await userEvent.click(screen.getByRole('button',{name:'Présentation précédente'}));
+  expect(screen.getAllByText('CommercialPreparationWorkspace')).toHaveLength(1);
+});

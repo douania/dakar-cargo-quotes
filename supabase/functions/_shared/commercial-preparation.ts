@@ -28,6 +28,7 @@ export interface CommercialEvent {
   actor_id: string;
   occurred_at: string;
   action: CommercialAction;
+  source_reference?: { version_id: string; line_index: number };
   before: CommercialLine | null;
   after: CommercialLine;
 }
@@ -76,6 +77,20 @@ export function prepareCommercialQuote(caseId: string, versionId: string, snapsh
   const preparation = { case_id: caseId, source_version_id: versionId, source_snapshot: original, revision: 0, lines, events: [] };
   commercialPreparationSummary(preparation);
   return preparation;
+}
+
+/** Only duplicate immutable source documents can be referenced; evolving supplier proofs stay complete. */
+function sourceAuditReference(draft: CommercialPreparation, before: CommercialLine | null, after: CommercialLine) {
+  const match = /^source:(0|[1-9]\d*)$/.exec(after.id);
+  const index = match ? Number(match[1]) : -1;
+  const source = Array.isArray(draft.source_snapshot.raw_lines) ? draft.source_snapshot.raw_lines[index] : undefined;
+  if (!source || !before || !Number.isSafeInteger(index) || ![before, after].every(line =>
+    line.kind === 'source' && line.id === after.id && JSON.stringify(line.original) === JSON.stringify(source) &&
+    (!line.supplier || JSON.stringify(line.supplier.evidence) === JSON.stringify(row(row(source).source).air_handling)))) return undefined;
+  return { version_id: draft.source_version_id, line_index: index };
+}
+function referencedAuditLine(line: CommercialLine): CommercialLine {
+  return { ...copy(line), original: null, supplier: line.supplier ? { ...copy(line.supplier), evidence: null } : null };
 }
 
 /** Caller must later bind actor/context to server authorization; this helper grants no permission. */
@@ -136,7 +151,11 @@ export function reviseCommercialPreparation(
   // Reject an aggregate overflow while the old draft and edited fields are still intact.
   commercialPreparationSummary(next);
   next.revision++;
-  next.events.push({ operation_id: context.operation_id, revision: next.revision, actor_id: context.actor_id, occurred_at: context.occurred_at, action: copy(action), before, after: copy(line) });
+  const sourceReference = sourceAuditReference(next, before, line);
+  next.events.push({ operation_id: context.operation_id, revision: next.revision, actor_id: context.actor_id, occurred_at: context.occurred_at, action: copy(action),
+    ...(sourceReference ? { source_reference: sourceReference } : {}),
+    before: sourceReference && before ? referencedAuditLine(before) : before,
+    after: sourceReference ? referencedAuditLine(line) : copy(line) });
   return next;
 }
 
