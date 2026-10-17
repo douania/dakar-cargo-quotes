@@ -35,6 +35,8 @@ async function wait(name,kind){for(let i=0;i<60;i++){const values=JSON.parse(sql
  INSERT INTO emails VALUES('${id(32)}','${thread}','2026-10-08T12:24:54Z','2026-10-09T11:50:54Z','SYNTHETIC source','Current request\nFrom: historical@example.invalid\nOLD LOT');INSERT INTO email_attachments(id,email_id,filename,extracted_data) VALUES('${attachment}','${id(32)}','SYNTHETIC.pdf','{"extracted_info":{"hs_code":"3004.9099","payment_terms":"FOC"}}');
  INSERT INTO hs_codes VALUES('3004909000','unknown',NULL);INSERT INTO customs_regimes VALUES('TEST',true);
  GRANT USAGE ON SCHEMA auth,public TO anon,authenticated,service_role;`);
+ const historicalTimeline=fs.readFileSync(path.join(repo,'supabase/migrations/20260923180000_case_timeline_imo_goods_event_type.sql'),'utf8');
+ sql(historicalTimeline.slice(historicalTimeline.lastIndexOf('ALTER TABLE public.case_timeline_events')));
  const security=fs.readFileSync(path.join(repo,'supabase/migrations/20261007120000_internal_workspace_access.sql'),'utf8').split('-- RESTRICTIVE')[0];sql(security+'\nCOMMIT;');
  const commercial=fs.readFileSync(path.join(repo,'supabase/migrations/20261017120000_commercial_revisions.sql'),'utf8');
  for(const name of ['commercial_actor_guard','commercial_immutable']){const match=commercial.match(new RegExp('CREATE FUNCTION public\\.'+name+'\\([\\s\\S]*?END; \\$\\$;'));assert(match,name);sql(match[0]);}
@@ -59,6 +61,22 @@ async function wait(name,kind){for(let i=0;i<60;i++){const values=JSON.parse(sql
   sql(`DELETE FROM quote_request_lines WHERE id='${id(33)}'`);assert.equal(read().context_hash,prior);
  });
  const save=(id,parent=null,d=decision,hash=state.context_hash,actor=u)=>`SELECT customs_basis_store('${actor}','${c}','${id}',${parent?q(parent):'NULL'},${q(hash)},${j(d)});`;
+ check('Historical timeline rejects adoption atomically before the additive migration',()=>{
+  refused(settings()+save(r1),/case_timeline_events_event_type_check/);
+  assert.equal(sql('SELECT count(*) FROM quote_customs_basis'),'0');assert.equal(sql('SELECT count(*) FROM case_timeline_events'),'0');
+ });
+ const timelineMigration=fs.readFileSync(path.join(repo,'supabase/migrations/20261017183000_customs_basis_timeline_event.sql'),'utf8');
+ check('Timeline migration preserves all 41 old values, adds only adoption, remains validated and replays safely',()=>{
+  const catalogue=()=>JSON.parse(sql("SELECT json_agg(m[1] ORDER BY m[1]) FROM pg_constraint c,regexp_matches(pg_get_constraintdef(c.oid),'''([^'']*)''','g') m WHERE conrelid='case_timeline_events'::regclass AND conname='case_timeline_events_event_type_check'"));
+  const before=catalogue();assert.equal(before.length,41);sql(timelineMigration);assert.deepEqual(catalogue(),[...before,'customs_basis_adopted'].sort());
+  sql(timelineMigration);assert.deepEqual(catalogue(),[...before,'customs_basis_adopted'].sort());
+  assert.equal(sql("SELECT convalidated FROM pg_constraint WHERE conrelid='case_timeline_events'::regclass AND conname='case_timeline_events_event_type_check'"),'t');
+  refused("INSERT INTO case_timeline_events(event_type) VALUES('customs_basis_adopted_v2')",/case_timeline_events_event_type_check/);
+  const definition=sql("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='case_timeline_events'::regclass AND conname='case_timeline_events_event_type_check'");
+  refused("BEGIN;ALTER TABLE case_timeline_events DROP CONSTRAINT case_timeline_events_event_type_check;ALTER TABLE case_timeline_events ADD CONSTRAINT case_timeline_events_event_type_check CHECK(event_type IN('unexpected','other'));"+timelineMigration,/CUSTOMS_EVENT_TYPE_CHECK_DRIFT_REVIEW_REQUIRED/);
+  refused("BEGIN;ALTER TABLE case_timeline_events DROP CONSTRAINT case_timeline_events_event_type_check;"+timelineMigration,/CUSTOMS_EVENT_TYPE_CHECK_REVIEW_REQUIRED/);
+  assert.equal(sql("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='case_timeline_events'::regclass AND conname='case_timeline_events_event_type_check'"),definition);
+ });
  check('Existing admission/ownership and client ACL preserved',()=>{
   for(const actor of [u3,u4])refused(settings('authenticated',actor)+`SELECT customs_basis_read('${c}');`,/forbidden/);
   for(const actor of [u2,u3,u4])refused(settings()+save(r1,null,decision,state.context_hash,actor),/forbidden/);

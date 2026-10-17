@@ -374,6 +374,19 @@ Règles non négociables :
 - Livraison requise : manage-commercial-preparation seule, aucune migration. Commit/CI/accusé privé et matrice de couverture dans task-3/workflow-local-integrated-20261017/checkpoint.json ; projet à conserver non publié, aucun envoi ni écriture métier réelle.
 - Original/deux docs/.claude et anti-veille temporaire conservés. Retour ciblé du lot puis redéploiement de cette seule fonction sous GO ; aucun historique supprimé. Point de reprise : capacité officielle authentifiée, puis décisions métier groupées et recette réelle.
 
+### 2.23 Chaîne HTTP locale et événement d’adoption — 17 octobre 2026
+
+- GO de recette locale poursuivi : ancien banc Docker/identité fictive réutilisés sur DESKTOP-DJVBKU7 ; vrais GoTrue/PostgREST/PostgreSQL/Storage et handlers actuels. Aucun secret/session réel ni nouveau rôle/compte.
+- Défaut reproduit : customs_basis_store annulé par le CHECK historique de timeline ; les tests antérieurs omettaient ce CHECK. Migration183000 conserve exactement41valeurs et ajoute customs_basis_adopted ; verrou/timeout5s, validation, refus de dérive et rejeu, aucune ligne réécrite.
+- PostgreSQL natif13groupes PASS : rollback avant correction puis adoption/rejeu/ACL/CAS/concurrence après correction. npm run ci exit0 :835Vitest,2275Deno/0échec/6ignorés ; types/build PASS, Deno49/5 et lint720/16 sans aggravation.
+- Composants réels : catalogue→adoption/relecture→run-pricing→quotation-engine et price-service-lines HTTP200→version source→handling40000→sauvegarde/relecture→version→PDF signé téléchargé par Chrome isolé ; aucune persistance simulée.
+- Réponse200 perdue après commit puis requête identique rejouée : une révision et une version, acteur/source épinglés, anciens snapshots conservés. Achat handling39100 interne distinct de vente40000, absent du PDF.
+- Recette technique bornée PASS, cotation fictive PARTIAL55420XOF : dédouanement, transport et agence inconnus. Extraction et poids taxable220kg présemés ; composition de composants avec verrou UI ouvert, pas CaseView complet/OCR/IMAP/IA ni validation fiscale réelle.
+- PDFs source/commercial2pages : texte/bornes/rendu et hash serveur/SQL/téléchargement contrôlés ; source conservée. Libellé ferme sous provisoire et franchise magasinage de la source restent non certifiés ; aucun changement de formule/tarif/FROZEN.
+- Contre-revue indépendante PASS sur migration/tests et preuve continue bornée. Preuves, première recettev6/v7, reproduction, empreintes finales et nettoyage dans task-3/workflow-http-continuous-20261017 ; commande node ../workflow-http-continuous-20261017/run.cjs.
+- CHECK distant confirmé en SELECT seulement : nouvel événement absent. Correctif local non publié ; aucune migration distante, écriture métier Cloud, publication ou envoi. Livraison privée de183000 à traiter sous GO applicable, avec contrôle du catalogue puis adoption authentifiée bornée.
+- Original/deux docs/.claude et anti-veille temporaire préservés. Retour : retirer ce patch local avant livraison ; après adoption, correction en avant et conservation des décisions/versions/PDF append-only.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
