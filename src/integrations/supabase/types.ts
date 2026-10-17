@@ -6130,6 +6130,57 @@ export type Database = {
           },
         ]
       }
+      quote_customs_basis: {
+        Row: {
+          case_id: string
+          context: Json
+          context_hash: string
+          created_at: string
+          created_by: string
+          decision: Json
+          id: string
+          parent_id: string | null
+          revision: number
+        }
+        Insert: {
+          case_id: string
+          context: Json
+          context_hash: string
+          created_at?: string
+          created_by: string
+          decision: Json
+          id: string
+          parent_id?: string | null
+          revision: number
+        }
+        Update: {
+          case_id?: string
+          context?: Json
+          context_hash?: string
+          created_at?: string
+          created_by?: string
+          decision?: Json
+          id?: string
+          parent_id?: string | null
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_customs_basis_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_customs_basis_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "quote_customs_basis"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_fact_promotions: {
         Row: {
           actor_user_id: string
@@ -8759,6 +8810,23 @@ export type Database = {
           p_idempotency_key: string
           p_scenario_id: string
           p_scenario_pricing_run_id: string
+        }
+        Returns: Json
+      }
+      customs_basis_context: { Args: { p_case: string }; Returns: Json }
+      customs_basis_get: {
+        Args: { p_actor: string; p_case: string; p_id: string }
+        Returns: Json
+      }
+      customs_basis_read: { Args: { p_case: string }; Returns: Json }
+      customs_basis_store: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_context_hash: string
+          p_decision: Json
+          p_id: string
+          p_parent: string
         }
         Returns: Json
       }
