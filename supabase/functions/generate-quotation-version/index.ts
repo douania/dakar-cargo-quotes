@@ -1,3 +1,4 @@
+import { readCustomsBasisSnapshot, type CustomsBasisSnapshot } from '../_shared/customs-basis.ts';
 import { buildPricingCargoBasis, type QuotationCargoBasis } from "../_shared/quotation-cargo-basis.ts";
 import { readOperatorBasis, type OperatorQuotationBasis } from "../_shared/operator-quotation-basis.ts";
 /**
@@ -75,6 +76,7 @@ interface VersionSnapshotLot {
 }
 
 interface VersionSnapshot {
+  customs_basis?: CustomsBasisSnapshot;
   operator_basis?: OperatorQuotationBasis;
   meta: {
     version_id: string;
@@ -340,12 +342,14 @@ Deno.serve(async (req) => {
     const outputsJson = pricingRun.outputs_json as Record<string, any> | null;
     const outputTotals = outputsJson?.totals as Record<string, any> | undefined;
 
+    const customsBasis = readCustomsBasisSnapshot(outputsJson?.customs_basis);
     const operatorBasis = readOperatorBasis(outputsJson?.operator_basis);
     const cargoBasis = operatorBasis ? null : buildPricingCargoBasis(pricingRun);
     const versionId = crypto.randomUUID();
     const now = new Date().toISOString();
 
     const snapshot: VersionSnapshot = {
+      ...(customsBasis ? {customs_basis:customsBasis} : {}),
       ...(operatorBasis ? { operator_basis: operatorBasis } : {}),
       meta: {
         version_id: versionId,

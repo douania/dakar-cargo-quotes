@@ -1,3 +1,4 @@
+import { loadCustomsBasis, assertCustomsRequest, type CustomsBasisSnapshot } from '../_shared/customs-basis.ts';
 import { partialDestinationDdpEligible } from "../_shared/partial-destination-quote.ts";
 import { readOverridesFromFacts, resolveEffectiveServiceKeys } from "../_shared/service-scope.ts";
 import { knownHsTaxProfile, equivalentHsTaxation, type HsTaxEquivalence } from "../_shared/hs-tax-profile.ts";
@@ -389,6 +390,7 @@ interface ContainerInfo {
 }
 
 interface QuotationRequest {
+  customsBasisRef?: {caseId:string;id:string};
   scenarioStay?: { basis: unknown; movement_direction?: string; destination_country?: string; discharge_port?: string; terminal_mode?: unknown };
   scenarioLocalTransport?: { basis: unknown; movement_direction?: string; destination_country?: string; discharge_port?: string };
   // Opt-in réservé au calcul isolé v2 ; aucune relaxation du devis canonique.
@@ -1382,7 +1384,8 @@ function isScenarioServicesOnly(request: QuotationRequest): boolean {
 
 export async function generateQuotationLines(
   supabase: any,
-  request: QuotationRequest
+  request: QuotationRequest,
+  customsBasis: CustomsBasisSnapshot | null = null
 ): Promise<{ lines: QuotationLine[]; warnings: string[]; dutyBreakdown: any[]; cargoValueFCFA: number | null }> {
   const lines: QuotationLine[] = [];
   const warnings: string[] = [];
@@ -2465,7 +2468,7 @@ export async function generateQuotationLines(
 
     // P0 CAF strict: conversion fret réel en FCFA (si fourni)
     let freightFCFA: number | undefined = undefined;
-    if (request.freightAmount && request.freightAmount > 0) {
+    if (!customsBasis && request.freightAmount && request.freightAmount > 0) {
       const freightCur = String(request.freightCurrency ?? 'XOF').trim().toUpperCase();
       if (freightCur === 'XOF' || freightCur === 'FCFA' || freightCur === 'CFA') {
         freightFCFA = request.freightAmount;
@@ -2476,7 +2479,7 @@ export async function generateQuotationLines(
     }
 
     // Calcul CAF
-    const caf = calculateCAF({
+    const caf = customsBasis ? {cafValue:customsBasis.decision.caf_xof,method:'OPERATOR_VALIDATED_CAF'} : calculateCAF({
       incoterm: normalizedIncoterm,
       invoiceValue: cargoValueFCFA,
       freightAmount: freightFCFA,
@@ -2628,7 +2631,11 @@ export async function generateQuotationLines(
         // STRUCTURAL_PATCH_ALLOWED — see docs/MASTER_CONTEXT.md
         let hsData: any[] | null = null;
 
-        if (!request.hsEstimate?.enabled) {
+        if (customsBasis) {
+          const evidence = customsBasis.assessment.evidence as {eligible?:boolean;common_profile?:Record<string,unknown>;profile?:Record<string,unknown>};
+          if (evidence.eligible === true) { hsEquivalence = evidence as HsTaxEquivalence; hsData = [evidence.common_profile]; }
+          else hsData = [evidence.profile];
+        } else if (!request.hsEstimate?.enabled) {
         // 1. Exact match (original behavior)
         const { data: exactMatch } = await supabase
           .from('hs_codes')
@@ -2841,6 +2848,8 @@ export async function handleRequest(req: Request): Promise<Response> {
     switch (action) {
       case 'generate': {
         const request = params as QuotationRequest;
+        const customsBasis = request.customsBasisRef ? await loadCustomsBasis(supabase,auth.user.id,request.customsBasisRef.caseId,request.customsBasisRef.id) : null;
+        if(customsBasis)assertCustomsRequest(customsBasis,request as unknown as Record<string,unknown>);
         const originalIncoterm = String(request.incoterm ?? '').trim().toUpperCase();
         const normalizedIncoterm = normalizeIncoterm(request.incoterm) ?? 'CIF';
         const servicesOnly = isScenarioServicesOnly(request);
@@ -2869,7 +2878,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         }
         
         // Générer les lignes de cotation
-        const { lines, warnings: engineWarnings, dutyBreakdown, cargoValueFCFA } = await generateQuotationLines(supabase, request);
+        const { lines, warnings: engineWarnings, dutyBreakdown, cargoValueFCFA } = await generateQuotationLines(supabase, request, customsBasis);
         const warnings = [...earlyWarnings, ...engineWarnings];
         
         // M3.1 — Fetch historical suggestions (non-blocking, consultative)
@@ -2907,7 +2916,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
         // P0 CAF strict: recalcul freightFCFA pour metadata (resolution DB centralisee)
         let freightFCFA: number | undefined = undefined;
-        if (!servicesOnly && request.freightAmount && request.freightAmount > 0) {
+        if (!customsBasis && !servicesOnly && request.freightAmount && request.freightAmount > 0) {
           const freightCur = String(request.freightCurrency ?? 'XOF').trim().toUpperCase();
           if (freightCur === 'XOF' || freightCur === 'FCFA' || freightCur === 'CFA') {
             freightFCFA = request.freightAmount;
@@ -2916,7 +2925,7 @@ export async function handleRequest(req: Request): Promise<Response> {
             freightFCFA = request.freightAmount * rate;
           }
         }
-        const caf = servicesOnly ? null : calculateCAF({
+        const caf = servicesOnly ? null : customsBasis ? {cafValue:customsBasis.decision.caf_xof,method:'OPERATOR_VALIDATED_CAF'} : calculateCAF({
           incoterm: normalizedIncoterm,
           invoiceValue: cargoValueFCFA || request.cargoValue!,
           freightAmount: freightFCFA,
@@ -2933,7 +2942,9 @@ export async function handleRequest(req: Request): Promise<Response> {
           regimeMeta = regime ? { name: regime.name || null } : null;
         }
 
+        if(customsBasis && JSON.stringify(await loadCustomsBasis(supabase,auth.user.id,customsBasis.case_id,customsBasis.id))!==JSON.stringify(customsBasis)) throw new Error('Bases douanières modifiées pendant le calcul');
         const result = {
+          ...(customsBasis ? {customs_basis:customsBasis} : {}),
           success: true,
           lines,
           totals,

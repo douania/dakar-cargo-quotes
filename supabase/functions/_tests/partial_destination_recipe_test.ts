@@ -1,4 +1,6 @@
 import { airTariffSeed } from '../_shared/air-tariff-seed.ts';
+import {syntheticCustoms} from './customs-basis-fixture.ts';
+import {customsBasisSnapshot} from '../_shared/customs-basis.ts';
 import { equivalentHsTaxation, HS_TAX_FIELDS, HS_TAX_BASIS_VERSION } from "../_shared/hs-tax-profile.ts";
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { generateDraftPdf } from '../export-quotation-version-pdf/index.ts';
@@ -43,7 +45,7 @@ async function pdfText(bytes: Uint8Array): Promise<string> {
   }
   return out.join(' ').replace(/\s+/g, ' ');
 }
-type State = { tables: Record<string, Row[]>; calls: string[]; failTable: string | null; failSelect: string | null; failService: boolean; engineCalls: number;
+type State = { customsState?: ReturnType<typeof syntheticCustoms>; rejectCustomsFinish?: boolean; tables: Record<string, Row[]>; calls: string[]; failTable: string | null; failSelect: string | null; failService: boolean; engineCalls: number;
   airState: Row | null;
   engineResponse: Row | null; engineRequests: Row[]; engineTaxMutation: string | null; serviceMode: string | null;
   invoke: (name: string, body: Row) => Promise<{ status: number; body: Row }> };
@@ -109,7 +111,7 @@ async function fixture(run: (state: State) => Promise<void>) {
             return json({ ...state.engineResponse, lines:[{ id:'duties_total', category:'Droits & Taxes', amount:123,
               currency:'XOF', source:{ type:'CALCULATED',firm_eligible:false,hs_tax_equivalence:actual } }] });
           }
-          return json(state.engineResponse);
+          return json({...state.engineResponse,...(body.params.customsBasisRef&&state.customsState?{customs_basis:customsBasisSnapshot(state.customsState.record,state.customsState.context)}:{})});
         }
         throw Error('Customs engine must not be called for missing customs inputs');
       }
@@ -127,6 +129,11 @@ async function fixture(run: (state: State) => Promise<void>) {
     }
     if (url.pathname.includes('/rpc/')) {
       if (name === 'has_workspace_access') return json(true);
+      if (name === 'customs_basis_get') {
+        const f=state.customsState;
+        if(!f||body.p_case!==f.record.case_id||body.p_id!==f.record.id)return json({message:'Synthetic customs access conflict'},0,409);
+        return json({head:f.record,context:f.context});
+      }
       if (name === 'air_tariff_read') {
         if (state.failTable === name) return json({message:'Synthetic read unavailable'},0,503);
         return json(state.airState ? { ...state.airState, facts: tables.quote_facts, request_type: tables.quote_cases[0].request_type, lot_count: tables.quote_request_lines.length } : {selection:null});
@@ -156,6 +163,7 @@ async function fixture(run: (state: State) => Promise<void>) {
       if (value.startsWith('is.')) return value === 'is.null' ? row[key] == null : String(row[key]) === value.slice(3);
       return true;
     }));
+    if(method==='PATCH'&&name==='pricing_runs'&&body.outputs_json?.customs_basis&&state.rejectCustomsFinish)return json({code:'40001',message:'Synthetic atomic customs context rejection'},0,409);
     if (method === 'POST') {
       rows = (Array.isArray(body) ? body : [body]).map(row => ({ id: `fixture-${name}-${tables[name].length}`, created_at: new Date().toISOString(), ...row }));
       tables[name].push(...rows);
@@ -631,4 +639,19 @@ Deno.test('AIR full catalogue and ordinary storage reach run, immutable version 
   const before=JSON.stringify(snapshot);state.airState!.catalogue.payload.entries.find((e:Row)=>e.key==='storage_0').value=999;
   assertEquals(JSON.stringify(snapshot),before);const text=await pdfText(await generateDraftPdf(snapshot,'SYNTHETIC-FULL-AIR'));
   assertStringIncludes(text,'confirmer');assert(!text.includes('42020'));assert(!text.includes('7600'));
+}));
+
+for(const rejectFinish of [false,true])Deno.test('customs opt-in actual pricing/version/PDF handlers: '+(rejectFinish?'atomic finish rejected, no false success':'proof pinned, no canonical promotion'),async()=>fixture(async state=>{
+ const f=syntheticCustoms();state.customsState=f;state.rejectCustomsFinish=rejectFinish;
+ for(const rows of Object.values(state.tables))for(const row of rows){if(row.case_id==='fixture-case')row.case_id=f.record.case_id;if(row.id==='fixture-case')row.id=f.record.case_id;}
+ state.engineResponse={version:'SYNTHETIC-CUSTOMS',lines:[{id:'duties_total',category:'Droits & Taxes',bloc:'debours',amount:123,currency:'XOF',source:{type:'CALCULATED'}}],duty_breakdown:[{caf:100000}],totals:{totalDdp:123,totalDap:0},currency:'XOF'};
+ const before=JSON.stringify(state.tables.quote_facts),result=await state.invoke('run-pricing',{case_id:f.record.case_id,allow_provisional:true,customs_basis_id:f.record.id});
+ if(rejectFinish){assertEquals(result.status,409,JSON.stringify(result.body));assertEquals(state.tables.pricing_runs.filter(r=>r.status==='success').length,0);assertEquals(state.tables.quote_cases[0].status,'NEED_INFO');assert(!state.tables.case_timeline_events.some(e=>e.event_type==='pricing_completed'));return;}
+ assertEquals(result.status,200,JSON.stringify(result.body));const run=state.tables.pricing_runs.find(r=>r.status==='success');assert(run,JSON.stringify(result.body));
+ assertEquals(JSON.stringify(state.tables.quote_facts),before);assertEquals(run.outputs_json.customs_basis.id,f.record.id);assertEquals(run.engine_request.customs_basis_ref.id,f.record.id);assertEquals(state.engineCalls,1);
+ assertEquals(state.engineRequests[0].params.cargoValue,100000);assertEquals(state.engineRequests[0].params.cargoCurrency,'XOF');
+ const version=await state.invoke('generate-quotation-version',{case_id:f.record.case_id,pricing_run_id:run.id});assertEquals(version.status,200,JSON.stringify(version.body));
+ const snap=state.tables.quotation_versions[0].snapshot;assertEquals(snap.customs_basis.id,f.record.id);const frozen=JSON.stringify(snap);
+ f.context.profiles[2].dd=99;assertEquals(JSON.stringify(snap),frozen);
+ const text=await pdfText(await generateDraftPdf(snap,'SYNTHETIC-CUSTOMS'));assertStringIncludes(text,'CAF');assert(!text.includes('PRIVATE-SUPPLIER-COST-777'));assert(!text.includes('real conversion'));
 }));

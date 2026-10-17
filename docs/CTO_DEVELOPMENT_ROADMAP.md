@@ -305,6 +305,31 @@ Règles non négociables :
 - Preuves/accusés/diff exact et CI finale : task-3/commercial-durable-20261017. Reprise : session opérateur existante sur seule fixture9c7460a1, décision client explicite→sauvegarde→relecture→nouvelle version→PDF cohérent, aucun envoi. Aucun nouveau GO fonctionnel requis.
 - Retour : privilégier correction en avant ou retirer le raccord UI avant retour des fonctions ; conserver migrations, révisions append-only et tous snapshots/PDF historiques. Ne pas rejouer les migrations appliquées ni réécrire un devis existant.
 
+### 2.18 Conduite et reprise — 17 octobre 2026
+
+- Demande humaine : installer une procédure de travail documentaire, avec guide unique de reprise ; exception explicite d’ajout de ce document, aucun nouveau code/fiscalité, commit/push ou déploiement demandé.
+- Guide opérationnel : [CONDUITE_REPRISE_DCQ.md](CONDUITE_REPRISE_DCQ.md) ; complète§2.1, conserve les sources de vérité et sépare rôle de suivi de la dot et exécution dans cette tâche. Aucune dot/automatisation créée ici.
+- HEAD technique livré inchangé3f7a7da, GitHub/Lovable alignés ; cette proposition documentaire reste locale. Les sections précédentes et les modifications CTO préexistantes sont conservées.
+- Complément de preuve à§2.17 : PASS du seul parcours manuel authentifié fixture9c7460a1, révision1→v2→PDF689000partiel ; texte/rendu2pages inspectés indépendamment,4153octets/hash21d57c47…identiques serveur/téléchargement. Pas de certification du dossier médicaments ni fiscalité complète.
+- Preuves : task-3/commercial-durable-20261017/manual-recipe-closure.json ; v1/PDF et196anciens runs conservés. Un run2 de fixture est apparu à15:10, origine non établie ; source commerciale historique non remplacée.
+- Objectif suivant préparé, non implémenté par ce GO documentaire : dossier médicaments1d6202e8, demande/pièces→bases proposées→validation/estimation→postes complets→version/PDF ; aucune valeur, classe HS, fiscalité ou régime inventé.
+- Le guide fixe critères de terminé, décision/autorisation groupées, tests et contre-revue, interruptions/reprise, prompt bref et points d’avancement limités aux résultats/blocages.
+- Terminal et connecteurs en lecture fonctionnels ; aucun outil navigateur dédié exposé ici, commande Chrome/UIAutomation refusée et non contournée. Environnement de recette autonome NON DÉMONTRÉ ; vérifier la capacité officielle avant de le promettre.
+- Contrôle de ce delta : revue documentaire, liens et diff-check ; tests applicatifs NOT_RUN car aucun code modifié. Aucun changement DB/Auth/RLS/compte/secret/configuration, installation ou connexion.
+- Retour documentaire : retirer seulement ce guide et§2.18 après contrôle ; préserver les lots livrés et les sources CTO. Cette mise en place n’élargit aucun GO technique ou métier.
+
+### 2.19 Bases douanières explicites — clôture locale du 17 octobre 2026
+
+- GO utilisateur local : code, migration PostgreSQL locale, tests et contre-revue ; STRUCTURAL_PATCH_ALLOWED limité aux adaptateurs run-pricing/quotation-engine. Aucun commit/push, changement Cloud ni livraison autorisé par ce GO.
+- Propositions depuis les extractions existantes ; FOC/HS documentaire restent déclaratifs. CAF XOF, justification de valeur/conversion, régime et revue des exonérations retenus explicitement en une décision append-only ; aucun quote_fact promu.
+- Adoption : acteur serveur, admission/propriété existantes, empreinte pièces/faits/profils/régimes, CAS, rejeu et événement atomiques. Profil inconnu/legacy/non pris en charge : réserve conservée, calcul refusé.
+- Calcul activé uniquement par customs_basis_id ; le moteur recharge la preuve, utilise la CAF sans recompter fret/assurance et garde les formules/taux historiques. Finalisation atomique contre une source concurrente ; run figé protégé contre modification/retrait de preuve.
+- Base et preuve épinglées dans nouvelle version/révision commerciale ; projection PDF commune, notes internes non imprimées. Relecture après actualisation, saisie sale préservée et décision concurrente visible avant calcul.
+- npm run ci exit0 : 806 Vitest, 2255 Deno/0 échec/6 ignorés ; types app/node/build PASS ; Deno49/5 et lint720/16 sans aggravation. Test HTTP d’adoption ajouté ensuite : suite5 et typecheck PASS ; lint final sans aggravation.
+- PostgreSQL natif15.18 :9groupes PASS (ACL, acteur, rollback, CAS réel, verrouillage sources/finalisation et historique). Contre-revue indépendante finale PASS, aucun blocage ; revues limitées aux correctifs affectés.
+- PDF synthétique local4043octets, SHA256f318cfb0696c8c67b94ac571ef79abb3e0d8438a28a59ed03c0d59bce5a312bd : texte/rendu2pages inspectés, CAF100000, droits13420, TVA honoraires126, payable14246 ; aucune donnée/taxe réelle certifiée.
+- Limites : fiscalité réelle du dossier médicaments à justifier ; recette Cloud/navigateur connecté NOT_RUN, autonomie non démontrée. Audit UI strict120 constats =119 préexistants +1 faux positif sur Select Radix partagé ; aucune conformité UI globale revendiquée.
+- Migration20261017160000 locale seulement. Préserver les historiques ; retour arrière local par patch isolé après inspection, sans supprimer les décisions append-only après une éventuelle future livraison. Original et docs préexistants préservés ; preuves dans task-3/procedure-reprise-20261017.
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

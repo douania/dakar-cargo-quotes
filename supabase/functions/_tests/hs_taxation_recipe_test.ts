@@ -1,6 +1,8 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { HS_TAX_FIELDS, HS_TAX_BASIS_VERSION, type TaxRow } from '../_shared/hs-tax-profile.ts';
 import { classifyClientLine } from '../_shared/client-quote-projection.ts';
+import { customsBasisSnapshot } from '../_shared/customs-basis.ts';
+import { syntheticCustoms } from './customs-basis-fixture.ts';
 const flag = Deno.env.get('QUOTATION_ENGINE_DISABLE_SERVE');
 Deno.env.set('QUOTATION_ENGINE_DISABLE_SERVE', '1');
 const { generateQuotationLines } = await import('../quotation-engine/index.ts');
@@ -46,6 +48,12 @@ function fixture() {
   return { profiles, request, state, tables, client: { from } };
 }
 type Fixture = ReturnType<typeof fixture>;
+Deno.test('Customs explicit CAF uses unchanged real kernel formulas without adding non-XOF freight or default insurance',async()=>{
+ const f=fixture(),b=syntheticCustoms();b.context.profiles=f.profiles;b.context.regimes=f.tables.customs_regimes;
+ const basis=customsBasisSnapshot(b.record,b.context),request={...f.request,hsCode:basis.decision.hs_digits,hsEstimate:undefined,freightAmount:999999,freightCurrency:'UNSUPPORTED-TEST-CURRENCY'};
+ const result=await generateQuotationLines(f.client,request,basis),line=result.lines.find(l=>l.id==='duties_total');assert(line);assertEquals(line.amount,13420);
+ assertEquals(result.dutyBreakdown[0].caf,100000);assertEquals(f.state.writes,0);
+});
 async function calculate(f: Fixture) {
   const output = await generateQuotationLines(f.client, f.request);
   const line = output.lines.find(l => l.id === 'duties_total'); assert(line, 'Actual customs output missing');

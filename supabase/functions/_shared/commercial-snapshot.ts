@@ -1,3 +1,4 @@
+import { readCustomsBasisSnapshot } from './customs-basis.ts';
 import type { CommercialPreparation } from './commercial-preparation.ts';
 import { commercialFeeTotals } from './commercial-fee-totals.ts';
 import { isToConfirmLine } from './quotation-line-status.ts';
@@ -51,7 +52,8 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
   });
   const calculated = commercialFeeTotals(subtotal,fees);
   if (![subtotal,fees,calculated.totalPayable].every(number)) throw new Error('Total commercial hors limites');
-  return {inputs:source.inputs,client:source.client,...(source.operator_basis ? {operator_basis:source.operator_basis} : {}),
+  const customsBasis=readCustomsBasisSnapshot(source.customs_basis);
+  return {...(customsBasis?{customs_basis:customsBasis}:{}),inputs:source.inputs,client:source.client,...(source.operator_basis ? {operator_basis:source.operator_basis} : {}),
     meta:{...row(source.meta),version_id:null,version_number:null,created_at:null,
       commercial_revision_id:revisionId,commercial_source_version_id:draft.source_version_id,
       quoteQualification:{level:unknown ? 'partial' : 'provisional',firmTotalPolicy:unknown ? 'excludes_reserved_items' : 'all_included',

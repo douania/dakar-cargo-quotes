@@ -1,3 +1,4 @@
+import { customsBasisText } from './customs-basis.ts';
 import { readQuotationCargoBasis, quotationCargoBasisText } from "./quotation-cargo-basis.ts";
 import { tariffReferenceNotice } from "./selected-tariff-reference.ts";
 /**
@@ -410,7 +411,7 @@ export function projectClientQuote(snapshotValue: unknown): ClientQuoteProjectio
   let hasRecordedFallback = projected.some(l => l.status === "zero_unexplained");
 
   // --- Bases de cotation ---
-  const bases: string[] = [];
+  const bases: string[] = customsBasisText(snapshot.customs_basis);
   if (basis) {
     const scope = row(basis.scope);
     const origin = str(row(scope.origin).location_code);

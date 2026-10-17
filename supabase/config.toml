@@ -330,3 +330,6 @@ verify_jwt = true
 
 [functions.preview-air-handling]
 verify_jwt = false
+
+[functions.manage-customs-basis]
+verify_jwt = false

@@ -1,3 +1,4 @@
+import { loadCustomsBasis, applyCustomsPricingFacts, type CustomsBasisSnapshot } from '../_shared/customs-basis.ts';
 import { knownHsTaxProfile, equivalentHsTaxation, type HsTaxEquivalence } from "../_shared/hs-tax-profile.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
@@ -1512,6 +1513,11 @@ Deno.serve(async (req) => {
     const previousStatus = caseData.status;
     const isFinalized = ["SENT", "QUOTED_VERSIONED"].includes(previousStatus);
 
+    // GO local médicaments: explicit opt-in only; no canonical fact is changed.
+    const customsBasis: CustomsBasisSnapshot | null = body.customs_basis_id !== undefined
+      ? await loadCustomsBasis(serviceClient,userId,case_id,body.customs_basis_id) : null;
+    if (customsBasis?.decision.commitment === 'estimated' && !allow_provisional) throw new Error('Les bases estimatives nécessitent le mode provisoire');
+
     // 4. Phase 15.6: Scope query — determine scopeWantsDuties BEFORE hard guard
     const { data: scopeFacts } = await serviceClient
       .from("quote_facts")
@@ -1612,16 +1618,19 @@ Deno.serve(async (req) => {
       .eq("is_blocking", true)
       .eq("status", "open");
 
-    const blockingGapsCount = blockingGapsRows?.length ?? 0;
+    const effectiveBlockingGapsRows = (blockingGapsRows || []).filter((g: {gap_key:string}) => !customsBasis || !['cargo.hs_code','cargo.value','cargo.value_currency','customs.regime_code'].includes(g.gap_key));
+    const blockingGapsCount = effectiveBlockingGapsRows.length;
     if (partialDestination && blockingGapsReadError) throw new Error('Blocking gap verification failed');
-    if (partialDestination) for (const gap of blockingGapsRows || []) {
+    if (partialDestination) for (const gap of effectiveBlockingGapsRows) {
       if (PARTIAL_CUSTOMS_GAP_KEYS.has(gap.gap_key)) partialCustomsDependencies.add(gap.gap_key);
     }
     const provisionalBypass =
       allow_provisional === true &&
       blockingGapsCount > 0 &&
-      blockingGapsRows!.every((g: any) => g.gap_key === "cargo.value" ||
-        (partialDestination && PARTIAL_CUSTOMS_GAP_KEYS.has(g.gap_key)));
+      (customsBasis ? effectiveBlockingGapsRows.every((g: {gap_key:string}) => g.gap_key === "cargo.value" ||
+        (partialDestination && PARTIAL_CUSTOMS_GAP_KEYS.has(g.gap_key))) :
+        blockingGapsRows!.every((g: any) => g.gap_key === "cargo.value" ||
+        (partialDestination && PARTIAL_CUSTOMS_GAP_KEYS.has(g.gap_key))));
 
     if (blockingGapsCount > 0 && !provisionalBypass) {
       return new Response(
@@ -2870,7 +2879,7 @@ Deno.serve(async (req) => {
 
     // 4b. Coherence check — HS Code (last-resort drift detection, NO gap upsert)
     if (scopeWantsDuties) {
-      const rawHs = String((scopeFacts || []).find((f: any) => f.fact_key === "cargo.hs_code")?.value_text ?? "");
+      const rawHs = String(customsBasis?.decision.hs_digits ?? (scopeFacts || []).find((f: any) => f.fact_key === "cargo.hs_code")?.value_text ?? "");
       const hsCandidates = rawHs.split(/[;,]/).map((c: string) => c.trim().replace(/\D/g, "")).filter(Boolean);
       const firstValidHs10 = hsCandidates.find((c: string) => c.length === 10);
       const hsDigits = firstValidHs10 || rawHs.replace(/\D/g, "");
@@ -2890,6 +2899,7 @@ Deno.serve(async (req) => {
         else if (!knownHsTaxProfile(hsRow)) hsBlocker = "HS_TAX_PROFILE_UNKNOWN";
       }
 
+      if (customsBasis) hsBlocker = null; // already checked against the adopted verified profile
       if (hsBlocker && partialDestination) partialCustomsDependencies.add('cargo.hs_code');
       if (hsBlocker && !partialDestination) {
         console.error("[COHERENCE] puzzle/pricing drift", { case_id, missing: "cargo.hs_code", blocker: hsBlocker, scopeWantsDuties, incoterm: incotermEarly, pkg });
@@ -2947,6 +2957,7 @@ Deno.serve(async (req) => {
       if (partialDestination && regimeReadError) throw new Error('Partial destination regime verification failed');
 
       const regimeCheckMap = new Map((regimeCheckFacts || []).map((f: any) => [f.fact_key, f.value_text]));
+      if (customsBasis) regimeCheckMap.set('customs.regime_code',customsBasis.decision.regime_code);
       const hasExemptionTitle = !!regimeCheckMap.get("regulatory.exemption_title");
       const hasRegimeCode = !!regimeCheckMap.get("customs.regime_code");
 
@@ -3042,14 +3053,14 @@ Deno.serve(async (req) => {
     }));
 
     // 8. Build inputs_json from facts
-    const inputs = buildPricingInputs(facts || []);
+    const inputs = buildPricingInputs(applyCustomsPricingFacts(facts || [],customsBasis));
     if (selectedAirHandling) inputs.airHandling = selectedAirHandling;
     // STRUCTURAL_PATCH_ALLOWED (GO 2026-10-15): only the existing provisional mono-AIR
     // destination flow; preserve facts/gaps/classification. The engine rechecks DB evidence.
     let hsTaxEstimate: HsTaxEquivalence | undefined;
     const sourceHsFact = (facts || []).find(f => f.fact_key === 'cargo.hs_code_documentary');
     const sourceHsDigits = String(inputs.hsCode || sourceHsFact?.value_text || '').replace(/\D/g, '');
-    if (partialDestination && scopeWantsDuties && /^(?:\d{6}|\d{8})$/.test(sourceHsDigits)) {
+    if (!customsBasis && partialDestination && scopeWantsDuties && /^(?:\d{6}|\d{8})$/.test(sourceHsDigits)) {
       const approved = (key: string) => (facts || []).find(f => f.fact_key === key &&
         (f.is_validated === true || ['operator', 'operator_correction', 'manual_input'].includes(f.source_type ?? '')));
       const value = approved('cargo.value'), currency = approved('cargo.value_currency');
@@ -3548,6 +3559,7 @@ Deno.serve(async (req) => {
         clientCompany: inputs.clientCompany,
         hsCode: hsTaxEstimate?.eligible ? sourceHsDigits : inputs.hsCode,
         ...(hsTaxEstimate?.eligible ? { hsEstimate: { enabled: true, exemptionsReviewed: true, caseId: case_id } } : {}),
+        ...(customsBasis ? {customsBasisRef:{caseId:case_id,id:customsBasis.id}} : {}),
         articlesDetail: inputs.articlesDetail,
         regimeCode: inputs.regimeCode || undefined,
         freightAmount: inputs.freightCost,
@@ -3575,6 +3587,7 @@ Deno.serve(async (req) => {
       }
 
       engineResponse = await engineRes.json();
+      if (customsBasis && JSON.stringify(engineResponse.customs_basis) !== JSON.stringify(customsBasis)) throw new Error('La preuve douanière du moteur ne correspond pas aux bases retenues');
       if (hsTaxEstimate?.eligible) {
         const taxLines = (engineResponse.lines || engineResponse.quotationLines || []) as Array<{ source?: { hs_tax_equivalence?: HsTaxEquivalence } }>;
         const actual = taxLines.map(l => l.source?.hs_tax_equivalence).filter((p): p is Extract<HsTaxEquivalence,{ eligible:true }> => p?.eligible === true);
@@ -4861,6 +4874,7 @@ ${JSON.stringify(refPayload)}`;
     const currency = engineResponse.currency || "XOF";
 
     const outputsJson = {
+      ...(customsBasis ? {customs_basis:customsBasis} : {}),
       lines: tariffLines,
       warnings: Array.isArray(engineResponse.warnings) ? engineResponse.warnings : [],
       totals: {
@@ -4993,10 +5007,15 @@ ${JSON.stringify(refPayload)}`;
         return new Response(JSON.stringify({ pricing_blockers: ['AIR_HANDLING_CONTEXT_CHANGED'], message: 'Le paramétrage handling ou ses sources ont changé. Reconfirmez avant de recalculer.' }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
+    if (customsBasis?.decision.commitment === 'estimated') {
+      const q = (outputsJson as unknown as {quoteQualification?:{level:string;reasons:Array<{code:string;message:string}>}}).quoteQualification;
+      if (q) { if(q.level==='firm')q.level='provisional';q.reasons.push({code:'CUSTOMS_OPERATOR_ESTIMATE',message:'Droits et taxes sur bases opérateur estimatives et révisables'}); }
+    }
     // 13. Update pricing_run with results
     const pricingResult = {
         status: "success",
         engine_request: {
+          ...(customsBasis ? {customs_basis_ref:{id:customsBasis.id,caseId:case_id},customs_basis:customsBasis} : {}),
           cargoWeight: inputs.cargoWeight,
           weight_reconciliation: padGroupState?.retained_weight ?? null,
           finalDestination: inputs.finalDestination,
@@ -5047,7 +5066,12 @@ ${JSON.stringify(refPayload)}`;
           { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     } else {
-      await serviceClient.from("pricing_runs").update(pricingResult).eq("id", pricingRun.id);
+      const saved = await serviceClient.from("pricing_runs").update(pricingResult).eq("id", pricingRun.id);
+      if (customsBasis && saved.error) {
+        await serviceClient.from('pricing_runs').update({status:'blocked',error_message:'CUSTOMS_BASIS_CONTEXT_CHANGED',completed_at:new Date().toISOString()}).eq('id',pricingRun.id).eq('status','running');
+        if (!isFinalized) await rollbackToPreviousStatus(serviceClient,case_id,previousStatus,'customs_basis_context_changed');
+        return new Response(JSON.stringify({pricing_blockers:['CUSTOMS_BASIS_CONTEXT_CHANGED'],message:'Les bases ou leurs sources ont changé. Relisez-les avant de recalculer.'}),{status:409,headers:{...corsHeaders,'Content-Type':'application/json'}});
+      }
     }
 
     // 14. Transition case to PRICED_DRAFT (skip for finalized cases)

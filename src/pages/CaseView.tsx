@@ -94,6 +94,7 @@ import { PartnerCollectionReadinessCard } from "@/components/puzzle/PartnerColle
 import { PartnerRequestsSummary } from "@/components/puzzle/PartnerRequestsSummary";
 import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDetailView";
 import { ServiceOverridePanel } from "./case-view/ServiceOverridePanel";
+import { CustomsBasisReview } from '@/components/case/CustomsBasisReview';
 import { CommercialPreparationWorkspace } from "@/components/case/CommercialPreparationWorkspace";
 import { useCockpitState } from "@/hooks/useCockpitState";
 import { useQualifiedScopeGate } from "@/hooks/useQualifiedScopeGate";
@@ -1746,6 +1747,7 @@ export default function CaseView() {
         versions: ['PRICED_DRAFT', 'HUMAN_REVIEW', 'QUOTED_VERSIONED', 'SENT', 'ACCEPTED', 'REJECTED'].includes(caseData.status) && (
           <div className="mb-6" id="section-version">
             <QuotationVersionCard onReviewBasis={() => openCoordinationBlock(guided ? "section-request" : "section-data", "marchandise")} caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} />
+            {/^AIR_IMPORT(?:_|$)/.test(caseData.request_type??'')&&<CustomsBasisReview key={caseId} caseId={caseId!} isLocked={!!isPostSentLocked} onCalculated={()=>{setVersionRefreshToken(t=>t+1);void refetchCase();void refetchEvents();}}/>}
             <CommercialPreparationWorkspace caseId={caseId!} isLocked={!!isPostSentLocked} refreshToken={versionRefreshToken} onVersionCreated={() => setVersionRefreshToken(t => t + 1)} />
           </div>
         ),

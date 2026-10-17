@@ -15,7 +15,7 @@ const deno = process.env.DENO_BIN || 'deno';
 const entries = ['adopt-operator-quotation-basis', 'quotation-engine', 'run-scenario-pricing', 'manage-quote-scenario',
   // MULTI-LOT-TERMINAL-1: functions whose bundle gains the per-lot registry modules.
   'manage-lot-confirmation', 'manage-pad-group-confirmation', 'run-pricing', 'build-case-puzzle',
-  'manage-commercial-preparation','generate-quotation-version'];
+  'manage-commercial-preparation','generate-quotation-version','manage-customs-basis'];
 const scratch = mkdtempSync(path.join(tmpdir(), 'dcq-scenario-bundles-'));
 let failures = 0;
 
