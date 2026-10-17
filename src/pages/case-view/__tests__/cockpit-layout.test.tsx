@@ -149,12 +149,24 @@ it('stops at a document preparation error before starting analysis',async()=>{
   invoke.mockResolvedValue({data:null,error:new Error('Preparation denied')});mount();
   await userEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));
   expect(invoke).toHaveBeenCalledTimes(1);expect(invoke).toHaveBeenCalledWith('backfill-case-documents',{body:{case_id:'case-a'}});
-  expect(failure).toHaveBeenCalledWith('Preparation des documents echouee : Preparation denied');
+  expect(failure).toHaveBeenCalledWith(expect.stringContaining("Le fichier est conservé"));
   expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();
+});
+it.each([false,true])('failed/empty extraction never starts normal or forced analysis, force=%s',async forced=>{
+  emptyAnalysisFixture();facts=[{id:'synthetic-articles',is_current:true,fact_key:'cargo.articles_detail',value_json:[]}];documentCount=1;
+  const success=vi.spyOn(toast,'success');invoke.mockResolvedValue({data:{success:false,status:'error',extraction_contract:1,remaining:1,extraction:{status:'empty',code:'DOCUMENT_TEXT_EMPTY',text_length:0,persisted:false}},error:null});mount();
+  await userEvent.click(screen.getByRole('button',{name:forced?'Admin - Forcer refresh articles':"Relancer l'analyse"}));
+  expect(invoke.mock.calls.map(([name])=>name)).toEqual(['backfill-case-documents']);expect(screen.getByRole('alert')).toHaveTextContent('Aucun texte lisible');expect(success).not.toHaveBeenCalled();
+  expect(screen.getByRole('button',{name:"Relancer l'analyse"})).toBeEnabled();
+});
+it('five preparation passes with pending sources cannot start the analysis',async()=>{
+  emptyAnalysisFixture();invoke.mockResolvedValue({data:{success:true,status:'ok',extraction_contract:1,remaining:1,processed_id:'doc',text_length:4},error:null});mount();
+  await userEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));await waitFor(()=>expect(invoke).toHaveBeenCalledTimes(5));
+  expect(invoke.mock.calls.every(([name])=>name==='backfill-case-documents')).toBe(true);expect(screen.getByRole('alert')).toHaveTextContent('restent à préparer');
 });
 it.each(['failed','cancelled'])('ends a %s analysis job immediately and preserves the failure',async(jobStatus)=>{
   emptyAnalysisFixture();vi.useFakeTimers();const failure=vi.spyOn(toast,'error'),success=vi.spyOn(toast,'success');
-  invoke.mockResolvedValueOnce({data:{remaining:0},error:null})
+  invoke.mockResolvedValueOnce({data:{success:true,status:"ok",extraction_contract:1,remaining:0},error:null})
     .mockResolvedValueOnce({data:{job_id:'synthetic-job'},error:null})
     .mockResolvedValue({data:{status:jobStatus,error_message:'Source analysis rejected'},error:null});
   mount();fireEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));
@@ -171,7 +183,7 @@ it('retains transport retries and runs post-analysis work only after completion'
   emptyAnalysisFixture();vi.useFakeTimers();const success=vi.spyOn(toast,'success'),failure=vi.spyOn(toast,'error');
   const read={select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),order:vi.fn().mockReturnThis(),limit:vi.fn().mockReturnThis(),maybeSingle:vi.fn().mockResolvedValue({data:null,error:null})};
   from.mockReturnValue(read);
-  invoke.mockResolvedValueOnce({data:{remaining:0},error:null})
+  invoke.mockResolvedValueOnce({data:{success:true,status:"ok",extraction_contract:1,remaining:0},error:null})
     .mockResolvedValueOnce({data:{job_id:'synthetic-job'},error:null})
     .mockRejectedValueOnce(new Error('Temporary transport failure'))
     .mockResolvedValueOnce({data:{status:'completed',final_result:{}},error:null})

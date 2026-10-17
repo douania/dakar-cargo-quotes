@@ -3,6 +3,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import * as pdfjsLib from "npm:pdfjs-dist@4.4.168/legacy/build/pdf.mjs";
 import { requireUser } from "../_shared/auth.ts";
+import { DocumentExtractionError, EXTRACTION_CONTRACT, extractionOutcome, hasExtractedText, sanitizeDocumentText } from '../_shared/document-extraction.ts';
 
 // Worker disabled (disableWorker: true used at call sites)
 
@@ -13,7 +14,7 @@ const corsHeaders = {
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff', 'tif'];
 
-serve(async (req) => {
+export async function handleParseDocument(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -28,10 +29,27 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const formData = await req.formData();
-    const file = formData.get('file') as File;
+    let file = formData.get('file') as File;
+    let source: {id:string;case_id:string;file_name:string;storage_path:string;mime_type:string|null;extracted_text:string|null} | null = null;
     const caseDocumentId = formData.get('case_document_id') as string | null;
     
-    if (!file) {
+    if (caseDocumentId) {
+      const userClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
+        global: {headers: {Authorization: req.headers.get('Authorization')!}}, auth: {persistSession:false},
+      });
+      const read = await userClient.from('case_documents')
+        .select('id,case_id,file_name,storage_path,mime_type,extracted_text').eq('id', caseDocumentId).maybeSingle();
+      if (read.error || !read.data) return Response.json({success:false,error:'Document inaccessible'}, {status:403,headers:corsHeaders});
+      source = read.data;
+      if (hasExtractedText(source!.extracted_text)) return Response.json({success:true,extraction_contract:EXTRACTION_CONTRACT,
+        extraction:{...extractionOutcome('extracted',source!.extracted_text!.length,true),replayed:true},
+        document:{id:source!.id,filename:source!.file_name,text_preview:source!.extracted_text!.slice(0,500)}}, {headers:corsHeaders});
+      // The stored source is authoritative; caller-supplied bytes cannot replace its evidence.
+      const stored = await supabase.storage.from('case-documents').download(source!.storage_path);
+      if (stored.error || !stored.data) throw new DocumentExtractionError('DOCUMENT_READ_FAILED');
+      file = new File([stored.data], source!.file_name, {type:source!.mime_type || stored.data.type});
+    }
+    if (!(file instanceof File)) {
       return new Response(
         JSON.stringify({ error: 'No file provided' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -74,26 +92,18 @@ serve(async (req) => {
     // Extract text based on file type
     let extractedText = '';
     let extractedData: any = null;
+    let extractionError: DocumentExtractionError | null = null;
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
 
-    // Helper function to sanitize text for database storage
-    const sanitizeText = (text: string): string => {
-      return text
-        // eslint-disable-next-line no-control-regex -- intentional: strips null chars before DB write
-        .replace(/\u0000/g, '') // Remove null characters
-        // eslint-disable-next-line no-control-regex -- intentional: strips non-printable control chars before DB write
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '') // Remove control characters except newline, tab, carriage return
-        .replace(/\\u0000/g, '') // Remove escaped null sequences
-        .trim();
-    };
+    const sanitizeText = sanitizeDocumentText;
 
     if (fileExt === 'pdf') {
       try {
         // 1) Try local extraction with PDF.js (no network, avoids gibberish)
         try {
           const loadingTask = pdfjsLib.getDocument({
-            data: uint8Array,
+            data: uint8Array.slice(),
             disableWorker: true,
           } as any);
 
@@ -112,14 +122,14 @@ serve(async (req) => {
 
           const fullText = sanitizeText(pagesText.join('\n\n'));
 
-          if (!fullText || fullText.length < 50) {
+          if (!hasExtractedText(fullText)) {
             throw new Error('PDF.js extraction produced empty/short text');
           }
 
           extractedText = fullText;
           extractedData = {
             type: 'pdf',
-            rawSize: uint8Array.length,
+            rawSize: file.size,
             pages: pdf.numPages,
             extractionMethod: 'pdfjs',
           };
@@ -132,10 +142,11 @@ serve(async (req) => {
           const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 
           if (!LOVABLE_API_KEY) {
-            extractedText = '[PDF détecté - extraction texte indisponible]';
+            extractedText = '';
+            extractionError = new DocumentExtractionError('OCR_NOT_CONFIGURED',503);
             extractedData = {
               type: 'pdf',
-              rawSize: uint8Array.length,
+              rawSize: file.size,
               extractionMethod: 'none',
             };
           } else {
@@ -180,29 +191,30 @@ serve(async (req) => {
                 ],
                 max_tokens: 8192,
               }),
+              signal: AbortSignal.timeout(15000),
             });
 
             if (aiResponse.ok) {
               const aiData = await aiResponse.json();
               const content = aiData.choices?.[0]?.message?.content;
-              const aiText = typeof content === 'string' ? content : JSON.stringify(content ?? '');
+              const aiText = typeof content === 'string' ? content : '';
 
               extractedText = sanitizeText(aiText);
               extractedData = {
                 type: 'pdf',
-                rawSize: uint8Array.length,
+                rawSize: file.size,
                 extractionMethod: 'ai',
               };
 
               console.log('AI extraction successful, text length:', extractedText.length);
             } else {
-              const errorText = await aiResponse.text();
-              console.error('AI extraction failed:', aiResponse.status, errorText);
+              console.error('AI extraction failed:', aiResponse.status);
 
-              extractedText = '[Erreur lors de l\'extraction IA du PDF]';
+              extractedText = '';
+              extractionError = new DocumentExtractionError('OCR_PROVIDER_FAILED');
               extractedData = {
                 type: 'pdf',
-                rawSize: uint8Array.length,
+                rawSize: file.size,
                 extractionMethod: 'ai',
                 aiStatus: aiResponse.status,
               };
@@ -211,7 +223,8 @@ serve(async (req) => {
         }
       } catch (pdfError) {
         console.error('PDF parse error:', pdfError);
-        extractedText = '[Erreur lors de la lecture du PDF]';
+        extractedText = '';
+        extractionError = new DocumentExtractionError('OCR_PROVIDER_FAILED');
       }
     } else if (fileExt === 'xlsx' || fileExt === 'xls') {
       // Parse Excel using xlsx
@@ -227,7 +240,7 @@ serve(async (req) => {
             rows: jsonData.length,
             data: jsonData.slice(0, 100), // Limit to first 100 rows
           };
-          extractedText += `\n=== ${sheetName} ===\n${textData}\n`;
+          if (sanitizeText(textData)) extractedText += `\n=== ${sheetName} ===\n${textData}\n`;
         });
         
         extractedData = {
@@ -237,7 +250,8 @@ serve(async (req) => {
         console.log('Excel parsed, sheets:', workbook.SheetNames.length);
       } catch (xlsxError) {
         console.error('Excel parse error:', xlsxError);
-        extractedText = '[Erreur lors de la lecture du fichier Excel]';
+        extractedText = '';
+        extractionError = new DocumentExtractionError('DOCUMENT_READ_FAILED');
       }
     } else if (fileExt === 'csv') {
       // Parse CSV
@@ -272,7 +286,7 @@ serve(async (req) => {
         extractedText = await extractTextFromImage(uint8Array, file.type, fileExt!);
         extractedData = {
           type: 'image',
-          rawSize: uint8Array.length,
+          rawSize: file.size,
           extractionMethod: 'ocr_ai',
         };
         if (!extractedText) {
@@ -280,11 +294,12 @@ serve(async (req) => {
         }
         console.log('OCR extraction done, text length:', extractedText.length);
       } catch (ocrError) {
-        console.error('OCR error:', ocrError);
+        console.error('OCR extraction failed');
+        extractionError = ocrError instanceof DocumentExtractionError ? ocrError : new DocumentExtractionError('OCR_PROVIDER_FAILED');
         extractedText = '';
         extractedData = {
           type: 'image',
-          rawSize: uint8Array.length,
+          rawSize: file.size,
           extractionMethod: 'none',
           extractionStatus: 'error',
         } as any;
@@ -292,29 +307,34 @@ serve(async (req) => {
     } else if (fileExt === 'txt' || fileExt === 'md') {
       extractedText = sanitizeText(new TextDecoder().decode(uint8Array));
     } else {
-      extractedText = '[Format non supporté pour l\'extraction de texte]';
+      extractedText = '';
+      extractionError = new DocumentExtractionError('DOCUMENT_FORMAT_UNSUPPORTED',422);
     }
 
     // Ensure text is sanitized before database insertion
     extractedText = sanitizeText(extractedText);
+    if (!extractionError && !hasExtractedText(extractedText)) extractionError = new DocumentExtractionError('DOCUMENT_TEXT_EMPTY',422);
+    const storedLength = Math.min(extractedText.length, source ? 200000 : 2000000);
+    const outcome = extractionOutcome(extractionError?.code === 'DOCUMENT_TEXT_EMPTY' ? 'empty' : extractionError ? 'error' : 'extracted', extractionError ? 0 : storedLength, !extractionError, extractionError?.code);
+    extractedData = {...extractedData, extractionStatus:outcome.status};
 
     // Detect document type based on content
     const docType = detectDocumentType(extractedText);
 
     let documentId: string | null = null;
 
-    if (caseDocumentId) {
-      // ── Case-document mode: update extracted_text only, no documents table/bucket write ──
-      const { error: updateError } = await supabase
-        .from("case_documents")
-        .update({ extracted_text: extractedText.substring(0, 200000) })
-        .eq("id", caseDocumentId);
-      if (updateError) {
-        console.warn('Failed to update case_documents.extracted_text:', updateError.message);
-      } else {
-        console.log('Updated case_documents.extracted_text for', caseDocumentId, 'length:', Math.min(extractedText.length, 200000));
+    if (source) {
+      documentId = source.id;
+      if (!extractionError) {
+        let write = supabase.from('case_documents').update({extracted_text:extractedText.slice(0,200000)})
+          .eq('id',source.id).eq('case_id',source.case_id).eq('storage_path',source.storage_path);
+        write = source.extracted_text === null ? write.is('extracted_text',null) : write.eq('extracted_text',source.extracted_text);
+        const saved = await write.select('id,extracted_text');
+        if (saved.error) throw new DocumentExtractionError('DOCUMENT_WRITE_FAILED',500);
+        if (!saved.data?.some(row => row.id === source!.id && row.extracted_text === extractedText.slice(0,200000))) {
+          throw new DocumentExtractionError('DOCUMENT_CHANGED',409);
+        }
       }
-      documentId = caseDocumentId; // use case_document_id as reference in response
     } else {
       // ── Standalone mode: insert into documents table (existing behaviour) ──
       const { data: docData, error: docError } = await supabase
@@ -340,7 +360,10 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        success: true,
+        success: !extractionError,
+        extraction_contract: EXTRACTION_CONTRACT,
+        extraction: outcome,
+        ...(extractionError ? {error:extractionError.message} : {}),
         document: {
           id: documentId,
           filename: file.name,
@@ -351,18 +374,19 @@ serve(async (req) => {
           detected_type: docType,
         }
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: extractionError?.httpStatus ?? 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error: unknown) {
     console.error('Parse document error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const failure = error instanceof DocumentExtractionError ? error : new DocumentExtractionError('EXTRACTION_UNAVAILABLE',500);
     return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({success:false,extraction_contract:EXTRACTION_CONTRACT,error:failure.message,extraction:extractionOutcome('error',0,false,failure.code)}),
+      { status: failure.httpStatus, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
-});
+}
+if (import.meta.main) serve(handleParseDocument);
 
 // --- OCR helpers ---
 
@@ -383,7 +407,7 @@ async function extractTextFromImage(
 ): Promise<string> {
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   if (!LOVABLE_API_KEY) {
-    throw new Error("LOVABLE_API_KEY non configure pour OCR");
+    throw new DocumentExtractionError('OCR_NOT_CONFIGURED',503);
   }
   if (imageBytes.length > 8_000_000) {
     throw new Error("Image trop volumineuse pour OCR (max 8MB)");
@@ -433,9 +457,8 @@ async function extractTextFromImage(
     );
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("OCR AI error:", response.status, errorText);
-      throw new Error(`OCR AI error: ${response.status}`);
+      console.error('OCR AI error:', response.status);
+      throw new DocumentExtractionError('OCR_PROVIDER_FAILED');
     }
 
     const data = await response.json();

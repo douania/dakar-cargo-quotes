@@ -31,6 +31,7 @@ import {
   resolveContainerPlan,
 } from "@/lib/intakeTextOverrides";
 import { buildIntakeFactBatch } from "@/lib/intakeFactBatch";
+import { extractionPayload } from '@/lib/documentExtraction';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ACCEPTED_EXTENSIONS = [".pdf", ".xlsx", ".xls", ".jpg", ".jpeg", ".png", ".csv"];
@@ -109,9 +110,7 @@ export default function Intake() {
         { body: formData }
       );
 
-      if (parseError || !parseData?.success) {
-        throw new Error(parseError?.message || parseData?.error || "Erreur lors de l'extraction du texte");
-      }
+      await extractionPayload(parseData,parseError);
 
       const documentId = parseData.document.id;
       setExtractedDocId(documentId);
@@ -360,16 +359,18 @@ export default function Intake() {
           try {
             const { data: userData } = await supabase.auth.getUser();
             const userId = userData?.user?.id;
+            if (!userId) throw new Error('Session non disponible pour conserver le document');
             if (userId) {
               const docId = crypto.randomUUID();
               const safeName = uploadedFile.name.replace(/[^\w.-]/g, "_");
               const storagePath = `${data.case_id}/${docId}-${safeName}`;
 
               // 1. Upload to storage
-              await supabase.storage.from("case-documents").upload(storagePath, uploadedFile);
+              const uploaded = await supabase.storage.from("case-documents").upload(storagePath, uploadedFile);
+              if (uploaded.error) throw uploaded.error;
 
               // 2. Insert case_documents record
-              await supabase.from("case_documents").insert({
+              const documentRow = await supabase.from("case_documents").insert({
                 id: docId,
                 case_id: data.case_id,
                 document_type: "Ordre de transit",
@@ -379,6 +380,7 @@ export default function Intake() {
                 file_size: uploadedFile.size,
                 uploaded_by: userId,
               });
+              if (documentRow.error) throw documentRow.error;
 
               // 3. Timeline event
               await supabase.from("case_timeline_events").insert({
@@ -408,15 +410,9 @@ export default function Intake() {
                     body: parseFormData,
                   }
                 );
-                if (!parseRes.ok) {
-                  const body = await parseRes.text().catch(() => "");
-                  console.warn(
-                    "[Intake] parse-document (case_document_id mode) failed:",
-                    parseRes.status,
-                    body
-                  );
-                }
+                await extractionPayload(await parseRes.json().catch(()=>null),parseRes.ok ? null : new Error('Extraction non confirmée'));
               } catch (parseErr) {
+                setError("Dossier créé et document conservé, mais extraction à reprendre depuis les documents du dossier. "+(parseErr as Error).message);
                 console.warn(
                   "[Intake] parse-document call threw (non-blocking):",
                   parseErr
@@ -424,6 +420,7 @@ export default function Intake() {
               }
             }
           } catch (docErr) {
+            setError("Dossier créé, mais ajout du document non confirmé. Conservez votre fichier et reprenez depuis les documents du dossier, sans recréer le dossier.");
             console.warn("[Intake] Post-creation tasks skipped (non-blocking):", docErr);
           }
         }

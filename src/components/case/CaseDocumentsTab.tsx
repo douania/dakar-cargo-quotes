@@ -1,3 +1,4 @@
+import { extractionPayload, hasExtractedText, prepareCaseDocuments } from '@/lib/documentExtraction';
 import React, { useState, useRef } from "react";
 import { AttachmentCargoEvidence } from "./AttachmentCargoEvidence";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -173,7 +174,44 @@ function useEmailAttachmentsForCase(caseId: string) {
 }
 
 export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
+  return <CaseDocumentsWorkspace key={caseId} caseId={caseId} />;
+}
+function CaseDocumentsWorkspace({ caseId }: CaseDocumentsTabProps) {
   const queryClient = useQueryClient();
+  const extractionBusy = useRef(false);
+  const [retryingDocumentId, setRetryingDocumentId] = useState<string|null>(null);
+  const [extractionErrors, setExtractionErrors] = useState<Record<string,string>>({});
+  const [analysisNotice, setAnalysisNotice] = useState('');
+  async function extractStoredDocument(id: string, file?: File) {
+    const form = new FormData();form.append('case_document_id',id);if(file)form.append('file',file);
+    const result = await supabase.functions.invoke('parse-document',{body:form});
+    return extractionPayload(result.data,result.error);
+  }
+  async function analyzePreparedDocuments() {
+    try {
+      await prepareCaseDocuments(supabase.functions.invoke.bind(supabase.functions),caseId);
+      const result = await supabase.functions.invoke('build-case-puzzle',{body:{case_id:caseId}});
+      if (result.error || result.data?.case_id !== caseId || typeof result.data?.new_status !== 'string') throw new Error("L'analyse du dossier n'a pas abouti. Utilisez Relancer l'analyse.");
+      await Promise.all(['case-view','case-facts','case-gaps','case-timeline','quote-request-lines','cockpit-state'].map(key=>queryClient.invalidateQueries({queryKey:[key,caseId]})));
+      setAnalysisNotice('');toast({title:'Analyse terminée',description:"Le dossier a été réanalysé. Vérifiez l'onglet Faits."});
+    } catch (error) {
+      setAnalysisNotice((error as Error).message);
+      toast({title:'Analyse du dossier à reprendre',description:(error as Error).message,variant:'destructive'});
+    }
+  }
+  async function retryDocument(id: string) {
+    if (extractionBusy.current) return;
+    extractionBusy.current=true;setRetryingDocumentId(id);setAnalysisNotice('');
+    try {
+      await extractStoredDocument(id);
+      setExtractionErrors(old=>{const next={...old};delete next[id];return next;});
+      await queryClient.invalidateQueries({queryKey:['case-documents',caseId]});
+      await analyzePreparedDocuments();
+    } catch(error) {
+      setExtractionErrors(old=>({...old,[id]:(error as Error).message}));
+      toast({title:'Extraction à reprendre',description:(error as Error).message,variant:'destructive'});
+    } finally { extractionBusy.current=false;setRetryingDocumentId(null); }
+  }
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deletingDoc, setDeletingDoc] = useState<{ id: string; storage_path: string; file_name: string } | null>(null);
@@ -257,59 +295,22 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
       });
 
       try {
-        const parseFormData = new FormData();
-        parseFormData.append('file', file);
-        parseFormData.append('case_document_id', docId);
-
-        const { data: { session } } = await supabase.auth.getSession();
-        const parseRes = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/parse-document`,
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${session?.access_token}` },
-            body: parseFormData,
-          }
-        );
-        if (!parseRes.ok) {
-          const errBody = await parseRes.text().catch(() => '');
-          console.error('parse-document failed:', parseRes.status, errBody);
-          throw new Error(`parse-document HTTP ${parseRes.status}: ${errBody || 'no body'}`);
-        }
-        console.log('parse-document ok for', docId);
-      } catch (parseErr) {
-        console.warn('Text extraction failed (non-blocking):', parseErr);
-        toast({ title: "Extraction texte échouée", description: "Vous pouvez relancer via backfill.", variant: "destructive" });
-      }
+        await extractStoredDocument(docId,file);
+        return {id:docId,error:null};
+      } catch (error) { return {id:docId,error:(error as Error).message}; }
     },
-    onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: ["case-documents", caseId] });
-      queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
-      toast({ title: "Document ajouté", description: "Le document a été uploadé avec succès." });
-
-      try {
-        const { error } = await supabase.functions.invoke("build-case-puzzle", {
-          body: { case_id: caseId },
-        });
-        if (error) throw error;
-
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["case-view", caseId] }),
-          queryClient.invalidateQueries({ queryKey: ["case-facts", caseId] }),
-          queryClient.invalidateQueries({ queryKey: ["case-gaps", caseId] }),
-          queryClient.invalidateQueries({ queryKey: ["case-timeline", caseId] }),
-          queryClient.invalidateQueries({ queryKey: ["quote-request-lines", caseId] }),
-          queryClient.invalidateQueries({ queryKey: ["cockpit-state", caseId] }),
-        ]);
-        toast({ title: "Analyse terminée", description: "Le dossier a été réanalysé. Vérifiez l'onglet Faits." });
-      } catch (e) {
-        console.warn("Auto build-case-puzzle after upload failed:", e);
-        toast({ title: "Analyse automatique échouée", description: "Utilisez le bouton 'Relancer l'analyse'.", variant: "destructive" });
+    onSuccess: async (result) => {
+      await Promise.all([queryClient.invalidateQueries({queryKey:['case-documents',caseId]}),queryClient.invalidateQueries({queryKey:['case-documents-count',caseId]})]);
+      setDialogOpen(false);setDocType('');setSelectedFile(null);
+      if (result.error) {
+        setExtractionErrors(old=>({...old,[result.id]:result.error!}));
+        toast({title:'Document conservé, extraction à reprendre',description:result.error,variant:'destructive'});
+        return;
       }
-
-      setDialogOpen(false);
-      setDocType("");
-      setSelectedFile(null);
+      toast({title:'Texte extrait et enregistré'});
+      await analyzePreparedDocuments();
     },
+    onSettled: () => { extractionBusy.current=false; },
     onError: (err: any) => {
       toast({ title: "Erreur", description: err.message, variant: "destructive" });
     },
@@ -439,7 +440,8 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
   }
 
   function handleSubmit() {
-    if (!selectedFile || !docType) return;
+    if (!selectedFile || !docType || extractionBusy.current) return;
+    extractionBusy.current=true;setAnalysisNotice('');
     uploadMutation.mutate({ file: selectedFile, documentType: docType });
   }
 
@@ -457,7 +459,7 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
           </CardTitle>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm">
+              <Button size="sm" disabled={!!retryingDocumentId}>
                 <Plus className="mr-2 h-4 w-4" />
                 Ajouter un document
               </Button>
@@ -468,9 +470,9 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
               </DialogHeader>
               <div className="space-y-4 pt-2">
                 <div>
-                  <label className="text-sm font-medium mb-1 block">Type de document</label>
+                  <label htmlFor="case-document-type" className="text-sm font-medium mb-1 block">Type de document</label>
                   <Select value={docType} onValueChange={setDocType}>
-                    <SelectTrigger>
+                    <SelectTrigger id="case-document-type">
                       <SelectValue placeholder="Sélectionner un type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -481,9 +483,9 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1 block">Fichier</label>
+                  <label htmlFor="case-document-file" className="text-sm font-medium mb-1 block">Fichier</label>
                   <input
-                    ref={fileInputRef}
+                    id="case-document-file" ref={fileInputRef}
                     type="file"
                     className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
                     onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
@@ -505,6 +507,7 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
           </Dialog>
         </CardHeader>
         <CardContent>
+          {analysisNotice && <p role="alert" className="mb-3 text-sm text-destructive">{analysisNotice}</p>}
           {allLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -525,6 +528,7 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                   <TableHead>Nom du fichier</TableHead>
                   <TableHead>Réf. pivot</TableHead>
                   <TableHead>Evidence</TableHead>
+                  <TableHead>Extraction du texte</TableHead>
                   <TableHead>Taille</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="w-28">Actions</TableHead>
@@ -545,6 +549,13 @@ export default function CaseDocumentsTab({ caseId }: CaseDocumentsTabProps) {
                       </TableCell>
                       <TableCell><PivotRef meta={meta} /></TableCell>
                       <TableCell><EvidenceBadge level={meta?.evidence_level} /></TableCell>
+                      <TableCell className="text-xs min-w-[180px] max-w-sm">
+                        <Badge variant={hasExtractedText(doc.extracted_text) ? 'secondary' : 'outline'}>{hasExtractedText(doc.extracted_text) ? 'Texte extrait' : 'Texte à extraire'}</Badge>
+                        {extractionErrors[doc.id] && <p role="alert" className="mt-2 text-destructive">{extractionErrors[doc.id]}</p>}
+                        {!hasExtractedText(doc.extracted_text) && <Button variant="outline" size="sm" className="mt-2 whitespace-normal h-auto" disabled={!!retryingDocumentId || uploadMutation.isPending} onClick={()=>void retryDocument(doc.id)}>
+                          {retryingDocumentId===doc.id ? 'Extraction en cours…' : 'Réessayer l’extraction'}
+                        </Button>}
+                      </TableCell>
                       <TableCell className="text-xs">{formatFileSize(doc.file_size)}</TableCell>
                       <TableCell className="text-xs">
                         {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : "—"}

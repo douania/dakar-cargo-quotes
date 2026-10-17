@@ -413,6 +413,21 @@ Règles non négociables :
 - Contre-revue et reçus CI/livraison privée/conservation : task-3/caseview-http-20261017/checkpoint.json ; backend manage-commercial-preparation seul requis, aucune migration. Ne pas assimiler sondes sans auth à une recette métier Cloud.
 - Retour : revert ciblé du lot/redéployer ce seul backend depuis2de40c8 ; conserver les décisions/versions/PDF append-only. Original/deux docs/.claude préservés ; anti-veille temporaire existant maintenu.
 
+### 2.26 Extraction documentaire et reprise OCR - 17 octobre 2026
+
+- GO weekend confirmé par délégation : correctif ciblé, tests/contre-revue et livraison privée ; aucun secret réel, connexion mail, rôle/compte/configuration distante ni écriture métier Cloud.
+- Défaut HTTP200/success malgré texte vide ou erreur supprimé : contrat1 extracted/empty/error, échecs503/502/422 explicites ; succès seulement après persistance vérifiée. PDF textuel court accepté sans IA, octets originaux conservés pour le fallback.
+- Source du dossier relue sous JWT/RLS puis téléchargée depuis son chemin enregistré ; fichier fourni par l'appelant ignoré. Texte valide rejoué sans OCR/écriture ; CAS sur document/dossier/chemin/ancien texte, conflit409 et échec DB visibles.
+- backfill délègue au parse canonique sous le même JWT, reprend les anciens marqueurs exacts sans les traiter comme preuve, refuse compte inconnu ou tronqué ; aucune duplication OCR ni marqueur d'erreur écrit.
+- Interface : fichier conservé, statut et reprise sur la même ligne ; analyse normale/forcée et après upload exigent préparation confirmée. Intake distingue dossier créé/extraction à reprendre et stockage non confirmé, sans recréer le dossier.
+- CI finale exit0 :873Vitest/69fichiers,2300Deno/0échec/6ignorés ; types app/node/build PASS, Deno49/5 et lint716/16 contre719/16 au départ, seuil732/16 inchangé. Audit UI119constats contre120, dette héritée non supprimée globalement.
+- Recette App/GoTrue/REST/PostgreSQL/Storage locale PASS8 : image sans provider, provider simulé erreur/vide/succès, refresh/reprise même ID, PDF réel19caractères sans OCR ; analyse demandée après préflight puis bloquée avant moteur métier.
+- Vérification HTTP/SQL PASS4 : fichiers image/PDF identiques en SHA256 au Storage, rejeu sans remplacement par l'appelant, deux lignes seulement ; versions/runs/PDF/faits/rôles historiques inchangés. IDs/emails/bans du compte fictif identiques ; timestamps GoTrue de connexion évoluent.
+- Contre-revue indépendante du code et des reçus : aucun blocage identifié ; tests/probes non exécutés par le relecteur. Preuves, CI, diff et livraison : task-3/ocr-errors-20261017/checkpoint.json.
+- Livraison coordonnée requise : parse-document puis backfill-case-documents et frontend depuis le même work ; aucune migration, moteur FROZEN ni tarif modifié. Projet existant à conserver non publié ; accusé natif et sondes ne prouvent pas une recette Cloud authentifiée.
+- OCR/IA fournisseur réel, IMAP réel et Vault natif NOT_RUN ; cotation fiscale médicaments toujours PARTIAL tant que valeur/devise, classement/régime/exonérations et preuves fiscales ne sont pas validés. Aucun défaut supplémentaire de chaîne courriel–analyse démontré sous ces limites.
+- Retour : revert ciblé/redéployer ces deux fonctions sous GO, conserver sources/textes valides et tous historiques ; original/deux docs/.claude et anti-veille temporaire existant préservés.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

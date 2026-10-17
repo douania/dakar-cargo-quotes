@@ -10,6 +10,7 @@ import { LotConfirmationsPanel } from "@/components/case/LotConfirmationsPanel";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
 import { PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
+import { prepareCaseDocuments } from '@/lib/documentExtraction';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -334,6 +335,8 @@ export default function CaseView() {
     };
   }, [caseId]);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  React.useEffect(() => { setAnalysisError(''); }, [caseId]);
   const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
@@ -756,48 +759,22 @@ export default function CaseView() {
     throw new Error("Timeout (5 min)");
   }
 
+  async function prepareDocumentsForAnalysis() {
+    setAnalysisError('');
+    try { await prepareCaseDocuments(supabase.functions.invoke.bind(supabase.functions), caseId!);return true; }
+    catch (error) {
+      const message = (error as Error).message;
+      setAnalysisError(message);
+      toast.error('Preparation des documents echouee : '+message);
+      return false;
+    }
+  }
   async function handleLaunchAnalysis() {
     if (!caseId || isAnalyzing || isForceRefreshing || !analysisCanLaunch) return;
     setIsAnalyzing(true);
     try {
-      // ── DCQ-P0-CASE-DOCUMENT-BACKFILL-BEFORE-PUZZLE v2 ──
-      // Avant build-case-puzzle, garantir qu'aucun case_document n'a
-      // extracted_text=NULL (sinon le puzzle scanne 0 document).
-      // Boucle bornee a 5 documents par relance.
-      const MAX_BACKFILL_PASSES = 5;
-      let lastWarning: string | null = null;
-      try {
-        for (let i = 0; i < MAX_BACKFILL_PASSES; i++) {
-          const { data: bfData, error: bfErr } = await supabase.functions.invoke(
-            "backfill-case-documents",
-            { body: { case_id: caseId } },
-          );
-          if (bfErr) throw bfErr;
-          const remaining = Number(bfData?.remaining ?? 0);
-          const textLen = Number(bfData?.text_length ?? 0);
-          const processed = bfData?.processed_file as string | undefined;
-          if (processed) {
-            // Detect failed/insufficient OCR markers
-            if (textLen === 0) {
-              lastWarning = `Texte vide extrait pour ${processed}`;
-            } else if (textLen <= 30) {
-              // "[Extraction echouee]", "[OCR vide]", "[PDF - extraction indisponible]" ...
-              lastWarning = `OCR insuffisant pour ${processed} (${textLen} caracteres)`;
-            }
-          }
-          if (remaining <= 0) break;
-        }
-      } catch (bfFatal) {
-        toast.error(
-          "Preparation des documents echouee : " +
-            ((bfFatal as Error).message || "erreur inconnue"),
-        );
-        return;
-      }
-      if (lastWarning) {
-        toast.warning(lastWarning + " — l'analyse continue mais les faits peuvent manquer.");
-      }
-      // ── END BACKFILL ──
+      if (!await prepareDocumentsForAnalysis()) return;
+
 
       await runBuildCasePuzzleAsync(caseId);
       // P0-E: sync gap-based client actions after puzzle refresh (best-effort)
@@ -1090,6 +1067,7 @@ export default function CaseView() {
     if (!caseId || isForceRefreshing || isAnalyzing || !analysisCanLaunch) return;
     setIsForceRefreshing(true);
     try {
+      if (!await prepareDocumentsForAnalysis()) return;
       await runBuildCasePuzzleAsync(caseId, { force_articles_detail: true });
       // P0-E: sync gap-based client actions after puzzle refresh (best-effort)
       try {
@@ -1567,6 +1545,7 @@ export default function CaseView() {
               <div className="min-w-0">
                 <h2 className="font-semibold">Analyse de la demande</h2>
                 <p className="text-sm text-muted-foreground" role="status">{analysisSourceDescription}</p>
+                {analysisError && <p role="alert" className="mt-2 text-sm text-destructive">{analysisError} Aucun lancement d'analyse. Consultez les documents pour reprendre l'extraction.</p>}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={handleLaunchAnalysis} disabled={isAnalyzing || isForceRefreshing || !analysisCanLaunch}>
