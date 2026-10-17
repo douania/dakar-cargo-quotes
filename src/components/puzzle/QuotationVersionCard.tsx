@@ -406,7 +406,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
           <div className="space-y-3">
             {versions.map((version, index) => {
               const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[]; meta?: Record<string, unknown>; inputs?: unknown; lots?: unknown } | null;
-              const totalHt = Number(snapshot?.totals?.total_ht);
+              const totalHt = snapshot?.totals?.total_ht == null ? NaN : Number(snapshot.totals.total_ht);
               const currency = String(snapshot?.totals?.currency || 'XOF');
               const linesCount = snapshot?.lines?.length || 0;
               const hasPdf = generatedPdfIds[version.id] || version.quotation_documents?.some(doc => doc.document_type === 'pdf');
@@ -458,6 +458,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
                         </p>
                       )}
                       {sameAsPrevious && <p className="text-xs text-muted-foreground">même montant que v{previousVersion.version_number}</p>}
+                      {snapshot?.totals?.commercial_amounts === true && snapshot?.totals?.total_payable === null && <p className="mt-2 font-medium">Total à payer : à confirmer</p>}
 
                       {qualification.reasons.length > 0 && (() => {
                         const reasons = readableReservations(qualification.reasons.map(reason => REASON_LABELS[reason.code] || reason.message || reason.code));
