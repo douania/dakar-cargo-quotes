@@ -384,8 +384,19 @@ Règles non négociables :
 - Recette technique bornée PASS, cotation fictive PARTIAL55420XOF : dédouanement, transport et agence inconnus. Extraction et poids taxable220kg présemés ; composition de composants avec verrou UI ouvert, pas CaseView complet/OCR/IMAP/IA ni validation fiscale réelle.
 - PDFs source/commercial2pages : texte/bornes/rendu et hash serveur/SQL/téléchargement contrôlés ; source conservée. Libellé ferme sous provisoire et franchise magasinage de la source restent non certifiés ; aucun changement de formule/tarif/FROZEN.
 - Contre-revue indépendante PASS sur migration/tests et preuve continue bornée. Preuves, première recettev6/v7, reproduction, empreintes finales et nettoyage dans task-3/workflow-http-continuous-20261017 ; commande node ../workflow-http-continuous-20261017/run.cjs.
-- CHECK distant confirmé en SELECT seulement : nouvel événement absent. Correctif local non publié ; aucune migration distante, écriture métier Cloud, publication ou envoi. Livraison privée de183000 à traiter sous GO applicable, avec contrôle du catalogue puis adoption authentifiée bornée.
+- Livraison privée CHECK sous GO weekend : ced372e aligné GitHub/Lovable, CI39057627670 SUCCESS ; migration183000 appliquée/stampée, CHECK validé42valeurs.2742événements/hash16820b2fcefc45a0f68d1cda2604f8e2 inchangés ; aucun dossier métier modifié ni publication générale. Preuves task-3/timeline-adoption-delivery-20261017.
 - Original/deux docs/.claude et anti-veille temporaire préservés. Retour : retirer ce patch local avant livraison ; après adoption, correction en avant et conservation des décisions/versions/PDF append-only.
+
+### 2.24 Estimations douanières et magasinage AIR — 17 octobre 2026
+
+- GO weekend de correction/contre-revue/livraison privée ; mandat technique clarifié, sans validation d'un taux ou d'une franchise. STRUCTURAL_PATCH_ALLOWED justifié avant exécution selon MASTER_CONTEXT : défaut réel, bloc8b seul, sans refactor, pipeline/idempotence/preuves préservés.
+- Défauts reproduits : base douanière estimée parfois affichée ferme ; mode aerien héritant d'une franchise FCL maritime. Qualification relue depuis la preuve figée, partial conservé, total provisoire sur écran/PDF/email et enrichissement IA exclu pour ces estimations.
+- quotation-engine +8/-1 : AIR produit magasinage null/TO_CONFIRM et saute le catalogue maritime ; corps non-AIR inchangé, run-pricing intact. Aucun montant/jour/franchise/taux nouveau ; historiques non réécrits.
+- Régressions avant/après : qualification3FAIL/1PASS puis5PASS ; AIR1FAIL/1PASS puis2PASS, deux tests composants ajoutés. Contre-revue indépendante ciblée PASS sans blocage ; tests non exécutés par le relecteur.
+- npm run ci exit0 :837Vitest/2282Deno/0échec/6ignorés, config/bundles/types app-node/build PASS ; Deno49/5, lint719/16 contre732/16 sans aggravation. Reçus de livraison/recette : task-3/workflow-presentation-20261017 ; audit UI120 hérité, aucune conformité fiscale globale.
+- Recette prévue : banc isolé existant, vrais Auth/REST/SQL/Storage et handlers, PDF signé téléchargé/inspecté ; extraction/poids présemés, composition de composants sans CaseView complet/OCR/IMAP/IA ni session réelle Cloud.
+- Livraison bornée : work et aperçu privé, quatre fonctions version/PDF/email/quotation-engine ; aucune migration nouvelle ni écriture métier Cloud/envoi/publication générale/rôle/compte/secret. Conserver les preuves historiques et tous anciens PDF.
+- Retour : revert ciblé de ce lot et redéploiement des quatre fonctions depuis ced372e ; ne supprimer ni décisions, versions ou documents append-only. Original/deux docs/.claude et anti-veille temporaire à conserver.
 
 ## 3. Travaux vérifiés comme terminés
 

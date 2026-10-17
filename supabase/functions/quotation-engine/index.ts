@@ -2150,7 +2150,14 @@ export async function generateQuotationLines(
   // 8b. FRANCHISE MAGASINAGE (warehouse_franchise + holidays_pad)
   // =====================================================
   
-  {
+  if (request.transportMode === 'aerien') {
+    lines.push({
+      id: 'warehouse_franchise', bloc: 'operationnel', category: 'Magasinage',
+      description: 'Magasinage aéroportuaire - à confirmer', amount: null, currency: 'FCFA',
+      source: { type: 'TO_CONFIRM', reference: 'AIR_STORAGE_BASIS_REQUIRED', confidence: 0 },
+      notes: 'Bases du magasinage aéroportuaire à confirmer ; aucune gratuité présumée.', isEditable: true,
+    });
+  } else {
     // Determine cargo_type for franchise lookup based on actual DB values (FCL, BREAKBULK, VEHICLE_*, etc.)
     const cargoTypeUpper = (request.cargoType || '').toUpperCase();
     let franchiseCargoType = 'FCL'; // default for containers

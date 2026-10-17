@@ -28,6 +28,7 @@ import { fr } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import type { QuotationVersion } from '@/hooks/usePricingResultData';
+import { withCustomsEstimateQualification } from '../../../supabase/functions/_shared/customs-basis';
 
 // ── Qualification types & helpers ────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ function mergeReasonIfMissing(
  * Rule 2: fallback — scan raw_lines for source.type === "TO_CONFIRM".
  */
 function resolveQuoteQualification(snapshot: any): QuoteQualification {
+  snapshot={...snapshot,meta:{...snapshot?.meta,quoteQualification:withCustomsEstimateQualification(snapshot?.meta?.quoteQualification,snapshot?.customs_basis)}};
   const meta = snapshot?.meta;
   const hasToConfirm = hasToConfirmRawLines(snapshot);
 

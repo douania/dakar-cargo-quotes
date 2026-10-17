@@ -18,6 +18,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { handleCors } from "../_shared/cors.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
+import { withCustomsEstimateQualification } from "../_shared/customs-basis.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import { isToConfirmLine, lotSubtotalLabel } from "../_shared/quotation-line-status.ts";
 import { classifyClientLine, clientLineLabel, createRawLineLookup, projectClientQuote } from "../_shared/client-quote-projection.ts";
@@ -157,6 +158,7 @@ function mergeReasonIfMissing(
  */
 // deno-lint-ignore no-explicit-any
 function resolveQuoteQualification(snapshot: any): QuoteQualification {
+  snapshot={...snapshot,meta:{...snapshot?.meta,quoteQualification:withCustomsEstimateQualification(snapshot?.meta?.quoteQualification,snapshot?.customs_basis)}};
   const notices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
   const meta = notices.length ? { ...snapshot?.meta, quoteQualification: {
     ...snapshot?.meta?.quoteQualification,
@@ -224,6 +226,7 @@ function getTotalLabel(q: QuoteQualification): string {
   if (q.reasons.some(r => r.code === "PROVISIONAL_WEIGHT_BASIS")) return "TOTAL HT INDICATIF (poids sous reserve)";
   if (q.level === "firm") return "TOTAL HT";
   if (q.level === "partial") return "TOTAL HT PARTIEL";
+  if (q.reasons.some(r=>r.code==='CUSTOMS_OPERATOR_ESTIMATE')) return "TOTAL HT PROVISOIRE";
   // provisional
   if (q.firmTotalPolicy === "excludes_reserved_items") return "TOTAL HT FERME (hors elements en reserve)";
   return "TOTAL HT (sous reserve)";

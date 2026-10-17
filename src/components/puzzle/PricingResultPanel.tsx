@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { usePricingResultData, type PricingRun } from '@/hooks/usePricingResultData';
 import { PricingFreshnessNotice } from './PricingFreshnessNotice';
+import { withCustomsEstimateQualification } from '../../../supabase/functions/_shared/customs-basis';
 
 // ── Lot 3D-3: Local QQM resolver for pricing preview ─────────────────────────
 // Mirrors the decision table from supabase/functions/generate-quotation-version/qqm-resolver.ts
@@ -79,7 +80,8 @@ function mergeReasonIfMissing(reasons: QQMReason[] | undefined, reason: QQMReaso
 function resolveQualificationFromRun(pricingRun: PricingRun | null): QQMQualification {
   if (!pricingRun) return { level: 'firm', reasons: [], firmTotalPolicy: 'all_included' };
 
-  const meta = (pricingRun.outputs_json as any)?.quoteQualification;
+  const outputs=(pricingRun.outputs_json??{}) as {quoteQualification?:QQMQualification;customs_basis?:unknown};
+  const meta=withCustomsEstimateQualification(outputs.quoteQualification,outputs.customs_basis) as QQMQualification|undefined;
   const tariffLines = pricingRun.tariff_lines;
   const hasToConfirm = hasToConfirmTariffLines(tariffLines);
 
@@ -212,6 +214,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
 
   // Lot 3D-3: QQM commercial qualification (preview only)
   const qualification = resolveQualificationFromRun(pricingRun);
+  const provisionalPayable = toConfirmCount > 0 || qualification.reasons.some(r=>r.code==='CUSTOMS_OPERATOR_ESTIMATE');
   const primaryReason = qualification.reasons[0];
   const primaryReasonLabel = primaryReason
     ? shortenText(sourcePresentation(readableReservationText(REASON_LABELS[primaryReason.code] || primaryReason.message || primaryReason.code)).text).summary
@@ -371,7 +374,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
         {/* Operator summary — values are read from the saved pricing run only. */}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Synthèse du calcul du devis">
           <div className="border p-4">
-            <p className="text-xs font-medium uppercase text-muted-foreground">{toConfirmCount > 0 ? 'Total à payer provisoire' : 'Total à payer'}</p>
+            <p className="text-xs font-medium uppercase text-muted-foreground">{provisionalPayable ? 'Total à payer provisoire' : 'Total à payer'}</p>
             <p className="mt-1 text-2xl font-bold">{formatAmount(totalPayable)} <span className="text-xs font-medium text-muted-foreground">{pricingRun.currency || 'XOF'}</span></p>
             {toConfirmCount > 0 && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Hors {toConfirmCount} poste{toConfirmCount > 1 ? 's' : ''} à confirmer</p>}
             {hasDetailedCommercialTotals && <p className="mt-1 text-xs text-muted-foreground">Sous-total avant TVA SODATRA : {formatAmount(subtotalBeforeSodatraVat)}</p>}
@@ -713,7 +716,7 @@ export function PricingResultPanel({ caseId, latestEstimateAt, isLocked = false,
                   <p className="text-sm font-medium">Résumé :</p>
                   <ul className="text-sm text-muted-foreground mt-1 space-y-1">
                     <li>• {tariffLines.length} lignes tarifaires{isMultiLot ? ` (${lots.length} lots)` : ''}</li>
-                    <li>• {toConfirmCount > 0 ? 'Total à payer provisoire' : 'Total à payer'} : {formatAmount(totalPayable)} {pricingRun.currency || 'XOF'}{toConfirmCount > 0 ? ` (hors ${toConfirmCount} poste${toConfirmCount > 1 ? 's' : ''} à confirmer)` : ''}</li>
+                    <li>• {provisionalPayable ? 'Total à payer provisoire' : 'Total à payer'} : {formatAmount(totalPayable)} {pricingRun.currency || 'XOF'}{toConfirmCount > 0 ? ` (hors ${toConfirmCount} poste${toConfirmCount > 1 ? 's' : ''} à confirmer)` : ''}</li>
                     <li>• Statut : DRAFT (non envoyé au client)</li>
                   </ul>
                 </div>

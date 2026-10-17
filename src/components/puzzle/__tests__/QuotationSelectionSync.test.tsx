@@ -5,6 +5,8 @@ import userEvent from '@testing-library/user-event';
 import { QuotationVersionCard } from '../QuotationVersionCard';
 import { SendQuotationPanel } from '../SendQuotationPanel';
 import { PricingResultPanel } from '../PricingResultPanel';
+import {syntheticCustoms} from '../../../../supabase/functions/_tests/customs-basis-fixture';
+import {customsBasisSnapshot} from '../../../../supabase/functions/_shared/customs-basis';
 
 const pricingMock = vi.hoisted(() => ({
   pricingRun: {
@@ -186,6 +188,14 @@ function CaseStatusProbe({ caseId }: { caseId: string }) {
 }
 
 describe('L1 refresh after PDF export and sent marking', () => {
+  it('reads the pinned estimated customs proof on an old firm snapshot without rewriting it',async()=>{
+    seedTwoVersions('case-a');const f=syntheticCustoms();
+    const source=db.quotation_versions[0].snapshot as Row;
+    source.customs_basis=customsBasisSnapshot(f.record,f.context);source.meta={quoteQualification:{level:'firm',reasons:[],firmTotalPolicy:'all_included'}};
+    const original=JSON.stringify(db.quotation_versions);const pair=renderPair('case-a');
+    expect(await pair.card().findByText('Provisoire')).toBeTruthy();expect(pair.card().getByText('Ferme')).toBeTruthy();
+    expect(JSON.stringify(db.quotation_versions)).toBe(original);expect(updateSpy).not.toHaveBeenCalled();
+  });
   it('detects the generated PDF in the mounted send panel without reloading', async () => {
     seedTwoVersions('case-a');
     seedDraft('case-a-v1', {});

@@ -9,6 +9,7 @@
 
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import { tariffReferenceNotice } from "../_shared/selected-tariff-reference.ts";
+import { withCustomsEstimateQualification } from "../_shared/customs-basis.ts";
 export type QQLevel = "firm" | "provisional" | "partial";
 export type QQReason = { code: string; message: string; field?: string };
 export type QQ = {
@@ -56,7 +57,9 @@ function mergeReason(reasons: QQReason[] | undefined, reason: QQReason): QQReaso
 export function resolveSnapshotQualification(
   outputsQQ: any,
   tariffLines: any[],
+  customsBasis?: unknown,
 ): QQ {
+  outputsQQ=withCustomsEstimateQualification(outputsQQ,customsBasis);
   const lines = Array.isArray(tariffLines) ? tariffLines : [];
   const tariffNotices = [...new Set(lines.map(l => tariffReferenceNotice(l?.source)).filter((v): v is string => v !== null))];
   if (tariffNotices.length) outputsQQ = {

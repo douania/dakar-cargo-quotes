@@ -17,6 +17,7 @@ import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { resolveCommercialTotalPresentation } from "../_shared/commercial-total-presentation.ts";
+import { withCustomsEstimateQualification } from "../_shared/customs-basis.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import { isToConfirmLine } from "../_shared/quotation-line-status.ts";
 import { projectClientQuote } from "../_shared/client-quote-projection.ts";
@@ -78,6 +79,7 @@ function mergeReasonIfMissing(
  */
 // deno-lint-ignore no-explicit-any
 function resolveQuoteQualification(snapshot: any): QuoteQualification {
+  snapshot={...snapshot,meta:{...snapshot?.meta,quoteQualification:withCustomsEstimateQualification(snapshot?.meta?.quoteQualification,snapshot?.customs_basis)}};
   const weightNotices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
   const meta = weightNotices.length ? { ...snapshot?.meta, quoteQualification: {
     ...snapshot?.meta?.quoteQualification,
@@ -180,6 +182,8 @@ export function aiBodyKeepsLotQualification(body: string, lotSummaries: Readonly
 
 // deno-lint-ignore no-explicit-any
 export function buildDeterministicBody(snapshot: Record<string, any> | null, versionNumber: number, isMultiLot: boolean, lotSummaryLines: string[], hasPdf: boolean, qualification: QuoteQualification): string {
+  qualification=withCustomsEstimateQualification(qualification,snapshot?.customs_basis) as QuoteQualification;
+  const customsEstimated=qualification.reasons.some(r=>r.code==='CUSTOMS_OPERATOR_ESTIMATE');
   const operatorNotices = operatorBasisText(snapshot?.operator_basis);
   if (operatorNotices.length) qualification = { ...qualification, level: qualification.level === "partial" ? "partial" : "provisional", firmTotalPolicy: "all_included" };
   const weightNotices = quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []);
@@ -235,6 +239,8 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
       ? ""
       : qualification.level === "partial"
       ? " partiel"
+      : customsEstimated
+      ? " provisoire"
       : qualification.firmTotalPolicy === "excludes_reserved_items"
       ? " ferme (hors éléments en réserve)"
       : " (sous réserve)";
@@ -255,7 +261,9 @@ export function buildDeterministicBody(snapshot: Record<string, any> | null, ver
     if (qualification.level === "firm") {
       parts.push(`Montant total HT : ${formatAmountFR(totalHt)} ${currency}.`);
     } else if (qualification.level === "provisional") {
-      if (qualification.firmTotalPolicy === "excludes_reserved_items") {
+      if (customsEstimated) {
+        parts.push(`Montant total HT provisoire : ${formatAmountFR(totalHt)} ${currency} (bases douanières estimatives).`);
+      } else if (qualification.firmTotalPolicy === "excludes_reserved_items") {
         parts.push(`Montant total HT ferme : ${formatAmountFR(totalHt)} ${currency} (hors éléments en réserve).`);
       } else {
         parts.push(`Montant total HT : ${formatAmountFR(totalHt)} ${currency} (sous réserve).`);
@@ -557,7 +565,7 @@ if (import.meta.main) Deno.serve(async (req: Request) => {
 
   // For a reserved weight basis, keep the deterministic commercial wording.
   // An AI marker alone cannot guarantee preservation of the exact reservation.
-  if (useAiEnrichment && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0 && !snapshot?.operator_basis) {
+  if (useAiEnrichment && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0 && !snapshot?.operator_basis && !qualification.reasons.some(r=>r.code==='CUSTOMS_OPERATOR_ESTIMATE')) {
     const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification, lotSummaryLines);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {

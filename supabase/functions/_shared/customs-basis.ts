@@ -96,6 +96,18 @@ export function readCustomsBasisSnapshot(value: unknown): CustomsBasisSnapshot |
     typeof customsRow(b.assessment).eligible !== 'boolean') throw new Error('Preuve douanière figée invalide');
   return structuredClone(b) as unknown as CustomsBasisSnapshot;
 }
+
+/** Qualification follows the pinned decision even if an older run lost its reason code. */
+export function withCustomsEstimateQualification<T>(qualification:T,basis:unknown):T|CustomsRow {
+  if(basis===undefined||basis===null)return qualification;
+  const proof=readCustomsBasisSnapshot(basis);
+  if(proof?.decision.commitment!=='estimated')return qualification;
+  const q=customsRow(qualification),reasons=Array.isArray(q.reasons)?q.reasons:[];
+  return {...q,level:q.level==='partial'?'partial':'provisional',
+    reasons:[...reasons.filter(r=>customsRow(r).code!=='CUSTOMS_OPERATOR_ESTIMATE'),
+      {code:'CUSTOMS_OPERATOR_ESTIMATE',message:'Droits et taxes sur bases opérateur estimatives et révisables'}],
+    firmTotalPolicy:q.firmTotalPolicy==='excludes_reserved_items'?'excludes_reserved_items':'all_included'};
+}
 export interface CustomsRpcClient { rpc(name: string, args: Record<string, unknown>): PromiseLike<{data: unknown;error: {message?: string;code?: string}|null}> }
 export async function loadCustomsBasis(client: CustomsRpcClient, actor: string, caseId: string, id: unknown): Promise<CustomsBasisSnapshot> {
   if (!customsUuid(id) || !customsUuid(caseId)) throw new Error('Référence de bases douanières invalide');

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { PricingResultPanel } from '../PricingResultPanel';
+import {syntheticCustoms} from '../../../../supabase/functions/_tests/customs-basis-fixture';
+import {customsBasisSnapshot} from '../../../../supabase/functions/_shared/customs-basis';
 
 // MULTI-LOT-TERMINAL-1 (GO CTO 2026-09-26): a run executed successfully can still be incomplete.
 // Known amount, unknown amount (TO_CONFIRM, null, reserve) and a genuine zero must stay distinct.
@@ -49,6 +51,12 @@ const renderPanel = () => render(<QueryClientProvider client={new QueryClient()}
 
 describe('PricingResultPanel — incomplete multi-lot run', () => {
   afterEach(() => cleanup());
+  it('keeps estimated customs provisional even when all amounts are known and run qualification was lost',()=>{
+    const f=syntheticCustoms(),r=run([known,trueZero]);
+    pricingMock.pricingRun={...r,outputs_json:{...r.outputs_json,customs_basis:customsBasisSnapshot(f.record,f.context)}};
+    renderPanel();expect(screen.getByText('Provisoire')).toBeTruthy();expect(screen.getByText('Total à payer provisoire')).toBeTruthy();
+    expect(screen.queryByText('Ferme')).toBeNull();
+  });
 
   it('keeps execution and completeness apart and never presents the total as complete', () => {
     pricingMock.pricingRun = run([known, unknown, trueZero]);

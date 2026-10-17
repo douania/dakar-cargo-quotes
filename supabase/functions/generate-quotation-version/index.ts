@@ -363,6 +363,7 @@ Deno.serve(async (req) => {
         quoteQualification: resolveSnapshotQualification(
           pricingRun.outputs_json?.quoteQualification,
           tariffLines,
+          customsBasis ?? undefined,
         ),
       },
       // P0-E: facts_snapshot est un TABLEAU {key, value_*} et inputs_json est
