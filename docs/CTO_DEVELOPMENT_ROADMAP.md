@@ -345,6 +345,21 @@ Règles non négociables :
 - Activation du présent delta préparée après ces contrôles ; état effectif, commits, reçus migration/déploiement et CI distante dans task-3/documentary-proposals-20261017/checkpoint.json. Recette connectée bloquée signed_out ; fiscalité réelle non validée.
 - Retour : correction en avant privilégiée ; revert ciblé/redéploiement sans supprimer de décision append-only ou d'historique. Original, ses deux docs et .claude préservés ; anti-veille existant maintenu, aucune automatisation installée.
 
+### 2.21 Relance d’analyse depuis les courriels — 17 octobre 2026
+
+- GO weekend poursuivi : correction locale, tests/contre-revue, commit/push work et synchronisation privée ; aucun envoi, publication générale, changement de compte/rôle/secret ni validation fiscale implicite.
+- Défaut de la queue24/09 reproduit : fil disponible mais zéro fait/document, action absente ou désactivée en NEW_THREAD/RFQ_DETECTED ; six régressions échouent avant correction.
+- CaseView expose l’action explicite avant les onglets dans les deux présentations. Un dossier avec fil exige ses courriels ; un dossier manuel exige un document ; faits seuls, sources inconnues/en erreur/en chargement restent bloquants.
+- Statuts calculé/versionné/final et PRICING_RUNNING exclus ; actualisation des deux compteurs, préparation documentaire et garde contre les relances concurrentes conservées.
+- Suivi async : échec métier/cancellation remonté immédiatement au lieu d’être absorbé par les retries réseau ; retries réseau et post-traitement après succès conservés. Backend/FROZEN inchangés.
+- npm run ci exit0 :835Vitest,2271Deno/0échec/6ignorés ; configuration/bundles/types app/node/build PASS ; Deno49/5 et lint720/16 sans aggravation. Audit UI120constats stricts inchangés.
+- Contre-revue indépendante lecture seule PASS :101tests de composition, types et diff-check ; aucun blocage. Tests sur sources/fonctions fictives, pas de preuve IA/runtime par ces tests.
+- Contrôle Cloud SELECT seulement : aucun cas courant sans fait/document avec courriels disponibles ; médicaments v3/run/3versions/hash0f1344ac…/0décision fiscale inchangés. Aucune donnée métier écrite.
+- Inventaire demande→fil/PJ→analyse/services→coûts/ajustements→version/PDF consigné hors Git ; preuves historiques séparées des contrôles courants. Aucun autre défaut bloquant établi dans cette revue bornée.
+- Recette connectée NOT_RUN : LOVABLE_BROWSER_AUTH_STATUS=signed_out, aucun outil navigateur officiel exposé ici ; aucun contournement. Fiscalité/poids taxable/vente réels restent à valider, autonomie non démontrée.
+- Livraison frontend seule ; aucun SQL ni déploiement Edge requis. Commit, CI distante et alignement privé à relire dans task-3/workflow-analysis-recovery-20261017/checkpoint.json ; aucun PASS global métier annoncé.
+- Original/deux docs/.claude préservés ; anti-veille temporaire existant jusqu’au19/10 18UTC, aucune automatisation ajoutée. Retour : revert ciblé de ce lot UI, aucun historique à supprimer.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

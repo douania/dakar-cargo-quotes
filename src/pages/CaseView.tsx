@@ -413,7 +413,7 @@ export default function CaseView() {
   });
 
   // ── Fetch documents count ──
-  const { data: documentsCount } = useQuery({
+  const { data: documentsCount, isFetching: documentsFetching, error: documentsError } = useQuery({
     queryKey: ["case-documents-count", caseId],
     queryFn: async () => {
       const { count, error } = await supabase
@@ -421,10 +421,37 @@ export default function CaseView() {
         .select("id", { count: "exact", head: true })
         .eq("case_id", caseId!);
       if (error) throw error;
-      return count ?? 0;
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) throw new Error("Nombre de documents indisponible");
+      return count;
     },
     enabled: !!caseId,
   });
+
+  // A mail-sourced case needs its thread emails, not previously extracted facts.
+  const { data: sourceEmailsCount, isFetching: sourceEmailsFetching, error: sourceEmailsError } = useQuery({
+    queryKey: ["case-source-emails-count", caseId, caseData?.thread_id],
+    queryFn: async () => {
+      const { count, error } = await supabase.from("emails")
+        .select("id", { count: "exact", head: true }).eq("thread_ref", caseData!.thread_id!);
+      if (error) throw error;
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) throw new Error("Nombre de courriels indisponible");
+      return count;
+    },
+    enabled: !!caseId && !!caseData?.thread_id,
+  });
+  const analysisStatusAllowed = ['INTAKE', 'NEW_THREAD', 'RFQ_DETECTED', 'FACTS_PARTIAL', 'NEED_INFO', 'READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData?.status ?? '');
+  const analysisSourceError = caseData?.thread_id ? sourceEmailsError : documentsError;
+  const analysisSourceLoading = caseData?.thread_id
+    ? sourceEmailsFetching || typeof sourceEmailsCount !== 'number'
+    : documentsFetching || typeof documentsCount !== 'number';
+  const analysisHasSource = caseData?.thread_id ? (sourceEmailsCount ?? 0) > 0 : (documentsCount ?? 0) > 0;
+  const analysisCanLaunch = analysisStatusAllowed && !analysisSourceError && !analysisSourceLoading && analysisHasSource;
+  const analysisSourceDescription = analysisSourceError ? "Vérification des sources impossible. Actualisez les informations pour réessayer."
+    : analysisSourceLoading ? "Vérification des sources de la demande…"
+    : caseData?.thread_id ? sourceEmailsCount ? `${sourceEmailsCount} courriel(s) du fil rattaché disponibles ; les pièces jointes seront prises en compte.`
+      : "Aucun courriel trouvé dans le fil rattaché. Vérifiez son rattachement avant de relancer l'analyse."
+    : documentsCount ? `${documentsCount} document(s) chargé(s) disponibles pour l'analyse.`
+      : "Ajoutez un document dans l'onglet Documents pour analyser cette demande sans courriel rattaché.";
 
   // ── Fetch open gaps (source de vérité directe) ──
   const { data: gaps = [], refetch: refetchGaps, isFetching: gapsFetching, error: gapsError } = useQuery({
@@ -557,6 +584,8 @@ export default function CaseView() {
     queryClient.invalidateQueries({ queryKey: ["pad-group-confirmations", caseId] });
     queryClient.invalidateQueries({ queryKey: ["quote-request-lines", caseId] });
     queryClient.invalidateQueries({ queryKey: ["quote-request-lines-count", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["case-source-emails-count", caseId] });
     refetchCase();
     refetchFacts();
     refetchEvents();
@@ -697,28 +726,32 @@ export default function CaseView() {
 
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, delay));
+      let poll;
       try {
-        const { data, error } = await supabase.functions.invoke("build-case-puzzle", {
+        poll = await supabase.functions.invoke("build-case-puzzle", {
           body: { job_id: jobId, mode: "poll" },
         });
-        if (error) { delay = Math.min(delay * 2, 30_000); continue; }
-        if (data.status === "completed") return (data.final_result as Record<string, unknown>) || {};
-        if (data.status === "failed") throw new Error(data.error_message || "Job failed");
-        if (data.status === "cancelled") throw new Error("Job cancelled");
-        if (data.is_stale && data.can_resume) {
-          await supabase.functions.invoke("build-case-puzzle", { body: { job_id: jobId, mode: "tick" } });
-        }
-        delay = 3000;
-      } catch (e: unknown) {
-        if (e instanceof Error && (e.message.includes("Job failed") || e.message.includes("cancelled"))) throw e;
+      } catch {
         delay = Math.min(delay * 2, 30_000);
+        continue;
       }
+      if (poll.error || !poll.data) { delay = Math.min(delay * 2, 30_000); continue; }
+      const data = poll.data;
+      if (data.status === "completed") return (data.final_result as Record<string, unknown>) || {};
+      // Terminal business failures must never be swallowed as transient transport errors.
+      if (data.status === "failed") throw new Error(data.error_message || "Job failed");
+      if (data.status === "cancelled") throw new Error("Job cancelled");
+      if (data.is_stale && data.can_resume) {
+        try { await supabase.functions.invoke("build-case-puzzle", { body: { job_id: jobId, mode: "tick" } }); }
+        catch { delay = Math.min(delay * 2, 30_000); continue; }
+      }
+      delay = 3000;
     }
     throw new Error("Timeout (5 min)");
   }
 
   async function handleLaunchAnalysis() {
-    if (!caseId || isAnalyzing) return;
+    if (!caseId || isAnalyzing || isForceRefreshing || !analysisCanLaunch) return;
     setIsAnalyzing(true);
     try {
       // ── DCQ-P0-CASE-DOCUMENT-BACKFILL-BEFORE-PUZZLE v2 ──
@@ -1048,7 +1081,7 @@ export default function CaseView() {
   const [isForceRefreshing, setIsForceRefreshing] = React.useState(false);
 
   async function handleForceRefreshArticles() {
-    if (!caseId || isForceRefreshing) return;
+    if (!caseId || isForceRefreshing || isAnalyzing || !analysisCanLaunch) return;
     setIsForceRefreshing(true);
     try {
       await runBuildCasePuzzleAsync(caseId, { force_articles_detail: true });
@@ -1517,6 +1550,31 @@ export default function CaseView() {
           </div>
         </section>}
 
+        {analysisStatusAllowed && (
+          <Card className="mb-6 border-primary/30 bg-primary/5" aria-label="Analyse de la demande">
+            <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h2 className="font-semibold">Analyse de la demande</h2>
+                <p className="text-sm text-muted-foreground" role="status">{analysisSourceDescription}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={handleLaunchAnalysis} disabled={isAnalyzing || isForceRefreshing || !analysisCanLaunch}>
+                  {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                  {isAnalyzing ? 'Analyse en cours…' : facts.length > 0 ? "Relancer l'analyse" : "Lancer l'analyse"}
+                </Button>
+                {hasArticlesDetail && (
+                  <Button variant="outline" onClick={handleForceRefreshArticles} disabled={isForceRefreshing || isAnalyzing || !analysisCanLaunch}>
+                    {isForceRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    Admin - Forcer refresh articles
+                  </Button>
+                )}
+                {(analysisSourceError || !analysisHasSource) && (
+                  <Button variant="outline" size="sm" onClick={handleRefresh}>Actualiser les sources</Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
           <nav hidden={!guided} aria-label="Navigation du dossier" className="print:hidden">
             <div className="flex flex-wrap gap-2 border-b pb-3">
@@ -2608,53 +2666,6 @@ export default function CaseView() {
         {/* P1.1: Multi-request lines panel */}
         {caseId && <MultiRequestLinesPanel caseId={caseId} />}
 
-        {/* Action Panel — visible for actionable statuses */}
-        {['INTAKE', 'FACTS_PARTIAL', 'NEED_INFO', 'READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status) && (
-          <Card className="mb-6 border-primary/30 bg-primary/5">
-            <CardContent className="py-4 flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold">
-                  {['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
-                    ? 'Relancer l\'analyse'
-                    : 'Dossier prêt à analyser'}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
-                    ? 'Prend en compte les nouveaux documents et extracteurs déployés'
-                    : `${documentsCount ?? 0} document(s) uploadé(s) — ${facts?.length ?? 0} fait(s) extrait(s)`}
-                </p>
-              </div>
-              <Button
-                onClick={handleLaunchAnalysis}
-                disabled={isAnalyzing || (documentsCount === 0 && (!facts || facts.length === 0)) || caseData.status === 'PRICING_RUNNING'}
-              >
-                {isAnalyzing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="mr-2 h-4 w-4" />
-                )}
-                {['READY_TO_PRICE', 'DECISIONS_PENDING', 'DECISIONS_COMPLETE', 'ACK_READY_FOR_PRICING'].includes(caseData.status)
-                  ? 'Relancer l\'analyse'
-                  : 'Lancer l\'analyse'}
-              </Button>
-              {hasArticlesDetail && (
-                <Button
-                  variant="outline"
-                  onClick={handleForceRefreshArticles}
-                  disabled={isForceRefreshing || isAnalyzing || (documentsCount === 0 && (!facts || facts.length === 0)) || caseData.status === 'PRICING_RUNNING'}
-                >
-                  {isForceRefreshing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  Admin — Forcer refresh articles
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
         {/* Phase 9.4: DecisionSupportPanel — workflow decisions → ACK */}
         {['DECISIONS_PENDING', 'DECISIONS_COMPLETE'].includes(caseData.status) && (
           <div className="mb-6">
@@ -2861,14 +2872,12 @@ export default function CaseView() {
               <Card>
                 <CardContent className="py-8 text-center space-y-3">
                   <p className="text-muted-foreground">
-                    {documentsCount === 0
-                      ? "Aucun document uploadé. Ajoutez un document dans l'onglet Documents pour commencer."
-                      : "Aucun fait extrait pour le moment."}
+                    Aucun fait extrait pour le moment. {analysisSourceDescription}
                   </p>
-                  {documentsCount > 0 && (
+                  {analysisStatusAllowed && (
                     <Button
                       onClick={handleLaunchAnalysis}
-                      disabled={isAnalyzing || isLocked}
+                      disabled={isAnalyzing || isForceRefreshing || !analysisCanLaunch}
                       size="sm"
                     >
                       {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Puzzle className="mr-2 h-4 w-4" />}

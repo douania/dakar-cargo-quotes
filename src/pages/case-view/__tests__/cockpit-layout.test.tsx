@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
+import { toast } from 'sonner';
 import type { CockpitState } from '@/hooks/useCockpitState';
 import type { QuotationPreparationSummary } from '@/components/puzzle/SendQuotationPanel';
 import { CASE_PRESENTATION_KEY } from '../presentation';
@@ -14,7 +15,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // Exercise the actual CaseView composition + pricing/result components.
 // Unrelated panels and I/O are test doubles; no network or customer data.
 const empty: never[] = [];
-const invoke = vi.fn(), estimateAction = vi.fn(), cargoAction = vi.fn();
+const invoke = vi.fn(), estimateAction = vi.fn(), cargoAction = vi.fn(), from = vi.fn();
 let caseId = 'case-a', status = 'PRICED_DRAFT', hasSelection = true, totalPartnerRequests = 0, closedPartnerRequests = 0;
 let cockpitOverrides: Partial<CockpitState> = {}, cockpitError: Error | null = null, cockpitFetching = false;
 let versionMounts = 0;
@@ -32,16 +33,18 @@ const initialFacts: FactFixture[] = [{id:'f',fact_key:'service.package',value_te
 let facts = initialFacts, requestType = 'SEA_FCL_IMPORT';
 let lotCount: number | null = 0;
 let readPending: string | null = null, readFailed: string | null = null;
+let threadId: string | null = null, sourceEmailCount: number | null = 0, documentCount: number | null = 0;
 type EventFixture = {event_type:string;created_at:string;actor_type:string;event_data:Record<string,unknown>};
 let timeline: EventFixture[] = [];
 vi.doMock('react-router-dom',()=>({useParams:()=>({caseId}),useNavigate:()=>vi.fn()}));
-vi.doMock('@/integrations/supabase/client',()=>({supabase:{functions:{invoke},from:vi.fn()}}));
+vi.doMock('@/integrations/supabase/client',()=>({supabase:{functions:{invoke},from}}));
 vi.doMock('@tanstack/react-query',async()=>({
   ...await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query'),
   useQuery:({queryKey}:{queryKey:string[]})=>({isLoading:queryKey[0]===readPending,error:queryKey[0]===readFailed?new Error('Read refused'):queryKey[0]==='cockpit-state'?cockpitError:null,isFetching:queryKey[0]===readPending||(queryKey[0]==='cockpit-state'&&cockpitFetching),refetch:vi.fn(),
-    data: queryKey[0]==='case-view' ? {id:caseId,status,request_type:requestType,puzzle_completeness:70}
+    data: queryKey[0]==='case-view' ? {id:caseId,status,thread_id:threadId,request_type:requestType,puzzle_completeness:70}
       : queryKey[0]==='case-facts' ? facts : queryKey[0]==='case-gaps' ? gaps
       : queryKey[0]==='case-timeline' ? timeline : queryKey[0]==='quote-request-lines-count' ? lotCount
+      : queryKey[0]==='case-source-emails-count' ? sourceEmailCount : queryKey[0]==='case-documents-count' ? documentCount
       : queryKey[0]==='cockpit-state' ? {status,totalPartnerRequests,closedPartnerRequests,blockingGapsCount:0,padReviewCount:0,...cockpitOverrides}
       : queryKey[0].includes('count') || queryKey[0]==='pricing-provisional-check' ? 0
       : queryKey[0]==='pricing-run-recovery' ? null : empty}),
@@ -81,9 +84,108 @@ let client: QueryClient;
 beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPartnerRequests=0;closedPartnerRequests=0;invoke.mockReset();estimateAction.mockReset();
   localStorage.setItem(CASE_PRESENTATION_KEY,'previous');cockpitOverrides={};cockpitError=null;cockpitFetching=false;versionMounts=0;preparationFixture=null;gaps=initialGaps;
   facts=initialFacts;requestType='SEA_FCL_IMPORT';lotCount=0;readPending=null;readFailed=null;timeline=[];
+  threadId=null;sourceEmailCount=0;documentCount=0;from.mockReset();
   panelMounts={};client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
-afterEach(()=>{cleanup();client.clear();localStorage.clear();});
+afterEach(()=>{cleanup();client.clear();localStorage.clear();vi.useRealTimers();vi.restoreAllMocks();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+
+it.each(['INTAKE','NEW_THREAD','RFQ_DETECTED'].flatMap(fixtureStatus=>[false,true].map(guided=>({fixtureStatus,guided}))))('email-sourced empty analysis is available for $fixtureStatus guided=$guided',({fixtureStatus,guided})=>{
+  status=fixtureStatus;facts=[];gaps=[];hasSelection=false;threadId='synthetic-source-thread';sourceEmailCount=3;documentCount=0;
+  if(guided)localStorage.removeItem(CASE_PRESENTATION_KEY);mount();
+  const action=screen.getByRole('button',{name:"Lancer l'analyse"});expect(action).toBeVisible();expect(action).toBeEnabled();
+  expect(screen.getByLabelText('Analyse de la demande')).toHaveTextContent(/3 courriel/);expect(invoke).not.toHaveBeenCalled();
+});
+
+function emptyAnalysisFixture() {
+  status='RFQ_DETECTED';facts=[];gaps=[];hasSelection=false;threadId='synthetic-source-thread';sourceEmailCount=2;documentCount=0;
+}
+it('accepts uploaded documents for a manual case but not extracted facts alone',()=>{
+  emptyAnalysisFixture();threadId=null;documentCount=1;const {rerender}=mount();
+  expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();
+  documentCount=0;facts=initialFacts;rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+  expect(screen.getByRole('button',{name:"Relancer l'analyse"})).toBeDisabled();
+  expect(screen.getByLabelText('Analyse de la demande')).toHaveTextContent(/Ajoutez un document/);expect(invoke).not.toHaveBeenCalled();
+});
+it('does not substitute documents or facts for missing thread emails',()=>{
+  emptyAnalysisFixture();sourceEmailCount=0;documentCount=2;facts=initialFacts;mount();
+  expect(screen.getByRole('button',{name:"Relancer l'analyse"})).toBeDisabled();
+  expect(screen.getByLabelText('Analyse de la demande')).toHaveTextContent(/Aucun courriel trouvé/);expect(invoke).not.toHaveBeenCalled();
+});
+it.each(['case-source-emails-count','case-documents-count'])('fails closed for pending or failed %s with cached sources',key=>{
+  emptyAnalysisFixture();if(key==='case-documents-count'){threadId=null;documentCount=1;}
+  readPending=key;const {rerender}=mount();
+  expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeDisabled();
+  expect(screen.getByLabelText('Analyse de la demande')).toHaveTextContent(/Vérification des sources de la demande/);
+  readPending=null;readFailed=key;rerender(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+  expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeDisabled();
+  expect(screen.getByLabelText('Analyse de la demande')).toHaveTextContent(/Vérification des sources impossible/);expect(invoke).not.toHaveBeenCalled();
+});
+it.each([false,true])('does not launch for unknown source counts, manual=%s',manual=>{
+  emptyAnalysisFixture();if(manual){threadId=null;documentCount=null;}else sourceEmailCount=null;
+  mount();expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeDisabled();expect(invoke).not.toHaveBeenCalled();
+});
+it('rechecks both source counts when refreshing sources',async()=>{
+  emptyAnalysisFixture();sourceEmailCount=0;const invalidate=vi.spyOn(client,'invalidateQueries');mount();
+  await userEvent.click(screen.getByRole('button',{name:'Actualiser les sources'}));
+  expect(invalidate).toHaveBeenCalledWith({queryKey:['case-documents-count','case-a']});
+  expect(invalidate).toHaveBeenCalledWith({queryKey:['case-source-emails-count','case-a']});expect(invoke).not.toHaveBeenCalled();
+});
+it.each(['PRICED_DRAFT','QUOTED_VERSIONED','SENT','ACCEPTED','REJECTED','ARCHIVED','PRICING_RUNNING'])('does not reopen analysis for %s',async(locked)=>{
+  emptyAnalysisFixture();status=locked;documentCount=1;mount();
+  expect(screen.queryByRole('button',{name:/Lancer l'analyse|Relancer l'analyse/})).toBeNull();
+  await userEvent.click(screen.getByRole('tab',{name:'Données & audit'}));
+  await userEvent.click(screen.getByText(/Sources, faits et historique/));
+  expect(screen.queryByRole('button',{name:/Lancer l'analyse|Relancer l'analyse/})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+});
+it('can launch from empty facts sourced by email without an upload instruction',async()=>{
+  emptyAnalysisFixture();mount();await userEvent.click(screen.getByRole('tab',{name:'Données & audit'}));
+  await userEvent.click(screen.getByText(/Sources, faits et historique/));
+  const factsPanel=screen.getByRole('tabpanel',{name:'Faits (0)'});
+  expect(within(factsPanel).getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();
+  expect(factsPanel).toHaveTextContent(/2 courriel/);expect(factsPanel).not.toHaveTextContent(/Ajoutez un document/);expect(invoke).not.toHaveBeenCalled();
+});
+it('stops at a document preparation error before starting analysis',async()=>{
+  emptyAnalysisFixture();const failure=vi.spyOn(toast,'error');
+  invoke.mockResolvedValue({data:null,error:new Error('Preparation denied')});mount();
+  await userEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));
+  expect(invoke).toHaveBeenCalledTimes(1);expect(invoke).toHaveBeenCalledWith('backfill-case-documents',{body:{case_id:'case-a'}});
+  expect(failure).toHaveBeenCalledWith('Preparation des documents echouee : Preparation denied');
+  expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();
+});
+it.each(['failed','cancelled'])('ends a %s analysis job immediately and preserves the failure',async(jobStatus)=>{
+  emptyAnalysisFixture();vi.useFakeTimers();const failure=vi.spyOn(toast,'error'),success=vi.spyOn(toast,'success');
+  invoke.mockResolvedValueOnce({data:{remaining:0},error:null})
+    .mockResolvedValueOnce({data:{job_id:'synthetic-job'},error:null})
+    .mockResolvedValue({data:{status:jobStatus,error_message:'Source analysis rejected'},error:null});
+  mount();fireEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));
+  await act(async()=>{});
+  expect(screen.getByRole('button',{name:'Analyse en cours…'})).toBeDisabled();
+  fireEvent.click(screen.getByRole('button',{name:'Analyse en cours…'}));expect(invoke).toHaveBeenCalledTimes(2);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
+  expect(failure).toHaveBeenCalledWith("Erreur lors de l'analyse : "+(jobStatus==='failed'?'Source analysis rejected':'Job cancelled'));
+  expect(success).not.toHaveBeenCalled();expect(invoke).toHaveBeenCalledTimes(3);
+  expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(300_000);});expect(invoke).toHaveBeenCalledTimes(3);
+});
+it('retains transport retries and runs post-analysis work only after completion',async()=>{
+  emptyAnalysisFixture();vi.useFakeTimers();const success=vi.spyOn(toast,'success'),failure=vi.spyOn(toast,'error');
+  const read={select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),order:vi.fn().mockReturnThis(),limit:vi.fn().mockReturnThis(),maybeSingle:vi.fn().mockResolvedValue({data:null,error:null})};
+  from.mockReturnValue(read);
+  invoke.mockResolvedValueOnce({data:{remaining:0},error:null})
+    .mockResolvedValueOnce({data:{job_id:'synthetic-job'},error:null})
+    .mockRejectedValueOnce(new Error('Temporary transport failure'))
+    .mockResolvedValueOnce({data:{status:'completed',final_result:{}},error:null})
+    .mockResolvedValue({data:{ok:true},error:null});
+  mount();fireEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));await act(async()=>{});
+  expect(invoke.mock.calls.map(([name])=>name)).toEqual(['backfill-case-documents','build-case-puzzle']);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});expect(invoke).toHaveBeenCalledTimes(3);expect(success).not.toHaveBeenCalled();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(6000);});
+  expect(invoke.mock.calls.map(([name])=>name)).toEqual(['backfill-case-documents','build-case-puzzle','build-case-puzzle','build-case-puzzle','sync-gap-client-actions','analyze-case-coherence']);
+  expect(invoke.mock.calls[1][1]).toEqual({body:{case_id:'case-a',mode:'start'}});
+  expect(invoke.mock.calls[2][1]).toEqual({body:{job_id:'synthetic-job',mode:'poll'}});
+  expect(success).toHaveBeenCalledWith('Analyse terminée avec succès');expect(failure).not.toHaveBeenCalled();
+  expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();
+});
 
 const partialCta = 'Générer une offre partielle à destination';
 function destinationPartialFixture() {
