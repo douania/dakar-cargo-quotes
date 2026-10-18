@@ -1,5 +1,30 @@
 -- New writes require the saved calculation basis. Historical snapshots remain untouched.
 BEGIN;
+-- Case before fact/key locks: the fact FK otherwise inverts the canonical writer.
+-- Patch only the two verified definitions; signatures, guards and ACL stay intact.
+DO $lock_order$
+DECLARE item record; target regprocedure; definition text; prefix text;
+BEGIN
+ FOR item IN SELECT * FROM (VALUES
+  ('public.supersede_fact(uuid,text,text,text,numeric,jsonb,timestamptz,text,uuid,uuid,text,numeric)',
+   '9c9143ed0dff18c70ad5f0a6260f7bae',
+   '  PERFORM pg_advisory_xact_lock(hashtext(p_case_id::text || p_fact_key));'),
+  ('public.promote_scenario_assumption(uuid,uuid,uuid,text,text,text,text,boolean,text,text,jsonb,boolean,uuid,uuid,text)',
+   '14d9cba63287272b28f4aca3fcf62f80',
+   '  perform pg_advisory_xact_lock(hashtext(''quote_fact_promotion_'' || p_case_id::text));')
+ ) AS patch(signature,digest,anchor) LOOP
+  target:=item.signature::regprocedure;
+  definition:=replace(pg_get_functiondef(target),chr(13),'');
+  IF md5(definition)<>item.digest OR length(definition)-length(replace(definition,item.anchor,''))<>length(item.anchor)
+  THEN RAISE EXCEPTION 'Unexpected fact writer definition: %',item.signature; END IF;
+  IF has_function_privilege('anon',target,'execute') OR has_function_privilege('authenticated',target,'execute')
+   OR NOT has_function_privilege('service_role',target,'execute')
+  THEN RAISE EXCEPTION 'Unexpected fact writer ACL: %',item.signature; END IF;
+  prefix:=E'  -- STRUCTURAL_PATCH_ALLOWED: case before dependent locks, shared with quotation writes.\n'
+   ||E'  PERFORM 1 FROM public.quote_cases WHERE id=p_case_id FOR UPDATE;\n';
+  EXECUTE replace(definition,item.anchor,prefix||item.anchor);
+ END LOOP;
+END $lock_order$;
 CREATE FUNCTION public.assert_quotation_run_facts_current(p_case uuid,p_run uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE r public.pricing_runs; f public.quote_facts; saved jsonb; field text;
