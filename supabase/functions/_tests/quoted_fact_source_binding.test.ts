@@ -69,6 +69,6 @@ Deno.test('quote source binding: deterministic excerpt belongs to original own m
 });
 Deno.test('quote source binding: real AI extraction adapter sends own context and rejects duplicated output',async()=>{
  const saved=globalThis.fetch;let called=0;
- globalThis.fetch=async(_input,options)=>{called++;const payload=JSON.parse(String(options?.body));const prompt=payload.messages[1].content;assert(!prompt.includes('999x20GP'));assert(prompt.includes('source_id=original'));return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({facts:[container(4)]})}}]}),{headers:{'Content-Type':'application/json'}});};
+ globalThis.fetch=async(_input,options)=>{called++;const payload=JSON.parse(String((options as {body?:unknown}|undefined)?.body));const prompt=payload.messages[1].content;assert(!prompt.includes('999x20GP'));assert(prompt.includes('source_id=original'));return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({facts:[container(4)]})}}]}),{headers:{'Content-Type':'application/json'}});};
  try{const r=await extractFactsWithAI('UNSAFE RAW 999x20GP','',[old,follow],[],'synthetic-provider-only');assertEquals(called,1);assertEquals(r[0].sourceEmailId,'original');assertEquals(r[0].value,[{quantity:2,type:'40HC'}]);}finally{globalThis.fetch=saved;}
 });
