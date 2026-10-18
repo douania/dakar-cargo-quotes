@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 import { supabase } from '@/integrations/supabase/client';
@@ -37,6 +37,8 @@ import { useUiUsageTracker } from '@/hooks/useUiUsageTracker';
 import { ThreadStructureIndicators } from '@/components/emails/ThreadStructureIndicators';
 import { UiSessionSummary } from '@/components/emails/UiSessionSummary';
 import { invokeWithRetry } from '@/lib/fetchWithRetry';
+import { uniqueRows } from '@/lib/email/readPages';
+import { readAdminThreads, readAdminEmailPage, readAdminAttachments, readAdminDraftPage, allVisibleSelected, selectVisible } from '@/lib/email/adminListReads';
 import { MailboxPasswordDialog } from '@/components/emails/MailboxPasswordDialog';
 
 interface EmailConfig {
@@ -223,148 +225,114 @@ export default function Emails() {
     password: ''
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   // invokeWithRetry imported from '@/lib/fetchWithRetry'
 
-  const loadData = async () => {
-    setLoading(true);
-    let configsOk = false;
-    let loadedThreadIds: string[] = [];
+  const loadGeneration = useRef(0);
+  const mailGeneration = useRef(0);
+  const draftGeneration = useRef(0);
+  const draftAttempt = useRef({ offset: 0, append: false });
+  const [readError, setReadError] = useState<string | null>(null);
+  const [mailError, setMailError] = useState<string | null>(null);
+  const [mailLoading, setMailLoading] = useState(false);
+  const [mailNext, setMailNext] = useState<number | null>(null);
+  const [mailLoaded, setMailLoaded] = useState(0);
+  const [mailTotal, setMailTotal] = useState(0);
+  const [threadLimit, setThreadLimit] = useState(50);
+  const [draftNext, setDraftNext] = useState<number | null>(null);
+  const [draftTotal, setDraftTotal] = useState(0);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const failedMailOffset = useRef(0);
 
-    // ── 1. Configs (with retry) ──────────────────────────────────
+  const loadEmails = async (append = false, retryOffset?: number) => {
+    const generation = ++mailGeneration.current;
+    const offset = retryOffset ?? (append ? mailNext : 0);
+    if (offset === null) return;
+    failedMailOffset.current = offset;
+    setMailLoading(true); setMailError(null);
     try {
-      const { data: configData, error: configError } = await invokeWithRetry('email-admin', { action: 'get_all' });
-
-      if (configError) throw configError;
-
-      if (configData?.success) {
-        setConfigs(configData.configs || []);
-        configsOk = true;
-      }
-    } catch (err) {
-      console.error('[loadData] configs failed:', err);
-      // Keep previous configs – don't reset
-      toast.error('Impossible de charger les configurations (connexion lente)');
-    }
-
-    // ── 2. Threads (independent) ─────────────────────────────────
-    try {
-      const { data: threadData, error: threadError } = await invokeWithRetry('email-admin', {
-        action: 'get_threads_paginated',
-        data: { page: 0, pageSize: 50 },
-      });
-
-      if (!threadError && threadData?.success) {
-        setThreads(threadData.threads || []);
-        loadedThreadIds = (threadData.threads || []).map((t: any) => t.id);
-      } else if (threadError) {
-        console.warn('[loadData] threads failed, keeping previous data');
-      }
-    } catch (err) {
-      console.error('[loadData] threads failed:', err);
-      if (configsOk) {
-        toast.info('Configuration trouvée mais emails en cours de chargement…');
-      }
-    }
-
-    // ── 3. Drafts (direct DB, lightweight) ───────────────────────
-    try {
-      const { data: draftsData } = await supabase
-        .from('email_drafts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (draftsData) setDrafts(draftsData);
-    } catch (err) {
-      console.warn('[loadData] drafts failed, keeping previous data');
-    }
-
-    // ── 4. Emails + Attachments (depends on threads) ─────────────
-    if (loadedThreadIds.length > 0) {
-      try {
-        const { data: emailsData } = await supabase
-          .from('emails')
-          .select('*')
-          .in('thread_ref', loadedThreadIds)
-          .order('sent_at', { ascending: false })
-          .limit(300);
-        if (emailsData) setEmails(emailsData as Email[]);
-
-        // Attachments
-        const emailIds = (emailsData || []).map((e: any) => e.id);
-        if (emailIds.length > 0) {
-          const { data: attachmentsData } = await supabase
-            .from('email_attachments')
-            .select('id, email_id, filename, content_type, is_analyzed, storage_path')
-            .in('email_id', emailIds);
-
-          const attachments = attachmentsData || [];
-          setAllAttachments(attachments);
-
-          const counts: Record<string, number> = {};
-          const details: Record<string, { types: string[], filenames: string[] }> = {};
-
-          attachments.forEach((att: any) => {
-            if (att.email_id) {
-              counts[att.email_id] = (counts[att.email_id] || 0) + 1;
-
-              if (!details[att.email_id]) {
-                details[att.email_id] = { types: [], filenames: [] };
-              }
-
-              const filename = att.filename || '';
-              const ext = filename.split('.').pop()?.toLowerCase() || '';
-              let fileType = 'DOC';
-
-              if (['pdf'].includes(ext)) fileType = 'PDF';
-              else if (['xlsx', 'xls'].includes(ext)) fileType = 'Excel';
-              else if (['docx', 'doc'].includes(ext)) fileType = 'Word';
-              else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) fileType = 'Image';
-              else if (['csv'].includes(ext)) fileType = 'CSV';
-              else if (['txt'].includes(ext)) fileType = 'TXT';
-              else if (['zip', 'rar', '7z'].includes(ext)) fileType = 'Archive';
-
-              if (!details[att.email_id].types.includes(fileType)) {
-                details[att.email_id].types.push(fileType);
-              }
-              details[att.email_id].filenames.push(filename);
-            }
-          });
-
-          setAttachmentCounts(counts);
-          setAttachmentDetails(details);
-
-          const TEMP_FILE_PATTERNS = [
-            /^~\$/,
-            /^~WRD/,
-            /^~WRL/,
-            /\.tmp$/i,
-            /^Thumbs\.db$/i,
-            /^\.DS_Store$/,
-          ];
-
-          const isTemporaryFile = (filename: string) =>
-            TEMP_FILE_PATTERNS.some(pattern => pattern.test(filename));
-
-          const unanalyzed = attachments.filter((att: any) =>
-            !att.is_analyzed &&
-            !isTemporaryFile(att.filename) &&
-            att.storage_path
-          );
-          setUnanalyzedAttachments(unanalyzed);
-        }
-      } catch (err) {
-        console.warn('[loadData] emails/attachments failed, keeping previous data');
-      }
-    }
-    // Note: if loadedThreadIds is empty but we had previous data, we keep it (no reset)
-
-    setLoading(false);
-    setSelectedEmailIds(new Set());
+      const page = await readAdminEmailPage(offset, emailSearchQuery, filter);
+      const attachments = await readAdminAttachments(page.rows.map(email => email.id));
+      if (generation !== mailGeneration.current) return;
+      setEmails(previous => uniqueRows(append ? [...previous, ...page.rows] : page.rows) as Email[]);
+      setAllAttachments(previous => uniqueRows(append ? [...previous, ...attachments] : attachments));
+      setMailNext(page.nextOffset); setMailLoaded(offset + page.rows.length); setMailTotal(page.total);
+    } catch {
+      if (generation === mailGeneration.current) setMailError('Lecture des courriels ou pièces jointes incomplète.');
+    } finally { if (generation === mailGeneration.current) setMailLoading(false); }
   };
+
+  const loadDrafts = async (append = false, requestedOffset = append ? draftNext : 0) => {
+    const generation = ++draftGeneration.current;
+    const offset = requestedOffset;
+    if (offset === null) return;
+    draftAttempt.current = { offset, append };
+    setDraftLoading(true); setDraftError(null);
+    try {
+      const page = await readAdminDraftPage(offset);
+      if (generation !== draftGeneration.current) return;
+      setDrafts(previous => uniqueRows(append ? [...previous, ...page.rows] : page.rows) as EmailDraft[]);
+      setDraftNext(page.nextOffset); setDraftTotal(page.total);
+    } catch { if (generation === draftGeneration.current) setDraftError('Lecture des brouillons incomplète.'); }
+    finally { if (generation === draftGeneration.current) setDraftLoading(false); }
+  };
+
+  const loadData = async () => {
+    const generation = ++loadGeneration.current;
+    setLoading(true); setReadError(null); setSelectedEmailIds(new Set());
+    // Start every independent read now, so a delayed metadata response cannot restart an old search.
+    await Promise.all([
+      (async () => { try {
+        const { data, error } = await invokeWithRetry('email-admin', { action: 'get_all' });
+        if (error || data?.success !== true) throw new Error();
+        if (generation === loadGeneration.current) setConfigs(data.configs || []);
+      } catch { if (generation === loadGeneration.current) setReadError('Lecture des configurations incomplète.'); } })(),
+      (async () => { try {
+        const rows = await readAdminThreads();
+        if (generation === loadGeneration.current) setThreads(rows as unknown as EmailThread[]);
+      } catch { if (generation === loadGeneration.current) setReadError('Lecture des fils incomplète.'); } })(),
+      loadEmails(), loadDrafts(),
+    ]);
+    if (generation === loadGeneration.current) setLoading(false);
+  };
+
+  // The first read runs once; later criteria read through the current callback.
+  const initialLoad = useRef(loadData);
+  const currentMailReader = useRef(loadEmails);
+  currentMailReader.current = loadEmails;
+  const cancelMail = useCallback(() => { mailGeneration.current++; }, []);
+  const cancelReads = useCallback(() => { loadGeneration.current++; mailGeneration.current++; draftGeneration.current++; }, []);
+  useEffect(() => { void initialLoad.current(); return cancelReads; }, [cancelReads]);
+
+  useEffect(() => {
+    const counts: Record<string, number> = {};
+    const details: Record<string, { types: string[]; filenames: string[] }> = {};
+    const temporary = /^(?:~\$|~WRD|~WRL|Thumbs\.db$|\.DS_Store$)|\.tmp$/i;
+    const types: Record<string, string> = { pdf: 'PDF', xls: 'Excel', xlsx: 'Excel', doc: 'Word', docx: 'Word', jpg: 'Image', jpeg: 'Image', png: 'Image', gif: 'Image', webp: 'Image', csv: 'CSV', txt: 'TXT', zip: 'Archive', rar: 'Archive', '7z': 'Archive' };
+    for (const attachment of allAttachments) {
+      if (!attachment.email_id) continue;
+      const id = attachment.email_id, filename = attachment.filename || '';
+      counts[id] = (counts[id] || 0) + 1;
+      const detail = details[id] || { types: [], filenames: [] };
+      const type = types[filename.split('.').pop()?.toLowerCase() || ''] || 'DOC';
+      if (!detail.types.includes(type)) detail.types.push(type);
+      detail.filenames.push(filename); details[id] = detail;
+    }
+    setAttachmentCounts(counts); setAttachmentDetails(details);
+    setUnanalyzedAttachments(allAttachments.filter(attachment => !attachment.is_analyzed && attachment.storage_path && !temporary.test(attachment.filename || '')));
+  }, [allAttachments]);
+
+  const firstMailEffect = useRef(true);
+  useEffect(() => {
+    setSelectedEmailIds(new Set());
+    if (firstMailEffect.current) { firstMailEffect.current = false; return; }
+    mailGeneration.current++;
+    setEmails([]); setAllAttachments([]); setMailLoaded(0); setMailTotal(0); setMailNext(null); setMailError(null); setMailLoading(true);
+    const reader = currentMailReader.current;
+    const timer = setTimeout(() => void reader(), 400);
+    return () => { clearTimeout(timer); cancelMail(); };
+  }, [emailSearchQuery, filter, cancelMail]);
+  useEffect(() => { setThreadLimit(50); }, [threadSearchQuery, threadFilter]);
 
   const addConfig = async () => {
     if (!newConfig.name || !newConfig.host || !newConfig.username || !newConfig.password) {
@@ -748,18 +716,14 @@ export default function Emails() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedEmailIds.size === filteredEmails.length) {
-      setSelectedEmailIds(new Set());
-    } else {
-      setSelectedEmailIds(new Set(filteredEmails.map(e => e.id)));
-    }
+    setSelectedEmailIds(selectVisible(selectedEmailIds, filteredEmails.map(email => email.id)));
   };
 
   // Filter emails with search
   const filteredEmails = emails.filter(email => {
     // Text search filter
     if (emailSearchQuery.trim()) {
-      const query = emailSearchQuery.toLowerCase();
+      const query = emailSearchQuery.trim().toLowerCase();
       const matchesSearch = 
         email.subject?.toLowerCase().includes(query) ||
         email.from_address?.toLowerCase().includes(query) ||
@@ -783,7 +747,7 @@ export default function Emails() {
   const filteredThreads = threads.filter(thread => {
     // Text search filter
     if (threadSearchQuery.trim()) {
-      const query = threadSearchQuery.toLowerCase();
+      const query = threadSearchQuery.trim().toLowerCase();
       const matchesSearch = 
         thread.subject_normalized?.toLowerCase().includes(query) ||
         thread.client_email?.toLowerCase().includes(query) ||
@@ -799,8 +763,8 @@ export default function Emails() {
 
   // Phase 8.5: Group threads by normalized subject for visual display
   const groupedThreads = useMemo(() => {
-    return groupThreadsBySubject(filteredThreads);
-  }, [filteredThreads]);
+    return groupThreadsBySubject(filteredThreads.slice(0, threadLimit));
+  }, [filteredThreads, threadLimit]);
 
   // Phase 8.6: UI usage tracking (session-only, no persistence)
   const {
@@ -863,7 +827,7 @@ export default function Emails() {
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
               <Mail className="h-8 w-8" />
@@ -879,8 +843,9 @@ export default function Emails() {
           </Button>
         </div>
 
+        {readError && <div role="alert" className="mb-4 text-destructive"><p>{readError} Les données affichées peuvent être anciennes.</p><Button variant="outline" onClick={() => void loadData()} disabled={loading}>Réessayer les lectures</Button></div>}
         <Tabs defaultValue="import" className="space-y-4">
-          <TabsList className="flex-wrap">
+          <TabsList className="h-auto flex-wrap justify-start gap-1">
             <TabsTrigger value="import">
               <Search className="h-4 w-4 mr-2" />
               Import sélectif
@@ -944,6 +909,7 @@ export default function Emails() {
 
           {/* Threads Tab */}
           <TabsContent value="threads" className="space-y-4">
+            <p className="text-sm text-muted-foreground" role="status">{Math.min(threadLimit, filteredThreads.length)} fil(s) affiché(s) sur {filteredThreads.length} ; recherche dans les {threads.length} fils lus.</p>
             {/* Attachment Status Panel */}
             <AttachmentStatusPanel 
               stats={attachmentStats}
@@ -998,7 +964,7 @@ export default function Emails() {
                   </div>
 
                   {/* Thread management buttons */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {/* Create threads from orphan emails */}
                     <Button 
                       variant="outline" 
@@ -1090,8 +1056,8 @@ export default function Emails() {
                         return (
                           <Card className={`${thread.our_role === 'assist_partner' ? 'border-l-4 border-l-amber-500' : complexity.level >= 3 ? 'border-l-4 border-l-purple-500' : 'border-l-4 border-l-primary'}`}>
                             <CardContent className="p-4">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap mb-2">
                                     {/* Phase 8.3: Thread Usage Tag */}
                                     <ThreadUsageTagWithData threadId={thread.id} size="sm" />
@@ -1125,7 +1091,7 @@ export default function Emails() {
                                     )}
                                   </div>
                                   
-                                  <p className="font-semibold">{thread.subject_normalized}</p>
+                                  <p className="font-semibold break-words">{thread.subject_normalized}</p>
                                   
                                   <div className="mt-2">
                                     <ThreadParticipantsSummary participants={thread.participants} />
@@ -1139,7 +1105,7 @@ export default function Emails() {
                                   </div>
                                 </div>
                                 
-                                <div className="flex flex-col gap-2 ml-4">
+                                <div className="flex flex-wrap gap-2 sm:flex-col sm:ml-4">
                                   {/* View Conversation Button - Phase 8.6: Track usage */}
                                   <Button
                                     variant="outline"
@@ -1185,6 +1151,7 @@ export default function Emails() {
                 <UiSessionSummary stats={usageStats} />
               </>
             )}
+            {filteredThreads.length > threadLimit && <Button variant="outline" onClick={() => setThreadLimit(value => value + 50)}>Afficher les fils suivants</Button>}
           </TabsContent>
 
           <TabsContent value="knowledge">
@@ -1192,6 +1159,8 @@ export default function Emails() {
           </TabsContent>
 
           <TabsContent value="inbox" className="space-y-4">
+            <p className="text-sm text-muted-foreground" role="status">{mailLoading ? 'Lecture en cours…' : mailLoaded + ' courriel(s) chargé(s) sur ' + mailTotal}{mailNext !== null && ' · liste partielle'}. Les filtres PJ concernent les courriels chargés.</p>
+            {mailError && <div role="alert" className="text-destructive"><p>{mailError}</p><Button variant="outline" disabled={mailLoading} onClick={() => void loadEmails(failedMailOffset.current > 0, failedMailOffset.current)}>Réessayer les courriels</Button></div>}
             {/* Toolbar */}
             <Card>
               <CardContent className="p-4">
@@ -1240,14 +1209,14 @@ export default function Emails() {
                   </div>
 
                   {/* Selection actions */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button 
                       variant="outline" 
                       size="sm"
                       onClick={toggleSelectAll}
                     >
                       <CheckSquare className="h-4 w-4 mr-1" />
-                      {selectedEmailIds.size === filteredEmails.length && filteredEmails.length > 0 
+                      {allVisibleSelected(selectedEmailIds, filteredEmails.map(email => email.id))
                         ? 'Désélectionner' 
                         : 'Tout sélectionner'}
                     </Button>
@@ -1319,7 +1288,7 @@ export default function Emails() {
                 <CardContent className="py-12 text-center">
                   <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">
-                    {emails.length === 0 
+                    {mailError ? 'Lecture des courriels incomplète' : mailLoading ? 'Chargement des courriels...' : emails.length === 0
                       ? 'Aucun email synchronisé' 
                       : 'Aucun email avec ce filtre'}
                   </p>
@@ -1430,6 +1399,7 @@ export default function Emails() {
                 ))}
               </div>
             )}
+            {mailNext !== null && <Button variant="outline" disabled={mailLoading} onClick={() => void loadEmails(true)}>{mailLoading ? 'Chargement…' : 'Charger les courriels suivants'}</Button>}
           </TabsContent>
 
           <TabsContent value="quotations" className="space-y-4">
@@ -1496,6 +1466,8 @@ export default function Emails() {
           </TabsContent>
 
           <TabsContent value="drafts" className="space-y-4">
+            <p role="status" className="text-sm text-muted-foreground">{drafts.length} brouillon(s) chargé(s) sur {draftTotal}</p>
+            {draftError && <div role="alert" className="text-destructive"><p>{draftError}</p><Button variant="outline" disabled={draftLoading} onClick={() => void loadDrafts(draftAttempt.current.append, draftAttempt.current.offset)}>Réessayer les brouillons</Button></div>}
             {drafts.map((draft) => (
               <Card key={draft.id}>
                 <CardContent className="p-4">
@@ -1524,6 +1496,7 @@ export default function Emails() {
                 </CardContent>
               </Card>
             ))}
+            {draftNext !== null && <Button variant="outline" disabled={draftLoading} onClick={() => void loadDrafts(true)}>{draftLoading ? 'Chargement…' : 'Charger les brouillons suivants'}</Button>}
           </TabsContent>
 
           <TabsContent value="configs" className="space-y-4">

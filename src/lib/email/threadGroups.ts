@@ -98,4 +98,3 @@ export function groupEmailsByThread(
   }
   return result;
 }
-

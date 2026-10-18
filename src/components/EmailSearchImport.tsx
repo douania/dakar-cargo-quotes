@@ -1,4 +1,4 @@
-import { useState, forwardRef } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -87,12 +87,27 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
   const [autoAnalyze, setAutoAnalyze] = useState(false);
   const [analyzingAfterImport, setAnalyzingAfterImport] = useState(false);
 
+  const searchGeneration = useRef(0);
+  const searchedScope = useRef('');
+  const scope = JSON.stringify([configId, searchType, query.trim(), reconstructThread]);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const invalidateSearch = useCallback(() => { searchGeneration.current++; }, []);
+  useEffect(() => {
+    searchGeneration.current++; searchedScope.current = '';
+    setThreads([]); setSelectedThreads(new Set()); setTotalFound(0);
+    setSearchIdentity(null); setSearchNotice(null); setSearchError(null); setSearching(false);
+    return invalidateSearch;
+  }, [configId, searchType, query, reconstructThread, invalidateSearch]);
+
   const handleSearch = async () => {
     if (!query.trim()) {
       toast.error('Veuillez entrer un terme de recherche');
       return;
     }
 
+    if (importing) return;
+    const generation = ++searchGeneration.current;
+    setSearchError(null); searchedScope.current = '';
     setSearching(true);
     setThreads([]);
     setSelectedThreads(new Set());
@@ -112,9 +127,11 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
       });
 
       if (error) throw error;
-      if (data.error) throw new Error(data.error);
-
-      setThreads(data.threads || []);
+      if (generation !== searchGeneration.current) return;
+      if (data?.error) throw new Error(data.error);
+      if (!Array.isArray(data?.threads)) throw new Error('Réponse de recherche incomplète');
+      searchedScope.current = scope;
+      setThreads(data.threads);
       if (Number.isSafeInteger(data.uidValidity) && data.uidValidity > 0 && data.mailbox && data.accountKey) {
         setSearchIdentity({ configId, mailbox: data.mailbox, uidValidity: data.uidValidity,
           accountKey: data.accountKey, messages: (data.threads || []).flatMap((thread: EmailThread) =>
@@ -142,11 +159,13 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
         toast.success(`${data.threads.length} conversation(s) trouvée(s)${partial ? ' — résultats partiels' : ''}${reconstructInfo}`);
       }
     } catch (error) {
+      if (generation !== searchGeneration.current) return;
+      setSearchError(error instanceof Error ? error.message : 'Erreur de recherche');
       console.error('Search error:', error);
       toast.error(error instanceof Error ? error.message : 'Erreur de recherche');
     }
 
-    setSearching(false);
+    if (generation === searchGeneration.current) setSearching(false);
   };
 
   const toggleThread = (thread: EmailThread) => {
@@ -165,7 +184,7 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
       toast.error('Sélectionnez au moins une conversation');
       return;
     }
-    if (!searchIdentity || searchIdentity.configId !== configId) {
+    if (!searchIdentity || searchIdentity.configId !== configId || searchedScope.current !== scope) {
       toast.error('Relancez la recherche pour vérifier la boîte et les messages avant import.');
       return;
     }
@@ -363,8 +382,8 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <Select value={searchType} onValueChange={(v: 'subject' | 'from' | 'text') => setSearchType(v)}>
+          <div className="flex gap-2 flex-wrap">
+            <Select disabled={importing} value={searchType} onValueChange={(v: 'subject' | 'from' | 'text') => setSearchType(v)}>
               <SelectTrigger className="w-40">
                 <SelectValue />
               </SelectTrigger>
@@ -381,22 +400,26 @@ export const EmailSearchImport = forwardRef<HTMLDivElement, Props>(({ configId, 
                 searchType === 'from' ? "Ex: client@example.com" :
                 "Ex: cotation maritime"
               }
+              aria-label="Rechercher des échanges à importer"
+              disabled={importing}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="flex-1"
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleSearch()}
+              className="flex-1 min-w-[160px]"
             />
             
-            <Button onClick={handleSearch} disabled={searching}>
+            <Button onClick={handleSearch} disabled={searching || importing}>
               {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               <span className="ml-2 hidden sm:inline">Rechercher</span>
             </Button>
           </div>
 
+          {searchError && <Alert variant="destructive"><AlertTitle>Recherche indisponible</AlertTitle><AlertDescription>{searchError}</AlertDescription></Alert>}
           <div className="flex flex-wrap items-center gap-6">
             <div className="flex items-center gap-2">
               <Checkbox 
                 id="reconstructThread"
+                disabled={importing}
                 checked={reconstructThread}
                 onCheckedChange={(checked) => setReconstructThread(checked === true)}
               />

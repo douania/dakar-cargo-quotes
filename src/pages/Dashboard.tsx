@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Mail, 
@@ -13,6 +13,8 @@ import {
   Search
 } from 'lucide-react';
 import { withTimeout } from '@/lib/fetchWithRetry';
+import { uniqueRows } from '@/lib/email/readPages';
+import { readActiveCases, readSentEmailIds, readRequestPage, readRequestAttachmentCounts, readCaseClientNames, pendingRequests } from '@/lib/email/requestListReads';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { QuotationThreadCard } from '@/components/QuotationThreadCard';
 import type { ThreadGroup, MergedExtractedData } from '@/components/QuotationThreadCard';
@@ -47,200 +49,82 @@ export default function Dashboard() {
   const [activeCases, setActiveCases] = useState<QuoteCaseData[]>([]);
   const [clientNames, setClientNames] = useState<Record<string, string>>({});
 
-  const fetchData = async () => {
+  const fetchGeneration = useRef(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadedCount, setLoadedCount] = useState(0);
+  const [emailTotal, setEmailTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [caseLimit, setCaseLimit] = useState(50);
+  const [searchOffset, setSearchOffset] = useState(0);
+  const [searchNextOffset, setSearchNextOffset] = useState<number | null>(null);
+  const [searchLoaded, setSearchLoaded] = useState(0);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRetry, setSearchRetry] = useState(0);
+  const [composing, setComposing] = useState(false);
+
+  const fetchData = async (append = false) => {
+    const generation = ++fetchGeneration.current;
     setFetchError(null);
+    if (append) setLoadingMore(true);
     try {
-      // Fetch quotation requests and active cases in parallel
-      const [emailsResult, casesResult] = await Promise.all([
-        withTimeout(
-          supabase
-            .from('emails')
-            .select('id, subject, from_address, received_at, sent_at, created_at, extracted_data, thread_id, thread_ref, body_text')
-            .eq('is_quotation_request', true)
-            .order('received_at', { ascending: false })
-            .limit(100)
-        ),
-        withTimeout(
-          supabase
-            .from('quote_cases')
-            .select('id, thread_id, status, request_type, priority, puzzle_completeness, created_at, updated_at')
-            .not('status', 'in', '(SENT,ARCHIVED,ACCEPTED,REJECTED)')
-            .order('updated_at', { ascending: false })
-            .limit(50)
-        ),
+      const offset = append ? nextOffset : 0;
+      if (offset === null) return;
+      const [page, cases, sentIds, draftResult] = await Promise.all([
+        readRequestPage(offset), readActiveCases(), readSentEmailIds(),
+        withTimeout(supabase.from('email_drafts').select('id', { count: 'exact', head: true }).eq('status', 'draft')),
       ]);
-
-      const { data: emails, error: emailsError } = emailsResult;
-      if (emailsError) throw emailsError;
-
-      const { data: cases } = casesResult;
-      const typedCases = (cases as QuoteCaseData[]) || [];
-      setActiveCases(typedCases);
-
-      // Fetch client names from quote_facts
-      if (typedCases.length > 0) {
-        const caseIds = typedCases.map(c => c.id);
-        const { data: clientFacts } = await supabase
-          .from('quote_facts')
-          .select('case_id, value_text')
-          .in('case_id', caseIds)
-          .eq('fact_key', 'contacts.client_company')
-          .eq('is_current', true);
-        const names: Record<string, string> = {};
-        clientFacts?.forEach(f => { if (f.case_id && f.value_text) names[f.case_id] = f.value_text; });
-        setClientNames(names);
-      }
-
-
-      // Get attachment counts
-      const { data: attachments } = await withTimeout(
-        supabase
-          .from('email_attachments')
-          .select('email_id')
-      );
-
-      const attachmentCounts: Record<string, number> = {};
-      attachments?.forEach(att => {
-        if (att.email_id) {
-          attachmentCounts[att.email_id] = (attachmentCounts[att.email_id] || 0) + 1;
-        }
-      });
-
-      // B1-A: email_drafts is now owner-scoped. The "sent drafts" filter below
-      // only sees drafts created by the current user. Consequence: an email
-      // handled by operator A may reappear as "pending" for operator B.
-      // Accepted trade-off in current mono-team context.
-      const { data: sentDrafts } = await withTimeout(
-        supabase
-          .from('email_drafts')
-          .select('original_email_id')
-          .eq('status', 'sent')
-          .not('original_email_id', 'is', null)
-      );
-
-      const sentEmailIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
-
-      // C2.1-C: build Set of thread_ids covered by active cases
-      const activeCaseThreadIds = new Set<string>(
-        typedCases.map(c => c.thread_id).filter((tid): tid is string => !!tid)
-      );
-
-      // Filter pending: exclude sent + exclude threads already covered by a case
-      const isPendingEmail = (email: RawEmail) =>
-        !sentEmailIds.has(email.id)
-        && !(email.thread_ref && activeCaseThreadIds.has(email.thread_ref))
-        && !(email.thread_id && activeCaseThreadIds.has(email.thread_id));
-
-      const pendingRequests = (emails || []).filter(isPendingEmail) as RawEmail[];
-
-      setRequests(pendingRequests);
-      setAttachmentCounts(attachmentCounts);
-
-      // Calculate stats
-      const { count: quotationCount } = await withTimeout(
-        supabase
-          .from('emails')
-          .select('id', { count: 'exact' })
-          .eq('is_quotation_request', true)
-      );
-
-      const { count: draftCount } = await withTimeout(
-        supabase
-          .from('email_drafts')
-          .select('id', { count: 'exact' })
-          .eq('status', 'draft')
-      );
-
-      // Stats use thread count, not email count
-      const threadCount = groupEmailsByThread(pendingRequests, attachmentCounts).length;
-      setStats({
-        pending: threadCount,
-        processed: sentEmailIds.size,
-        drafts: draftCount || 0,
-      });
-    } catch (error: any) {
-      console.error('Error fetching data:', error);
-      const msg = error?.message?.includes('timeout')
-        ? 'Connexion lente — le serveur ne répond pas'
-        : 'Erreur de chargement des données';
-      setFetchError(msg);
-      // Don't clear existing data on error
+      if (draftResult.error || draftResult.count === null) throw new Error('Lecture des brouillons impossible');
+      const [counts, names] = await Promise.all([
+        readRequestAttachmentCounts(page.rows.map(email => email.id)), readCaseClientNames(cases.map(item => item.id)),
+      ]);
+      if (generation !== fetchGeneration.current) return;
+      const currentCases = cases as QuoteCaseData[];
+      // Re-filter acquired rows too: a case may have been created since the previous page.
+      setRequests(previous => pendingRequests(uniqueRows(append ? [...previous, ...page.rows] : page.rows), cases, sentIds));
+      setActiveCases(currentCases); setClientNames(names);
+      setAttachmentCounts(previous => append ? { ...previous, ...counts } : counts);
+      setNextOffset(page.nextOffset); setLoadedCount(offset + page.rows.length); setEmailTotal(page.total);
+      setStats(previous => ({ ...previous, processed: sentIds.size, drafts: draftResult.count! }));
+    } catch {
+      if (generation === fetchGeneration.current) setFetchError('Erreur de chargement des données ; la lecture reste incomplète');
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (generation === fetchGeneration.current) { setIsLoading(false); setIsRefreshing(false); setLoadingMore(false); }
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const initialLoad = useRef(fetchData);
+  const cancelLoad = useCallback(() => { fetchGeneration.current++; }, []);
+  useEffect(() => { void initialLoad.current(); return cancelLoad; }, [cancelLoad]);
 
-  // Server-side search with debounce
+  // Cleanup invalidates in-flight requests as well as the debounce timer.
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults(null);
-      setIsSearching(false);
+    let canceled = false;
+    if (!searchQuery.trim() || composing) {
+      setSearchResults(null); setSearchError(null); setIsSearching(false); setSearchNextOffset(null);
       return;
     }
-
-    setIsSearching(true);
+    setIsSearching(true); setSearchError(null);
+    if (searchOffset === 0) { setSearchResults([]); setSearchAttCounts({}); setSearchLoaded(0); setSearchTotal(0); setSearchNextOffset(null); }
     const timer = setTimeout(async () => {
       try {
-        const q = searchQuery.trim();
-        const { data, error } = await withTimeout(
-          supabase
-            .from('emails')
-            .select('id, subject, from_address, received_at, sent_at, created_at, extracted_data, thread_id, thread_ref, body_text')
-            .eq('is_quotation_request', true)
-            .or(`subject.ilike.%${q}%,from_address.ilike.%${q}%,body_text.ilike.%${q}%,body_html.ilike.%${q}%`)
-            .order('received_at', { ascending: false })
-            .limit(50)
-        );
-        if (error) throw error;
-
-        // Get attachment counts for search results
-        const ids = (data || []).map(e => e.id);
-        const { data: atts } = ids.length > 0
-          ? await supabase.from('email_attachments').select('email_id').in('email_id', ids)
-          : { data: [] };
-        const attCounts: Record<string, number> = {};
-        atts?.forEach(a => { if (a.email_id) attCounts[a.email_id] = (attCounts[a.email_id] || 0) + 1; });
-
-        // Filter out already-sent
-        const { data: sentDrafts } = await supabase
-          .from('email_drafts')
-          .select('original_email_id')
-          .eq('status', 'sent')
-          .not('original_email_id', 'is', null);
-        const sentIds = new Set(sentDrafts?.map(d => d.original_email_id) || []);
-
-        // C2.1-C: also exclude threads covered by active cases (reuse activeCases state)
-        const searchActiveCaseThreadIds = new Set<string>(
-          activeCases.map(c => c.thread_id).filter((tid): tid is string => !!tid)
-        );
-
-        setSearchResults(
-          (data || []).filter(e => {
-            if (sentIds.has(e.id)) return false;
-            if (e.thread_ref && searchActiveCaseThreadIds.has(e.thread_ref)) return false;
-            if (e.thread_id && searchActiveCaseThreadIds.has(e.thread_id)) return false;
-            return true;
-          }) as RawEmail[]
-        );
-        setSearchAttCounts(attCounts);
-      } catch (err) {
-        console.error('Search error:', err);
-      } finally {
-        setIsSearching(false);
-      }
+        const [page, cases, sent] = await Promise.all([readRequestPage(searchOffset, searchQuery), readActiveCases(), readSentEmailIds()]);
+        const counts = await readRequestAttachmentCounts(page.rows.map(email => email.id));
+        if (canceled) return;
+        setSearchResults(previous => pendingRequests(uniqueRows(searchOffset ? [...(previous || []), ...page.rows] : page.rows), cases, sent));
+        setSearchAttCounts(previous => searchOffset ? { ...previous, ...counts } : counts);
+        setSearchNextOffset(page.nextOffset); setSearchLoaded(searchOffset + page.rows.length); setSearchTotal(page.total);
+      } catch {
+        if (!canceled) setSearchError('Recherche incomplète : la lecture a échoué. Réessayez.');
+      } finally { if (!canceled) setIsSearching(false); }
     }, 400);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery, activeCases]);
+    return () => { canceled = true; clearTimeout(timer); };
+  }, [searchQuery, searchOffset, searchRetry, composing]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
     fetchData();
+    if (searchQuery.trim()) { setSearchOffset(0); setSearchRetry(value => value + 1); }
   };
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -311,8 +195,8 @@ export default function Dashboard() {
   };
 
   // Group emails into thread groups
-  const isSearch = searchResults !== null;
-  const displayEmails = isSearch ? searchResults : requests;
+  const isSearch = !!searchQuery.trim();
+  const displayEmails = isSearch ? (searchResults || []) : requests;
   const currentAttCounts = isSearch ? searchAttCounts : attachmentCounts;
   const threadGroups = groupEmailsByThread(displayEmails, currentAttCounts);
   // A2: mark search results so badge shows "visibles"
@@ -346,7 +230,7 @@ export default function Dashboard() {
       <div className="container mx-auto px-4 py-6 max-w-6xl">
         {/* Error banner */}
         {fetchError && (
-          <Card className="border-destructive/50 bg-destructive/5 mb-6">
+          <Card role="alert" className="border-destructive/50 bg-destructive/5 mb-6">
             <CardContent className="py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -366,11 +250,11 @@ export default function Dashboard() {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gradient-gold">Demandes à traiter</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {stats.pending} dossier{stats.pending > 1 ? 's' : ''} de cotation en attente
+              {groupEmailsByThread(requests, attachmentCounts).length} dossier(s) chargé(s) en attente
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -397,7 +281,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">En attente</p>
-                  <p className="text-2xl font-bold text-amber-500">{stats.pending}</p>
+                  <p className="text-2xl font-bold text-amber-500">{groupEmailsByThread(requests, attachmentCounts).length}</p>
                 </div>
                 <div className="p-2.5 rounded-lg bg-amber-500/10">
                   <Clock className="h-5 w-5 text-amber-500" />
@@ -464,10 +348,11 @@ export default function Dashboard() {
                 Dossiers en cours
               </h2>
               <div className="space-y-2">
-                {displayCases.map((c) => (
+                {displayCases.slice(0, caseLimit).map((c) => (
                   <CaseCard key={c.id} caseData={c} clientName={clientNames[c.id]} />
                 ))}
               </div>
+              {displayCases.length > caseLimit && <Button variant="outline" className="mt-3" onClick={() => setCaseLimit(value => value + 50)}>Afficher les dossiers suivants</Button>}
             </div>
           ) : null;
         })()}
@@ -478,19 +363,23 @@ export default function Dashboard() {
             <Mail className="h-5 w-5 text-primary" />
             Demandes de cotation
           </h2>
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex items-center gap-2 flex-wrap max-w-full">
+            <div className="relative w-full sm:w-[250px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               {isSearching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
               <Input
                 placeholder="Rechercher par nom, sujet, contenu..."
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-[250px] pl-8"
+                aria-label="Rechercher les demandes"
+                onCompositionStart={() => setComposing(true)}
+                onCompositionEnd={() => setComposing(false)}
+                onChange={e => { setSearchQuery(e.target.value); setSearchOffset(0); setSearchResults(null); setSearchError(null); }}
+                className="w-full pl-8"
               />
             </div>
+            {searchQuery && <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(''); setSearchOffset(0); setSearchResults(null); }}>Effacer</Button>}
             <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'date' | 'completeness')}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger aria-label="Trier les demandes" className="w-[180px]">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Trier par" />
               </SelectTrigger>
@@ -502,15 +391,21 @@ export default function Dashboard() {
           </div>
         </div>
 
+        <p className="text-sm text-muted-foreground mb-3" role="status">
+          {isSearch ? (isSearching ? 'Recherche en cours…' : searchLoaded + ' courriel(s) vérifié(s) sur ' + searchTotal)
+            : loadedCount + ' courriel(s) chargé(s) sur ' + emailTotal}
+          {(isSearch ? searchNextOffset !== null : nextOffset !== null) && ' · liste partielle'}
+        </p>
+        {searchError && <div role="alert" className="mb-3 text-destructive"><p>{searchError}</p><Button variant="outline" onClick={() => setSearchRetry(value => value + 1)} disabled={isSearching}>Réessayer la recherche</Button></div>}
         {/* Thread Groups List */}
         {sortedThreadGroups.length === 0 ? (
           <Card className="border-border/50 bg-gradient-card">
             <CardContent className="py-12">
               <div className="text-center">
                 <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                <h3 className="text-lg font-medium mb-2">Tout est à jour !</h3>
+                <h3 className="text-lg font-medium mb-2">{isSearch ? (isSearching ? 'Recherche en cours…' : searchError ? 'Recherche indisponible' : 'Aucun résultat chargé') : fetchError ? 'Lecture incomplète' : nextOffset !== null ? 'Aucune demande dans cette page' : 'Aucune demande en attente'}</h3>
                 <p className="text-muted-foreground mb-4">
-                  Aucune demande de cotation en attente de traitement.
+                  {isSearch ? 'Modifiez la recherche ou chargez la suite disponible.' : 'Les courriels déjà couverts par un dossier actif sont écartés.'}
                 </p>
                 <Button onClick={handleNewQuotation}>
                   <Plus className="h-4 w-4 mr-2" />
@@ -530,6 +425,10 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+        {(isSearch ? searchNextOffset !== null && !searchError : nextOffset !== null) && <Button variant="outline" className="mt-4" disabled={isSearching || loadingMore || isRefreshing}
+          onClick={() => isSearch ? setSearchOffset(searchNextOffset!) : void fetchData(true)}>
+          {isSearching || loadingMore ? 'Chargement…' : 'Charger les demandes suivantes'}
+        </Button>}
       </div>
     </MainLayout>
   );

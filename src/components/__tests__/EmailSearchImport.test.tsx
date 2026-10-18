@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { EmailSearchImport } from '../EmailSearchImport';
 
@@ -67,7 +67,8 @@ describe('EmailSearchImport - couverture de recherche', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     settle({ data: null, error: new Error('Échec local fictif') });
     await waitFor(() => expect(error).toHaveBeenCalledWith('Échec local fictif'));
-    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('Échec local fictif');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Recherche partielle');
   });
 
   it('ne montre pas de réserve de couverture si l’API annonce un résultat complet non tronqué', async () => {
@@ -123,9 +124,55 @@ describe('EmailSearchImport - couverture de recherche', () => {
     const view = render(<MemoryRouter><EmailSearchImport configId="fixture-config" onImportComplete={() => {}} /></MemoryRouter>);
     search(); await screen.findByText('Cotation locale');
     view.rerender(<MemoryRouter><EmailSearchImport configId="fixture-other-config" onImportComplete={() => {}} /></MemoryRouter>);
-    fireEvent.click(screen.getAllByRole('checkbox')[1]);
-    fireEvent.click(screen.getByRole('button', { name: 'Traiter cette cotation' }));
-    expect(error).toHaveBeenCalledWith('Relancez la recherche pour vérifier la boîte et les messages avant import.');
+    expect(screen.queryByText('Cotation locale')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1); // Only the search reconstruction option remains.
+    expect(screen.queryByRole('button', { name: 'Traiter cette cotation' })).not.toBeInTheDocument();
     expect(processQuotationRequest).not.toHaveBeenCalled(); expect(invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EmailSearchImport - portée des réponses en vol', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+  it('ignores an old search while the new query remains pending', async () => {
+    let first: (value: unknown) => void = () => {}, second: (value: unknown) => void = () => {};
+    invoke.mockImplementationOnce(() => new Promise(resolve => { first = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { second = resolve; }));
+    renderSearch(); search();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rechercher des échanges à importer' }), { target: { value: 'Nouvelle demande' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Rechercher' }));
+    await act(async () => first({ data: { threads: [thread], totalFound: 1, searchCoverage: { exhaustive: true } }, error: null }));
+    expect(screen.queryByText(thread.subject)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rechercher' })).toBeDisabled();
+    const fresh = { ...thread, subject: 'Nouvelle demande', normalizedSubject: 'nouvelle demande' };
+    await act(async () => second({ data: { threads: [fresh], totalFound: 1, searchCoverage: { exhaustive: true } }, error: null }));
+    expect(await screen.findByText('Nouvelle demande')).toBeVisible();
+    expect(screen.queryByText(thread.subject)).not.toBeInTheDocument();
+  });
+  it('does not reuse a response or mailbox identity after config changes', async () => {
+    let settle: (value: unknown) => void = () => {};
+    invoke.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    const onImportComplete = vi.fn();
+    const { rerender } = render(<MemoryRouter><EmailSearchImport configId="fixture-config" onImportComplete={onImportComplete} /></MemoryRouter>);
+    search();
+    rerender(<MemoryRouter><EmailSearchImport configId="other-config" onImportComplete={onImportComplete} /></MemoryRouter>);
+    await act(async () => settle({ data: { threads: [thread], totalFound: 1, mailbox: 'INBOX', uidValidity: 77, accountKey: 'old-account' }, error: null }));
+    expect(screen.queryByText(thread.subject)).not.toBeInTheDocument();
+    expect(success).not.toHaveBeenCalled(); expect(onImportComplete).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+  it('does not restore results after the user clears an in-flight query', async () => {
+    let settle: (value: unknown) => void = () => {};
+    invoke.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    renderSearch(); search();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rechercher des échanges à importer' }), { target: { value: '' } });
+    await act(async () => settle({ data: { threads: [thread], totalFound: 1 }, error: null }));
+    expect(screen.queryByText(thread.subject)).not.toBeInTheDocument(); expect(success).not.toHaveBeenCalled();
+  });
+  it('does not launch a search on IME composition Enter', () => {
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: 'Rechercher des échanges à importer' });
+    fireEvent.change(input, { target: { value: 'demande' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

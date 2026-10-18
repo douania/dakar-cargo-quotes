@@ -109,15 +109,15 @@ export function AttachmentStatusPanel({ stats, unanalyzedAttachments, onRefresh 
     }`}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-0">
             <Paperclip className={`h-5 w-5 ${
               hasErrors ? 'text-destructive' :
               hasPending ? 'text-orange-600' :
               'text-green-600'
             }`} />
             
-            <div>
-              <p className="font-medium flex items-center gap-2">
+            <div className="min-w-0">
+              <p className="font-medium flex items-center gap-2 flex-wrap">
                 {hasPending ? (
                   <>
                     {stats.pending} pièce(s) jointe(s) en attente d'analyse
@@ -134,7 +134,7 @@ export function AttachmentStatusPanel({ stats, unanalyzedAttachments, onRefresh 
                   </>
                 )}
               </p>
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <CheckCircle className="h-3 w-3 text-green-600" />
                   {stats.analyzed} analysée(s)

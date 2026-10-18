@@ -461,8 +461,21 @@ Règles non négociables :
 - email-admin/get_threads_paginated uniquement : offset validé, plafond50 conservé, ordre last_message_at/id stable et total exact requis ; DTO complété avec les métadonnées déjà exploitées par les filtres UI. Anciens appels page conservés.
 - 8 tests du vrai handler/SDK avec transport fictif PASS ; sur le code précédent0PASS/8FAIL. Paramètres invalides refusés avant lecture métier, total absent distinct du zéro.
 - Aucun changement des gardes admin/workspace, Auth/RLS/Vault, migration, moteur FROZEN, calcul/tarif, compte/secret/configuration ; aucune écriture métier ni lecture IMAP réelle.
-- Contre-revue : echo offset exigé par le futur client, ancien DTO refusé ; aucun blocage backend résiduel. Preuves dans task-3/mail-list-integrity-20261018 ; CI et reçu natif à consolider après livraison privée.
+- Contre-revue : echo offset exigé par le futur client, ancien DTO refusé ; aucun blocage backend résiduel. Livraison231edc8, CI GitHub39132003453 SUCCESS, accusé natif email-admin seul et sondes OPTIONS200/POST sans auth401 ; arbre fonctions c9d51188. Contrôle ciblé natif Deno2.6.10 code0 ; version/binaire/configJWT distants UNKNOWN.
 - Retour : inversion du seul delta puis redéploiement email-admin sous GO ; conserver les historiques. Le frontend des listes constitue le sous-lot suivant.
+
+### 2.30 Listes et recherches de demandes/courriels - 18 octobre 2026
+
+- GO weekend courriels ; exécuteur unique, contre-revue lecture seule. Aucun FROZEN, calcul/tarif, migration, Auth/RLS, secret/compte/rôle/configuration ni écriture métier modifié ; aucun IMAP réel ni envoi/publication publique.
+- Dashboard : tous les dossiers actifs/sent relus pour exclure les demandes déjà couvertes, courriels en pages100 et suite explicite, dossiers affichés50 puis suite ; PJ par IDs et pages500. Totaux exacts requis, erreurs distinctes du vide, compteurs chargés qualifiés.
+- Recherche littérale côté serveur : casse ignorée, ponctuation échappée et valeurs réservées citées ; 4 expressions adversariales acceptées par vrai PostgREST local en GETlimit0 (parseur uniquement, pas preuve de correspondance SQL). Réponses obsolètes/effacées et composition IME maîtrisées ; Actualiser relance recherche, pages acquises re-filtrées avec cases/sent courants.
+- Admin : résumés des164fils paginés indépendamment, affichage50 puis suite et recherche dans métadonnées lues ; courriels RLS indépendants des fils, pages100, brouillons50 puis suite. Filtres PJ explicitement limités aux courriels chargés. Sélections effacées au changement de critère et comparées par IDs ; reprise brouillons sur offset/mode refusés.
+- Entrée import : changement de critère/configuration invalide résultats, sélection et identité de boîte ; réponses en vol ignorées, recherche refusée visible, composition Entrée protégée. Aucun algorithme d'import/sync ni garde backend changé.
+- Avant : UI7PASS/24FAIL et handler0PASS/8FAIL ; contre-revue reproduit3échecs supplémentaires puis levée. Après38UI et8handlers PASS. CI locale exit0 :918Vitest/74fichiers,2342Deno/0échec/6ignorés ; types/config/bundles/build PASS, Deno49/5 identique, lint710/16 contre715/16, seuils inchangés.
+- Chrome headless localhost/profil dédié :9contrôles PASS, tri date/complétude,271mails/164fils/cap17/61brouillons/1001PJ, recherche/clavier/sélection/erreur/reprise ; captures bureau et390px inspectées, bandeaux/onglets/actions/résuméPJ en retour à la ligne. SDK/HTTP réels mais données synthétiques ; Auth/RLS/SQL métier/IMAP réels non validés ici.
+- Audit UI119constats/73violations/46inconnus identiques ; aucune conformité globale revendiquée. Pagination par décalage sans instantané concurrent, groupement/filtresPJ sur lignes acquises et brouillons sent sous RLS propriétaire restent des limites explicites.
+- Livraison privée frontend après reçu backend231edc8 ; client refuse ancien DTO/offset contradictoire. Preuves/diff/recette/CI/reprise dans task-3/mail-list-integrity-20261018 ; guide préexistant et dépôt original préservés.
+- Retour : inverser seulement le frontend, puis backend si nécessaire sous GO ; conserver historiques, PJ, versions et PDF. Recette Cloud authentifiée toujours BLOCKED tant que capacité officielle signed_out ; aucun contournement ni accès persistant créé.
 
 ## 3. Travaux vérifiés comme terminés
 
