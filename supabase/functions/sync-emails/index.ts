@@ -1,3 +1,5 @@
+import { ImapByteReader, readImapHeaders } from "../_shared/imap-headers.ts";
+import { decodeSearchHeader, requireImapCommandOk, searchFetchMessages } from "../_shared/imap-subject-search.ts";
 import { readMailboxSecret, quoteImapString } from "../_shared/mailbox-secret.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -540,9 +542,8 @@ function getTlsServerNameCandidates(host: string): string[] {
 class SimpleIMAPClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
   private encoder = new TextEncoder();
-  private decoder = new TextDecoder();
+  private reader = new ImapByteReader(buffer => this.conn!.read(buffer));
   private tagCounter = 0;
-  private buffer = "";
   private useStartTls: boolean;
 
   constructor(
@@ -601,55 +602,9 @@ class SimpleIMAPClient {
     }
   }
 
-  private async readLine(): Promise<string> {
-    const buf = new Uint8Array(4096);
-    let result = this.buffer;
+  private async readLine(): Promise<string> { return await this.reader.readLine(); }
     
-    while (!result.includes('\r\n')) {
-      const n = await this.conn!.read(buf);
-      if (n === null) break;
-      result += this.decoder.decode(buf.subarray(0, n));
-    }
-    
-    const idx = result.indexOf('\r\n');
-    if (idx >= 0) {
-      this.buffer = result.substring(idx + 2);
-      return result.substring(0, idx);
-    }
-    
-    this.buffer = "";
-    return result;
-  }
-
-  private async readBytes(count: number): Promise<Uint8Array> {
-    const chunks: Uint8Array[] = [];
-    let totalRead = 0;
-
-    // Use any buffered data first
-    if (this.buffer.length > 0) {
-      const bufferedBytes = new TextEncoder().encode(this.buffer);
-      const toUse = Math.min(bufferedBytes.length, count);
-      chunks.push(bufferedBytes.subarray(0, toUse));
-      totalRead += toUse;
-      this.buffer = this.buffer.substring(toUse);
-    }
-
-    while (totalRead < count) {
-      const buf = new Uint8Array(Math.min(8192, count - totalRead));
-      const n = await this.conn!.read(buf);
-      if (n === null) break;
-      chunks.push(buf.subarray(0, n));
-      totalRead += n;
-    }
-
-    const result = new Uint8Array(totalRead);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return result;
-  }
+  private async readBytes(count: number): Promise<Uint8Array> { return await this.reader.readBytes(count); }
 
   private async readUntilTag(tag: string): Promise<string> {
     let result = "";
@@ -667,13 +622,7 @@ class SimpleIMAPClient {
         result += new TextDecoder().decode(literalBytes);
       }
 
-      if (
-        line.startsWith(`${tag} OK`) ||
-        line.startsWith(`${tag} NO`) ||
-        line.startsWith(`${tag} BAD`)
-      ) {
-        break;
-      }
+      if (new RegExp('^' + tag + ' (?:OK|NO|BAD)(?:\\s|$)', 'i').test(line)) break;
     }
 
     return result;
@@ -686,7 +635,7 @@ class SimpleIMAPClient {
       // ignore
     }
 
-    this.buffer = "";
+    this.reader.clear();
     this.conn = await Deno.connect({
       hostname: this.host,
       port: this.port,
@@ -716,7 +665,7 @@ class SimpleIMAPClient {
         console.log("STARTTLS accepted, upgrading connection...");
 
         // Clear buffer before upgrade
-        this.buffer = "";
+        this.reader.clear();
 
         // Upgrade to TLS (certificate is validated against serverName)
         const tcpConn = this.conn as Deno.TcpConn;
@@ -762,13 +711,16 @@ class SimpleIMAPClient {
 
   async login(username: string, password: string): Promise<boolean> {
     const response = await this.sendCommand(`LOGIN ${quoteImapString(username)} ${quoteImapString(password)}`);
-    return response.includes("OK");
+    requireImapCommandOk(response, "LOGIN");
+    return true;
   }
 
   async select(mailbox: string): Promise<{ exists: number }> {
-    const response = await this.sendCommand(`SELECT "${mailbox}"`);
+    const response = await this.sendCommand(`SELECT ${quoteImapString(mailbox)}`);
+    requireImapCommandOk(response, "SELECT");
     const existsMatch = response.match(/\* (\d+) EXISTS/);
-    return { exists: existsMatch ? parseInt(existsMatch[1]) : 0 };
+    if (!existsMatch) throw new Error("Nombre de messages IMAP absent");
+    return { exists: parseInt(existsMatch[1]) };
   }
 
   async fetchHeaders(range: string): Promise<Array<{
@@ -784,74 +736,28 @@ class SimpleIMAPClient {
       `FETCH ${range} (UID BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO)])`
     );
     
-    const messages: Array<{
-      uid: number;
-      subject: string;
-      from: string;
-      to: string[];
-      date: string;
-      messageId: string;
-      references: string;
-    }> = [];
-
-    // Parse FETCH responses
-    const fetchRegex = /\* (\d+) FETCH \(UID (\d+).*?BODY\[HEADER\.FIELDS.*?\] \{(\d+)\}\r\n([\s\S]*?)(?=\* \d+ FETCH|\r\nA\d+|$)/gi;
-    let match;
-    
-    while ((match = fetchRegex.exec(response)) !== null) {
-      const uid = parseInt(match[2]);
-      const headerBlock = match[4];
-      
-      const subjectMatch = headerBlock.match(/Subject:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const fromMatch = headerBlock.match(/From:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const toMatch = headerBlock.match(/To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const dateMatch = headerBlock.match(/Date:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const messageIdMatch = headerBlock.match(/Message-ID:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const referencesMatch = headerBlock.match(/References:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      const inReplyToMatch = headerBlock.match(/In-Reply-To:\s*(.+?)(?=\r\n\S|\r\n\r\n|$)/i);
-      
-      // Decode subject if needed
-      let subject = subjectMatch?.[1]?.trim() || '(Sans sujet)';
-      subject = decodeHeader(subject);
-      
-      let from = fromMatch?.[1]?.trim() || 'unknown@unknown.com';
-      // Extract email from "Name <email>" format
-      const emailMatch = from.match(/<([^>]+)>/);
-      if (emailMatch) {
-        from = emailMatch[1];
-      }
-      
-      const to = (toMatch?.[1]?.trim() || '').split(',').map(e => {
-        const m = e.match(/<([^>]+)>/);
-        return m ? m[1].trim() : e.trim();
-      }).filter(e => e);
-      
-      messages.push({
-        uid,
-        subject,
-        from,
-        to,
-        date: dateMatch?.[1]?.trim() || new Date().toISOString(),
-        messageId: messageIdMatch?.[1]?.trim() || `<${uid}@imported>`,
-        references: referencesMatch?.[1]?.trim() || inReplyToMatch?.[1]?.trim() || ''
-      });
-    }
-    
-    return messages;
+    requireImapCommandOk(response, "FETCH headers");
+    return searchFetchMessages(response).map(({ uid, headerResponse }) => ({
+      uid, ...readImapHeaders(headerResponse, uid, decodeSearchHeader),
+    }));
   }
 
   async fetchBody(uid: number): Promise<{ text: string; html: string }> {
     const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[TEXT]`);
+    requireImapCommandOk(response, "FETCH body");
     
     let text = '';
     let html = '';
     
     // Extract body content (literal-safe)
     const bodyMarker = response.match(/BODY\[TEXT\] \{(\d+)\}\r\n/);
+    if (!bodyMarker) throw new Error("Corps IMAP absent ou incomplet");
     if (bodyMarker) {
       const bodySize = parseInt(bodyMarker[1], 10);
       const bodyStart = response.indexOf(bodyMarker[0]) + bodyMarker[0].length;
-      const rawBody = response.substring(bodyStart, bodyStart + bodySize);
+      const rawBytes = new TextEncoder().encode(response.slice(bodyStart));
+      if (rawBytes.length < bodySize) throw new Error("Corps IMAP incomplet");
+      const rawBody = new TextDecoder("utf-8", { fatal: true }).decode(rawBytes.slice(0, bodySize));
 
       console.log(`[IMAP] BODY[TEXT] literal size=${bodySize}, extracted=${rawBody.length}`);
 
@@ -868,6 +774,7 @@ class SimpleIMAPClient {
 
   async fetchBodyStructure(uid: number): Promise<AttachmentInfo[]> {
     const response = await this.sendCommand(`UID FETCH ${uid} BODYSTRUCTURE`);
+    requireImapCommandOk(response, "FETCH BODYSTRUCTURE");
     return parseBodyStructure(response);
   }
 
@@ -875,6 +782,7 @@ class SimpleIMAPClient {
     console.log(`[FETCH] Fetching attachment: UID ${uid}, part ${partNumber}, encoding ${encoding}`);
     
     const response = await this.sendCommand(`UID FETCH ${uid} BODY.PEEK[${partNumber}]`);
+    requireImapCommandOk(response, "FETCH attachment");
     console.log(`[FETCH] Response length: ${response.length} chars`);
     
     let rawContent = '';
@@ -1234,6 +1142,7 @@ async function processEmailAttachments(
   supabase: any
 ): Promise<void> {
   const attachments = await client.fetchBodyStructure(uid);
+  let failed = false;
   
   if (attachments.length === 0) {
     console.log(`[sync-emails/attachments] No attachments found for UID ${uid}`);
@@ -1271,6 +1180,7 @@ async function processEmailAttachments(
         .maybeSingle();
       
       if (existingErr) {
+        failed = true;
         console.warn(`[sync-emails/attachments] Error checking existing attachment:`, existingErr.message);
         continue;
       }
@@ -1298,6 +1208,7 @@ async function processEmailAttachments(
           });
         
         if (insertError) {
+          failed = true;
           console.warn(`[sync-emails/attachments] Insert error for oversized attachment:`, insertError.message);
         }
         continue;
@@ -1307,6 +1218,7 @@ async function processEmailAttachments(
       const content = await client.fetchAttachment(uid, attachment.partNumber, attachment.encoding);
       
       if (content.length === 0) {
+        failed = true;
         console.warn(`[sync-emails/attachments] Empty content for ${attachment.filename}`);
         continue;
       }
@@ -1326,6 +1238,7 @@ async function processEmailAttachments(
         });
       
       if (uploadError) {
+        failed = true;
         console.error(`[sync-emails/attachments] Upload failed for ${attachment.filename}:`, uploadError.message);
         // Still insert the record without storage_path
         const { error: insertError } = await supabase
@@ -1359,15 +1272,18 @@ async function processEmailAttachments(
         });
       
       if (insertError) {
+        failed = true;
         console.error(`[sync-emails/attachments] Insert error:`, insertError.message);
       } else {
         console.log(`[sync-emails/attachments] Recorded attachment: ${attachment.filename}`);
       }
     } catch (attError) {
+      failed = true;
       console.error(`[sync-emails/attachments] Error processing ${attachment.filename}:`, attError);
       // Non-blocking: continue with next attachment
     }
   }
+  if (failed) throw new Error("Import des pièces jointes incomplet");
 }
 
 // Decode MIME encoded headers (=?UTF-8?Q?...?= or =?UTF-8?B?...?=)
@@ -1486,124 +1402,12 @@ function extractProjectIdentifier(subject: string, bodyText: string): { projectI
   return { projectId: '', projectName: '' };
 }
 
-// Calculer la similarité entre deux sujets
-function calculateSubjectSimilarity(subject1: string, subject2: string): number {
-  // Extraire les mots-clés importants
-  const extractKeywords = (s: string): Set<string> => {
-    const words = s.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 2)
-      .filter(w => !['the', 'and', 'for', 'from', 'with', 'request', 'sea', 'air', 'freight'].includes(w));
-    return new Set(words);
-  };
-  
-  const kw1 = extractKeywords(subject1);
-  const kw2 = extractKeywords(subject2);
-  
-  if (kw1.size === 0 || kw2.size === 0) return 0;
-  
-  const intersection = new Set([...kw1].filter(x => kw2.has(x)));
-  const union = new Set([...kw1, ...kw2]);
-  
-  return intersection.size / union.size; // Jaccard similarity
-}
-
-// Trouver un fil existant par projet OU par participants similaires
-async function findExistingThread(
-  supabase: any,
-  projectId: string,
-  normalizedSubject: string,
-  clientEmail: string,
-  rootMessageId?: string
-): Promise<{ id: string; project_name: string; root_message_id?: string } | null> {
-  try {
-    // P1-D Step 0: Lookup by root_message_id first (deterministic)
-    if (rootMessageId) {
-      const { data: rootThread } = await supabase
-        .from('email_threads')
-        .select('id, project_name, root_message_id')
-        .eq('root_message_id', rootMessageId)
-        .maybeSingle();
-      if (rootThread) {
-        console.log(`[P1-D] Found thread by root_message_id: ${rootThread.id}`);
-        return rootThread;
-      }
-    }
-
-    // 1. D'abord chercher par project_name si on a un projet
-    if (projectId) {
-      const { data: projectThread } = await supabase
-        .from('email_threads')
-        .select('id, project_name, root_message_id')
-        .ilike('project_name', `%${projectId.replace(/_/g, '%')}%`)
-        .order('last_message_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      if (projectThread) {
-        // P1-D barrier: don't merge if roots differ
-        if (rootMessageId && projectThread.root_message_id && projectThread.root_message_id !== rootMessageId) {
-          console.log(`[P1-D] Barrier: project thread ${projectThread.id} has different root_message_id, skipping`);
-        } else {
-          console.log(`Found thread by project: ${projectThread.project_name}`);
-          return projectThread;
-        }
-      }
-    }
-    
-    // 2. Chercher par sujet normalisé exact (garde temporelle: 60 jours max)
-    const subjectCutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: subjectThread } = await supabase
-      .from('email_threads')
-      .select('id, project_name, subject_normalized, root_message_id')
-      .eq('subject_normalized', normalizedSubject)
-      .gte('last_message_at', subjectCutoff)
-      .order('last_message_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    
-    if (subjectThread) {
-      // P1-D barrier: don't merge if roots differ
-      if (rootMessageId && subjectThread.root_message_id && subjectThread.root_message_id !== rootMessageId) {
-        console.log(`[P1-D] Barrier: subject thread ${subjectThread.id} has different root_message_id, skipping`);
-      } else {
-        console.log(`Found thread by subject: ${normalizedSubject}`);
-        return subjectThread;
-      }
-    }
-    
-    // 3. Chercher par client + sujet similaire (garde temporelle: 30 jours max)
-    if (clientEmail) {
-      const similarityCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const { data: threads } = await supabase
-        .from('email_threads')
-        .select('id, project_name, subject_normalized, root_message_id')
-        .eq('client_email', clientEmail)
-        .gte('last_message_at', similarityCutoff)
-        .order('last_message_at', { ascending: false })
-        .limit(5);
-      
-      if (threads) {
-        for (const thread of threads) {
-          // P1-D barrier: don't merge if roots differ
-          if (rootMessageId && thread.root_message_id && thread.root_message_id !== rootMessageId) {
-            continue;
-          }
-          const similarity = calculateSubjectSimilarity(normalizedSubject, thread.subject_normalized);
-          if (similarity > 0.6) {
-            console.log(`Found thread by client + similar subject: ${thread.subject_normalized} (similarity: ${similarity}, within 30d window)`);
-            return thread;
-          }
-        }
-      }
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Error finding existing thread:', error);
-    return null;
-  }
+// Resolve only the proven root; never adopt a legacy/unknown root by subject.
+async function findExistingThread(supabase: any, rootMessageId: string) {
+  const { data, error } = await supabase.from('email_threads')
+    .select('id, project_name, root_message_id').eq('root_message_id', rootMessageId).maybeSingle();
+  if (error) throw new Error("Lecture du fil impossible");
+  return data;
 }
 
 // Liste noire pour les sujets de fil (threads non-quotation)
@@ -1774,114 +1578,98 @@ async function upsertEmailThread(
   supabase: any,
   normalizedSubject: string,
   email: EmailRecord,
-  existingThreadEmails: EmailRecord[],
   knownContacts: KnownBusinessContact[],
-  rootMessageId?: string
-): Promise<string | null> {
-  try {
-    // Collecter tous les emails du fil
-    const allEmails = [...existingThreadEmails, email].sort(
-      (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
-    );
-    
-    // Déterminer les rôles avec la nouvelle logique
-    const threadRoles = await determineThreadRoles(supabase, allEmails, knownContacts);
-    
-    // Extraire le projet du contenu
-    const { projectId, projectName } = extractProjectIdentifier(
-      normalizedSubject,
-      email.body_text || ''
-    );
-    
-    // Nettoyer les participants
-    const cleanedParticipants = cleanParticipants(allEmails);
-    
-    // P1-D: Pass rootMessageId to findExistingThread
-    const existingThread = await findExistingThread(
-      supabase,
-      projectId,
-      normalizedSubject,
-      threadRoles.clientEmail,
-      rootMessageId
-    );
-    
-    const firstEmail = allEmails[0];
-    const lastEmail = allEmails[allEmails.length - 1];
-    
-    // Utiliser le nom de projet trouvé ou celui existant
-    const finalProjectName = projectName || existingThread?.project_name || '';
-    
-    // Construire les données enrichies des participants
-    const participantsData = threadRoles.participants.map(p => ({
-      email: p.email,
-      role: p.role,
-      company: p.company
-    }));
-    
-    // Déterminer si c'est un fil de cotation (gate strict P0.1/P0.2)
-    const isQuotation = isQuotationThread(normalizedSubject, allEmails, threadRoles);
-    
-    const threadData: Record<string, unknown> = {
-      subject_normalized: normalizedSubject,
-      first_message_at: firstEmail?.sent_at,
-      last_message_at: lastEmail?.sent_at,
-      participants: participantsData,
-      client_email: threadRoles.clientEmail,
-      client_company: threadRoles.clientCompany,
-      our_role: threadRoles.ourRole,
-      partner_email: threadRoles.partnerEmail,
-      project_name: finalProjectName || null,
-      email_count: allEmails.length,
-      is_quotation_thread: isQuotation,
-      updated_at: new Date().toISOString(),
-    };
-
-    // P1-D: Store root_message_id when available
-    if (rootMessageId) {
-      threadData.root_message_id = rootMessageId;
-    }
-    
-    console.log(`Thread roles determined: client=${threadRoles.clientEmail}, partner=${threadRoles.partnerEmail}, our_role=${threadRoles.ourRole}, is_quotation=${isQuotation}`);
-    
-    if (existingThread) {
-      // Mettre à jour le fil existant
-      await supabase
-        .from('email_threads')
-        .update(threadData)
-        .eq('id', existingThread.id);
-      console.log(`Updated thread ${existingThread.id} for project: ${finalProjectName || normalizedSubject}`);
-      return existingThread.id;
-    } else {
-      // Créer un nouveau fil
-      const { data: newThread, error } = await supabase
-        .from('email_threads')
-        .insert(threadData)
-        .select('id')
-        .single();
-      
-      if (error) {
-        // P1-C: Handle unique constraint conflict
-        if (error.code === '23505' && rootMessageId) {
-          const { data: conflictThread } = await supabase
-            .from('email_threads')
-            .select('id, project_name')
-            .eq('root_message_id', rootMessageId)
-            .maybeSingle();
-          if (conflictThread) {
-            console.log(`[P1-D] Resolved unique conflict, using existing thread ${conflictThread.id}`);
-            await supabase.from('email_threads').update(threadData).eq('id', conflictThread.id);
-            return conflictThread.id;
-          }
-        }
-        console.error('Error creating thread:', error);
-        return null;
+  rootMessageId: string,
+  configId: string
+): Promise<string> {
+  const existingThread = await findExistingThread(supabase, rootMessageId);
+  const existingThreadEmails: EmailRecord[] = [];
+  if (existingThread) {
+    // Page the actual linked history. A matching subject or legacy string is insufficient.
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await supabase.from('emails')
+        .select('id, email_config_id, thread_id, from_address, to_addresses, cc_addresses, sent_at, subject, body_text')
+        .eq('thread_ref', existingThread.id).order('sent_at').order('id').range(offset, offset + 499);
+      if (error || !Array.isArray(data)) throw new Error("Lecture du contexte du fil impossible");
+      if (data.some((row: { email_config_id: string; thread_id: string }) => row.email_config_id !== configId || row.thread_id !== rootMessageId)) {
+        throw new Error("Contexte du fil contradictoire : configuration ou racine différente");
       }
-      console.log(`Created new thread ${newThread?.id} for project: ${finalProjectName || normalizedSubject}`);
-      return newThread?.id || null;
+      existingThreadEmails.push(...data);
+      if (data.length < 500) break;
     }
-  } catch (error) {
-    console.error('Error in upsertEmailThread:', error);
-    return null;
+  }
+  // Collecter tous les emails du fil
+  const allEmails = [...existingThreadEmails, email].sort(
+    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+  );
+    
+  // Déterminer les rôles avec la nouvelle logique
+  const threadRoles = await determineThreadRoles(supabase, allEmails, knownContacts);
+    
+  // Extraire le projet du contenu
+  const { projectName } = extractProjectIdentifier(
+    normalizedSubject,
+    email.body_text || ''
+  );
+    
+  const firstEmail = allEmails[0];
+  const lastEmail = allEmails[allEmails.length - 1];
+    
+  // Utiliser le nom de projet trouvé ou celui existant
+  const finalProjectName = projectName || existingThread?.project_name || '';
+    
+  // Construire les données enrichies des participants
+  const participantsData = threadRoles.participants.map(p => ({
+    email: p.email,
+    role: p.role,
+    company: p.company
+  }));
+    
+  // Déterminer si c'est un fil de cotation (gate strict P0.1/P0.2)
+  const isQuotation = isQuotationThread(normalizedSubject, allEmails, threadRoles);
+    
+  const threadData: Record<string, unknown> = {
+    subject_normalized: normalizedSubject,
+    first_message_at: firstEmail?.sent_at,
+    last_message_at: lastEmail?.sent_at,
+    participants: participantsData,
+    client_email: threadRoles.clientEmail,
+    client_company: threadRoles.clientCompany,
+    our_role: threadRoles.ourRole,
+    partner_email: threadRoles.partnerEmail,
+    project_name: finalProjectName || null,
+    email_count: allEmails.length,
+    is_quotation_thread: isQuotation,
+    updated_at: new Date().toISOString(),
+  };
+    
+  // P1-D: Store root_message_id when available
+  if (rootMessageId) {
+    threadData.root_message_id = rootMessageId;
+  }
+    
+  console.log(`Thread roles determined: client=${threadRoles.clientEmail}, partner=${threadRoles.partnerEmail}, our_role=${threadRoles.ourRole}, is_quotation=${isQuotation}`);
+
+  if (existingThread) {
+    // Mettre à jour le fil existant
+    const { error } = await supabase
+      .from('email_threads')
+      .update(threadData)
+      .eq('id', existingThread.id);
+    if (error) throw new Error("Mise à jour du fil impossible");
+    console.log(`Updated thread ${existingThread.id} for project: ${finalProjectName || normalizedSubject}`);
+    return existingThread.id;
+  } else {
+    // Créer un nouveau fil
+    const { data: newThread, error } = await supabase
+      .from('email_threads')
+      .insert(threadData)
+      .select('id')
+      .single();
+    
+    if (error || !newThread?.id) throw new Error("Création du fil impossible");
+    console.log(`Created new thread ${newThread?.id} for project: ${finalProjectName || normalizedSubject}`);
+    return newThread.id;
   }
 }
 
@@ -1901,7 +1689,7 @@ async function upsertContact(
     const finalRole = knownContact?.default_role || role;
     
     // Upsert le contact
-    await supabase
+    const { error: contactError } = await supabase
       .from('contacts')
       .upsert({
         email: email.toLowerCase(),
@@ -1916,8 +1704,10 @@ async function upsertContact(
         onConflict: 'email',
         ignoreDuplicates: false
       });
+    if (contactError) throw new Error("Enregistrement du contact impossible");
   } catch (error) {
     console.error('Error upserting contact:', error);
+    throw error;
   }
 }
 
@@ -1944,11 +1734,12 @@ export const handler = async (req: Request) => {
     console.log("Syncing emails for config:", configId);
 
     // Charger les contacts connus depuis la DB
-    const { data: knownContacts } = await supabase
+    const { data: knownContacts, error: contactsError } = await supabase
       .from('known_business_contacts')
       .select('*')
       .eq('is_active', true);
     
+    if (contactsError) throw new Error("Lecture des contacts impossible");
     console.log(`Loaded ${knownContacts?.length || 0} known business contacts`);
 
     // Get email config
@@ -1992,6 +1783,7 @@ export const handler = async (req: Request) => {
     const processedEmails = [];
     // Phase A: Track skipped emails for UX feedback (outside if block for scope)
     let skippedCount = 0;
+    const failures: Array<{ uid: number | null; stage: string }> = [];
     
     if (exists > 0) {
       // Fetch last N messages
@@ -2002,16 +1794,25 @@ export const handler = async (req: Request) => {
       console.log(`Fetching messages ${range}`);
       const headers = await client.fetchHeaders(range);
       console.log(`Got ${headers.length} message headers`);
+      if (headers.length !== fetchLimit || new Set(headers.map(m => m.uid)).size !== headers.length) {
+        throw new Error("Lot d’en-têtes IMAP incomplet ou ambigu");
+      }
 
       for (const msg of headers) {
         try {
+          if (!/^<[^<>\s]+>$/.test(msg.messageId) || /^<\d+@imported>$/.test(msg.messageId)) {
+            throw new Error("Message-ID absent ou ambigu : import refusé");
+          }
+
           // Check if email already exists
-          const { data: existing } = await supabase
+          const { data: existing, error: existingError } = await supabase
             .from('emails')
-            .select('id')
+            .select('id, email_config_id')
             .eq('message_id', msg.messageId)
             .maybeSingle();
 
+          if (existingError) throw new Error("Lecture des doublons impossible");
+          if (existing && existing.email_config_id !== configId) throw new Error("Identité déjà présente dans une autre configuration");
           if (existing) {
             console.log("Email already exists:", msg.messageId);
             skippedCount++;
@@ -2039,20 +1840,14 @@ export const handler = async (req: Request) => {
           const isQuotation = isQuotationRelated(msg.from, msg.subject, bodyText || bodyHtml || '');
           const threadId = extractThreadId(msg.messageId, msg.references);
           const normalizedSubject = normalizeSubject(msg.subject);
+          if (/^<\d+@imported>$/.test(threadId)) throw new Error("Racine IMAP non prouvée");
           
           // P1-D: Derive rootMessageId for deterministic threading
           const rootMessageId = msg.references
             ? (msg.references.split(/\s+/).filter(Boolean)[0] || msg.messageId)
             : msg.messageId;
 
-          // Récupérer les emails existants du même fil pour analyse
-          const { data: existingThreadEmails } = await supabase
-            .from('emails')
-            .select('from_address, to_addresses, cc_addresses, sent_at, body_text')
-            .or(`thread_id.eq.${threadId},subject.ilike.%${normalizedSubject.substring(0, 30)}%`)
-            .order('sent_at', { ascending: true });
-          
-          // Créer/mettre à jour le fil de discussion avec la nouvelle logique
+          // Only the proven linked history is loaded by upsertEmailThread.
           const emailData: EmailRecord = {
             from_address: msg.from,
             to_addresses: msg.to.length > 0 ? msg.to : [config.username],
@@ -2066,9 +1861,9 @@ export const handler = async (req: Request) => {
             supabase,
             normalizedSubject,
             emailData,
-            existingThreadEmails || [],
             knownContacts || [],
-            rootMessageId
+            rootMessageId,
+            configId
           );
           
           // Identifier et enregistrer le contact avec les contacts connus
@@ -2096,8 +1891,7 @@ export const handler = async (req: Request) => {
             .single();
 
           if (insertError) {
-            console.error("Error inserting email:", insertError);
-            continue;
+            throw new Error("Enregistrement du courriel impossible");
           }
 
           // Import attachments (non-blocking)
@@ -2105,17 +1899,19 @@ export const handler = async (req: Request) => {
             await processEmailAttachments(client, msg.uid, inserted.id, supabase);
           } catch (attachErr) {
             console.error("[sync-emails] Attachment import failed (non-blocking):", attachErr);
+            failures.push({ uid: msg.uid, stage: "attachments" });
           }
 
           // Phase C: Notify existing quote_case of new email (quotation continuity)
           if (inserted.thread_ref) {
             try {
-              const { data: existingCase } = await supabase
+              const { data: existingCase, error: caseReadError } = await supabase
                 .from("quote_cases")
                 .select("id, status")
                 .eq("thread_id", inserted.thread_ref)
                 .maybeSingle();
 
+              if (caseReadError) throw new Error("Lecture du dossier impossible");
               if (existingCase) {
                 // Statuts qui peuvent être réouverts (attente d'info ou prêt à tarifer)
                 const REOPENABLE_STATUSES = ["NEED_INFO", "READY_TO_PRICE", "DECISIONS_PENDING", "DECISIONS_COMPLETE", "ACK_READY_FOR_PRICING"];
@@ -2132,13 +1928,14 @@ export const handler = async (req: Request) => {
                   updates.status = "FACTS_PARTIAL"; // Relancer l'analyse puzzle
                 }
                 
-                await supabase
+                const { error: caseWriteError } = await supabase
                   .from("quote_cases")
                   .update(updates)
                   .eq("id", existingCase.id);
+                if (caseWriteError) throw new Error("Notification du dossier impossible");
 
                 // Log timeline event for traceability
-                await supabase.from("case_timeline_events").insert({
+                const { error: timelineError } = await supabase.from("case_timeline_events").insert({
                   case_id: existingCase.id,
                   event_type: "new_email_received",
                   event_data: { 
@@ -2149,11 +1946,13 @@ export const handler = async (req: Request) => {
                   },
                   actor_type: "system",
                 });
+                if (timelineError) throw new Error("Traçabilité du courriel impossible");
 
                 console.log(`[Phase C] Notified quote_case ${existingCase.id} of new email ${inserted.id} (status: ${existingCase.status} -> ${updates.status || 'unchanged'})`);
               }
             } catch (caseError) {
               console.error("Error notifying quote_case:", caseError);
+              failures.push({ uid: msg.uid, stage: "case_notification" });
               // Non-blocking error - continue with import
             }
           }
@@ -2166,6 +1965,7 @@ export const handler = async (req: Request) => {
           console.log(`Imported: ${msg.subject.substring(0, 50)}... (thread: ${threadRefId || 'none'})`);
         } catch (msgError) {
           console.error("Error processing message:", msgError);
+          failures.push({ uid: msg.uid, stage: "message" });
         }
       }
     }
@@ -2175,16 +1975,23 @@ export const handler = async (req: Request) => {
     client = null;
 
     // Update last sync time
-    await supabase
-      .from('email_configs')
-      .update({ last_sync_at: new Date().toISOString() })
-      .eq('id', configId);
+    if (failures.length === 0) {
+      const { error: syncError } = await supabase
+        .from('email_configs')
+        .update({ last_sync_at: new Date().toISOString() })
+        .eq('id', configId);
+      if (syncError) failures.push({ uid: null, stage: "sync_timestamp" });
+    }
 
     console.log(`Synced ${processedEmails.length} new emails, ${skippedCount} skipped`);
 
     return new Response(
       JSON.stringify({ 
-        success: true, 
+        success: failures.length === 0,
+        partial: failures.length > 0,
+        failed: new Set(failures.map(f => f.uid).filter(uid => uid !== null)).size,
+        failures,
+        error: failures.length ? "Synchronisation incomplète : certaines étapes ont échoué ; des écritures partielles peuvent subsister" : undefined,
         synced: processedEmails.length,
         skipped: skippedCount,
         message: skippedCount > 0 
@@ -2192,7 +1999,7 @@ export const handler = async (req: Request) => {
           : null,
         emails: processedEmails
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: failures.length ? 503 : 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error) {

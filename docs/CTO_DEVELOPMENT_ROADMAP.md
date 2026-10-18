@@ -428,6 +428,19 @@ Règles non négociables :
 - OCR/IA fournisseur réel, IMAP réel et Vault natif NOT_RUN ; cotation fiscale médicaments toujours PARTIAL tant que valeur/devise, classement/régime/exonérations et preuves fiscales ne sont pas validés. Aucun défaut supplémentaire de chaîne courriel–analyse démontré sous ces limites.
 - Retour : revert ciblé/redéployer ces deux fonctions sous GO, conserver sources/textes valides et tous historiques ; original/deux docs/.claude et anti-veille temporaire existant préservés.
 
+### 2.27 Synchronisation mail : provenance et échecs visibles - 18 octobre 2026
+
+- GO weekend de poursuite de l’audit courriels transmis ; même PC/branche, exécuteur unique, contre-revue indépendante en lecture seule. Aucun IMAP réel, migration, moteur FROZEN, taux, compte/rôle/secret ni configuration distante modifié.
+- Deux demandes au même sujet ne partagent plus participants, dates, compteur ou qualification RFQ : seul le UUID à racine prouvée et son historique rattaché sont relus, paginés et contrôlés par configuration/racine. Aucun rattachement par sujet/projet ni adoption d’une racine inconnue.
+- Parseurs IMAP déjà partagés : octets/literals UTF8 fragmentés, UID après literal, vrais noms de champs et References replié ; Message-ID absent/synthétique et racine synthétique refusés. La déduplication historique globale ne devient pas un contrat UIDVALIDITY/boîte.
+- LOGIN/SELECT/FETCH NO/BAD, fenêtre d’en-têtes incomplète et lectures/écritures DB défaillantes restent visibles. HTTP503 partiel conserve les reçus acquis et étapes en échec, sans faux UID global ; last_sync_at n’avance qu’après succès complet.
+- Limite préexistante conservée et testée : résumé du fil écrit avant insert email, donc compteur/dates/rôles peuvent anticiper un message non enregistré ; fil créé possible, réparation au rejeu non garantie. Pas de transaction globale ni extension de la RPC import-thread.
+- Recette vrai handler/SDK/transport IMAP fictif sans permission réseau :34 tests ; avant2PASS/32FAIL. Couverture sujets identiques/modifiés, config étrangère, rejeu/UUID/corps conservés,1001messages, contacts/PJ/dossier/timestamp en échec. SQL natif et boîte réelle NOT_RUN.
+- CI finale npm run ci exit0 :873Vitest/69fichiers,2334Deno/0échec/6ignorés ; config/bundles/types app/node/build PASS, Deno49/5 et lint716/16 identiques au départ, seuils inchangés.
+- Contre-revue : blocage horodatage/reçus corrigé puis levé ; aucun BLOQUANT résiduel sur le delta. Preuves/diff/CI et statut d’accès dans task-3/email-request-integrity-20261018 ; guide local de clôture et original/deux docs/.claude préservés.
+- Statut natif Lovable relu le18/10 : navigateur isolé signed_out, aucun outil navigateur officiel ; recette Cloud authentifiée BLOCKED. Anti-veille existant PID35580 actif jusqu’au19/10 18UTC, sans prolongation ni nouveau réglage.
+- Livraison privée : uniquement sync-emails depuis le commit validé ; aucune synchronisation réelle déclenchée. Retour ciblé par inverse du delta/redéploiement sous GO, sans suppression d’historique. Les listes/recherches UI voisines font l’objet du lot suivant.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
