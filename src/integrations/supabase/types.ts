@@ -8708,6 +8708,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      assert_quotation_run_facts_current: {
+        Args: { p_case: string; p_run: string }
+        Returns: undefined
+      }
       assert_scenario_quotation_version_current: {
         Args: { p_version_id: string }
         Returns: Json
@@ -8797,6 +8801,16 @@ export type Database = {
           p_weight_head_id: string
         }
         Returns: undefined
+      }
+      create_canonical_quotation_version: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_lines: Json
+          p_run: string
+          p_snapshot: Json
+        }
+        Returns: Json
       }
       create_mailbox_config: {
         Args: { p_config: Json; p_password: string }
