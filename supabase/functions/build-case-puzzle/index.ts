@@ -1,5 +1,6 @@
 import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
+import { decodeEmailQuoteView, splitEmailQuoteContext } from "../_shared/email-quote-context.ts";
 /**
  * Phase A1: build-case-puzzle
  * Analyzes thread emails/attachments and populates facts/gaps
@@ -2020,8 +2021,6 @@ function detectMultiQuoteMarkers(text: string): boolean {
 }
 
 const MULTI_QUOTE_SUBJECT_LINE_RE = /^\s*(?:Subject|Sujet|Objet|Re|Fwd|FW)\s*:/i;
-const QUOTED_EMAIL_HISTORY_START_RE =
-  /^\s*(?:From|De|Sent|Envoy[ée]|Subject|Sujet|Objet)\s*:|^\s*-{2,}\s*Original Message\s*-{2,}|^\s*Message d['’]origine|^\s*On .+ wrote:\s*$|^\s*Le .+ a [ée]crit\s*:/i;
 
 function stripSubjectLinesForMultiQuoteGate(text: string): string {
   if (!text) return "";
@@ -2032,15 +2031,28 @@ function stripSubjectLinesForMultiQuoteGate(text: string): string {
 }
 
 function stripQuotedEmailHistory(text: string): string {
-  if (!text) return "";
-  const kept: string[] = [];
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (/^>/.test(line)) continue;
-    if (QUOTED_EMAIL_HISTORY_START_RE.test(line)) break;
-    kept.push(rawLine);
-  }
-  return kept.join("\n").trim();
+  return splitEmailQuoteContext(text).ownText;
+}
+
+export function ownFactEmailBody(rawBody: string): string {
+  return stripQuotedEmailHistory(quoteAwareEmailText(rawBody));
+}
+
+function quoteAwareEmailText(rawBody:string):string { return decodeEmailQuoteView(rawBody,extractPlainTextFromMime); }
+
+type FactEmailSource = { id: string; from_address?: string; body_text?: string | null; sent_at?: string | null; subject?: string | null };
+export function buildFactEmailContext(emails: FactEmailSource[]): string {
+  return emails.filter(e => !isSodatraEmail(e.from_address || '')).map(e => {
+    const sections = splitEmailQuoteContext(quoteAwareEmailText(e.body_text || ''));
+    return `[Email source_id=${e.id}; sent_at=${e.sent_at || 'unknown'}; sender=${e.from_address || 'unknown'}; subject_metadata=${JSON.stringify(e.subject || '')}]\n${sections.ownText}\n${sections.hasQuotedHistory ? '[Quoted/forwarded history retained in raw source; not a new instruction.]' : ''}`;
+  }).join('\n\n---\n\n');
+}
+
+export function ownEvidenceEmailId(excerpt: string, sources: Array<{id:string; text:string}>): string | null {
+  const normalized = (text:string) => text.replace(/\s+/g,' ').trim();
+  if (!normalized(excerpt)) return null;
+  const matching = sources.filter(s => normalized(s.text).includes(normalized(excerpt)));
+  return matching.length === 1 ? matching[0].id : null;
 }
 
 function buildActiveMultiQuoteContext(emails: any[], fullAttachmentContext: string): string {
@@ -2048,7 +2060,7 @@ function buildActiveMultiQuoteContext(emails: any[], fullAttachmentContext: stri
     ? emails.filter((email) => !isSodatraEmail(email?.from_address || ""))
     : [];
   const latestInboundEmail = inboundEmails[inboundEmails.length - 1];
-  const latestBody = extractPlainTextFromMime(latestInboundEmail?.body_text || "");
+  const latestBody = quoteAwareEmailText(latestInboundEmail?.body_text || "");
   const strippedBody = stripQuotedEmailHistory(latestBody);
   const parts: string[] = [];
 
@@ -2321,8 +2333,8 @@ function normalizeContainerSuffix(suffixRaw: string): string {
   return "GP";
 }
 
-export function parseContainersFromText(raw: string): Array<{ type: string; quantity: number }> {
-  const s = (raw || "").toUpperCase();
+export function parseContainersFromText(raw: string, mergeSameTypes = true, explicitQuantityOnly = false): Array<{ type: string; quantity: number }> {
+  const s = stripQuotedEmailHistory(raw || "").toUpperCase();
   const cleaned = s
     .replace(/\s+/g, " ")
     .replace(/[\u2018\u2019\u2032]/g, "'")
@@ -2351,7 +2363,7 @@ export function parseContainersFromText(raw: string): Array<{ type: string; quan
   // "40HC", "40 flat rack", "20"). The type may be directly attached to the
   // size, so the pattern is anchored on the size rather than relying on a word
   // boundary before the type - this keeps "40'FR" from degrading to "40GP".
-  if (out.length === 0) {
+  if (out.length === 0 && !explicitQuantityOnly) {
     const adjacent = cleaned.match(
       /\b(20|40|45)\s*(?:'|FT\.?|FEET|FOOT)?\s*[-]?\s*(FLAT\s*RACK|FLATRACK|OPEN\s*TOP|REEFER|HC|HQ|DV|GP|STD|FR|OT|RF)\b/,
     );
@@ -2365,6 +2377,7 @@ export function parseContainersFromText(raw: string): Array<{ type: string; quan
   }
 
   // Merge same types
+  if (!mergeSameTypes) return out;
   const merged = new Map<string, number>();
   for (const c of out) merged.set(c.type, (merged.get(c.type) || 0) + c.quantity);
   return Array.from(merged.entries()).map(([type, quantity]) => ({ type, quantity }));
@@ -2684,10 +2697,12 @@ export async function applyFclConstraintPostProcessing(args: {
   serviceClient: any;
   text: string;
   sourceEmailId?: string | null;
+  emailSources?: Array<{id:string; text:string}>;
 }): Promise<{ added: number; updated: number; skipped: number; gapsIdentified: number; protectedGapKeys: Set<string> }> {
   const result = { added: 0, updated: 0, skipped: 0, gapsIdentified: 0, protectedGapKeys: new Set<string>() };
   const text = String(args.text || "");
   if (!text.trim()) return result;
+  const sourceIdFor = (excerpt:string) => args.emailSources ? ownEvidenceEmailId(excerpt,args.emailSources) : args.sourceEmailId ?? null;
 
   const { data: currentFacts } = await args.serviceClient
     .from("quote_facts")
@@ -2716,7 +2731,7 @@ export async function applyFclConstraintPostProcessing(args: {
         fact_key: "cargo.weight_per_container_kg",
         fact_category: "cargo",
         value_number: derivation.weightPerContainerKg,
-        source_email_id: args.sourceEmailId ?? null,
+        source_email_id: sourceIdFor(derivation.sourceExcerpt),
         source_excerpt: derivation.sourceExcerpt,
         confidence: derivation.confidence,
       });
@@ -2731,7 +2746,7 @@ export async function applyFclConstraintPostProcessing(args: {
           fact_key: "cargo.weight_kg",
           fact_category: "cargo",
           value_number: derivation.totalWeightKg,
-          source_email_id: args.sourceEmailId ?? null,
+          source_email_id: sourceIdFor(derivation.sourceExcerpt),
           source_excerpt: totalExcerpt.slice(0, 500),
           confidence: 0.95,
         });
@@ -2762,7 +2777,7 @@ export async function applyFclConstraintPostProcessing(args: {
       fact_key: "pricing.destination_free_time_days",
       fact_category: "pricing",
       value_number: freeTime.days,
-      source_email_id: args.sourceEmailId ?? null,
+      source_email_id: sourceIdFor(freeTime.sourceExcerpt),
       source_excerpt: freeTime.sourceExcerpt,
       confidence: freeTime.confidence,
     });
@@ -2788,7 +2803,7 @@ export async function applyFclConstraintPostProcessing(args: {
       fact_key: "routing.final_destination",
       fact_category: "routing",
       value_text: transit.finalDestination,
-      source_email_id: args.sourceEmailId ?? null,
+      source_email_id: sourceIdFor(transit.sourceExcerpt),
       source_excerpt: transit.sourceExcerpt,
       confidence: transit.confidence,
     });
@@ -2802,7 +2817,7 @@ export async function applyFclConstraintPostProcessing(args: {
         fact_key: "routing.transit_via_port",
         fact_category: "routing",
         value_text: transit.transitViaPort,
-        source_email_id: args.sourceEmailId ?? null,
+        source_email_id: sourceIdFor(transit.sourceExcerpt),
         source_excerpt: transit.sourceExcerpt,
         confidence: transit.confidence,
       });
@@ -5312,19 +5327,17 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // ── END PJ-ANALYSIS-ON-PUZZLE ──
 
     // 6. Build context for AI extraction
-    const threadContext = emails
-      .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
-      .join("\n\n---\n\n");
-
     // SOURCE-GUARD-1: Build filtered context excluding outbound SODATRA emails
     const inboundEmails = emails.filter(e => !isSodatraEmail(e.from_address));
     const filteredOutCount = emails.length - inboundEmails.length;
     if (filteredOutCount > 0) {
       console.log(`[SOURCE-GUARD] Filtered ${filteredOutCount} outbound SODATRA email(s) from fact extraction context (kept ${inboundEmails.length}/${emails.length})`);
     }
-    const inboundThreadContext = inboundEmails
-      .map((e) => `[${e.sent_at}] From: ${e.from_address}\nSubject: ${e.subject}\n\n${extractPlainTextFromMime(e.body_text || "")}`)
-      .join("\n\n---\n\n");
+    // STRUCTURAL_PATCH_ALLOWED: source views omit historical quotations from active extraction.
+    const inboundThreadContext = buildFactEmailContext(inboundEmails);
+    const ownEmailSources = inboundEmails.map(e => ({id:e.id,text:ownFactEmailBody(e.body_text || '')}));
+    const emailContainerCandidates = collectEmailContainerCandidates(inboundEmails);
+    const emailContainersConflict = new Set(emailContainerCandidates.map(c => c.declarationKey)).size > 1;
 
     // IMO-GOODS-SOURCE (GO CTO 2026-09-12): recognize cargo groups, NOT
     // quote-request lines. Evidence is isolated from client/pricing facts.
@@ -5381,7 +5394,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
 
     const attachmentContext = (reloadedAttachments || [])
       .filter((a) => a.extracted_text || a.extracted_data)
-      .map((a) => `[Attachment: ${a.filename}]\n${a.extracted_text || JSON.stringify(a.extracted_data)}`)
+      .map((a) => `[Attachment: ${a.filename}; source_attachment_id=${a.id}; email_id=${a.email_id}]\n${a.extracted_text || JSON.stringify(a.extracted_data)}`)
       .join("\n\n");
 
     // 6b. Build case_documents context (Intake documents)
@@ -5399,7 +5412,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     let extractedFacts = await extractFactsWithAI(
       inboundThreadContext,
       fullAttachmentContext,
-      emails,
+      inboundEmails,
       reloadedAttachments || [],
       lovableApiKey
     );
@@ -5435,7 +5448,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     );
 
     // 8. Detect request type from content (include attachment text for Intake cases)
-    const fullDetectionContext = [threadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
+    const fullDetectionContext = [inboundThreadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
     const detectionResult = detectRequestType(fullDetectionContext, extractedFacts);
     let detectedType = detectionResult.type;
     const isAmbiguousLclFcl = detectionResult.ambiguous_lcl_fcl;
@@ -5535,7 +5548,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       emails,
       reloadedAttachments || [],
     );
-    const docProvenanceLatestClientBody = extractPlainTextFromMime(
+    const docProvenanceLatestClientBody = ownFactEmailBody(
       inboundEmails[inboundEmails.length - 1]?.body_text || "",
     );
     const docProvenanceDrop = partitionCargoFactsByHistoricalDocProvenance(guardedFacts, {
@@ -6220,7 +6233,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         for (const email of emails) {
           const emailText = [
             email.subject || "",
-            extractPlainTextFromMime(email.body_text || ""),
+            ownFactEmailBody(email.body_text || ""),
           ].join(" ");
 
           const detailedMatches = extractHsCodesFromTextDetailed(emailText);
@@ -6667,7 +6680,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       // Scan email bodies
       if (emails && emails.length > 0) {
         for (const email of emails) {
-          const emailText = (email.body_text || email.subject || "");
+          const emailText = ownFactEmailBody(email.body_text || "");
           if (!emailText) continue;
           const { regimeCodes, titles } = extractRegimeCandidatesFromText(emailText);
           for (const code of regimeCodes) {
@@ -6982,12 +6995,12 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       : detectedType;
 
     // P0 FCL constraints: deterministic post-processing after AI/fallback/doc extraction, before gap analysis.
-    const deterministicConstraintContext = [inboundThreadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
-    const fclConstraintResult = await applyFclConstraintPostProcessing({
+    const deterministicConstraintContext = [...ownEmailSources.map(s=>s.text), fullAttachmentContext].filter(Boolean).join("\n\n");
+    const fclConstraintResult = emailContainersConflict ? {added:0,updated:0,skipped:0,gapsIdentified:0,protectedGapKeys:new Set<string>()} : await applyFclConstraintPostProcessing({
       case_id,
       serviceClient,
       text: deterministicConstraintContext,
-      sourceEmailId: pickSourceEmailId(inboundEmails),
+      emailSources: ownEmailSources,
     });
     factsAdded += fclConstraintResult.added;
     factsUpdated += fclConstraintResult.updated;
@@ -6997,7 +7010,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // CARGO-CONFLICT-GUARD-GWC-1: deterministic guards driven by the latest
     // inbound (non-SODATRA) client email body. Subjects are excluded — body only.
     const latestInboundEmailForGuard = inboundEmails[inboundEmails.length - 1];
-    const latestInboundBodyForGuard = extractPlainTextFromMime(latestInboundEmailForGuard?.body_text || "");
+    const latestInboundBodyForGuard = ownFactEmailBody(latestInboundEmailForGuard?.body_text || "");
     const cargoConflictResult = await applyCargoConflictGuards({
       case_id,
       serviceClient,
@@ -8382,6 +8395,12 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         quote_request_lines_mode: multiQuoteResult?.mode || null,
         imo_goods_assessment: imoGoodsAssessment,
         imo_goods_pricing_plan: imoGoodsPricingPlan,
+        email_source_review: {
+          quoted_source_ids: inboundEmails.filter(e => splitEmailQuoteContext(quoteAwareEmailText(e.body_text || '')).hasQuotedHistory).map(e => e.id),
+          container_candidates: emailContainerCandidates,
+          container_sources_conflict: emailContainersConflict,
+          note: 'Own declarations are evidence candidates; quoted history is not a new instruction. No contradiction priority or goods-to-container equivalence is inferred.',
+        },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -8395,16 +8414,84 @@ export const buildCasePuzzleHandler = async (req: Request) => {
 };
 if (Deno.env.get("BUILD_CASE_PUZZLE_DISABLE_SERVE") !== "1") Deno.serve(buildCasePuzzleHandler);
 
-async function extractFactsWithAI(
+function containerInventoryKey(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return null;
+    const c = item as { type?: unknown; quantity?: unknown };
+    const type = typeof c.type === 'string' ? c.type.toUpperCase().replace(/[\s'’′-]/g, '').replace(/(?:DV|STD)$/, 'GP') : '';
+    const quantity = Number(c.quantity);
+    if (!/^(20|40|45)(GP|HC|HQ|FR|OT|RF)$/.test(type) || !Number.isSafeInteger(quantity) || quantity <= 0) return null;
+    counts.set(type, (counts.get(type) || 0) + quantity);
+  }
+  return JSON.stringify([...counts].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+export function collectEmailContainerCandidates(emails: FactEmailSource[]) {
+  return emails.filter(e => !isSodatraEmail(e.from_address || '')).flatMap(email => {
+    const ownText = ownFactEmailBody(email.body_text || '');
+    const containers = parseContainersFromText(ownText, false, true), countKey = containerInventoryKey(containers);
+    return countKey ? [{ emailId: email.id, sentAt: email.sent_at || null, excerpt: ownText, containers, countKey,
+      declarationKey: containerDeclarationKey(containers), contentClass: 'own_unadopted' as const }] : [];
+  });
+}
+
+function containerDeclarationKey(value: unknown): string | null {
+  if (!Array.isArray(value) || !containerInventoryKey(value)) return null;
+  return JSON.stringify(value.map(item => containerInventoryKey([item])).sort());
+}
+
+type FactAttachmentSource = { id: string; email_id?: string | null; extracted_text?: string | null; extracted_data?: unknown };
+export function bindExtractedFactSources(facts: ExtractedFact[], emails: FactEmailSource[], attachments: FactAttachmentSource[], attachmentContext = ''): ExtractedFact[] {
+  const normalizedText = (text: string) => text.replace(/\s+/g, ' ').trim();
+  const sources = emails.filter(e => !isSodatraEmail(e.from_address || '')).map(email => ({email, ...splitEmailQuoteContext(quoteAwareEmailText(email.body_text || ''))}));
+  const candidates = collectEmailContainerCandidates(emails);
+  const conflictingContainers = new Set(candidates.map(c => c.declarationKey)).size > 1;
+  const bound = facts.flatMap<ExtractedFact>(f => {
+    const excerpt = normalizedText(f.sourceExcerpt || '');
+    const ownMatches = excerpt ? sources.filter(s => normalizedText(s.ownText).includes(excerpt)) : [];
+    let own = ownMatches.find(s => s.email.id === f.sourceEmailId) || (ownMatches.length === 1 ? ownMatches[0] : undefined);
+    if (['email_body', 'deterministic_calc'].includes(f.sourceType)) own = sources.find(s => s.email.id === f.sourceEmailId);
+    const attMatches = excerpt ? attachments.filter(a => normalizedText(a.extracted_text || JSON.stringify(a.extracted_data) || '').includes(excerpt)) : [];
+    const explicitAttachment = attMatches.find(a => a.id === f.sourceAttachmentId);
+    if (explicitAttachment) return [{ ...f, sourceEmailId: explicitAttachment.email_id || undefined, sourceAttachmentId: explicitAttachment.id }];
+    if (f.key === 'cargo.containers') {
+      if (conflictingContainers) return [];
+      const key = containerInventoryKey(f.value);
+      const matching = candidates.filter(c => c.countKey === key);
+      const explicit = matching.find(c => c.emailId === f.sourceEmailId) || (matching.length === 1 ? matching[0] : undefined);
+      if (explicit) own = sources.find(s => s.email.id === explicit.emailId);
+      if (own && containerDeclarationKey(parseContainersFromText(own.ownText, false, true)) !== containerDeclarationKey(f.value)) return [];
+    }
+    if (own) return [{ ...f, sourceEmailId: own.email.id, sourceAttachmentId: undefined,
+      sourceExcerpt: f.key === 'cargo.containers' ? own.ownText : f.sourceExcerpt }];
+    const att = attMatches.find(a => a.id === f.sourceAttachmentId) || (attMatches.length === 1 ? attMatches[0] : undefined);
+    if (att) return [{ ...f, sourceEmailId: att.email_id || undefined, sourceAttachmentId: att.id }];
+    if (excerpt && normalizedText(attachmentContext).includes(excerpt)) return [{ ...f, sourceEmailId: undefined, sourceAttachmentId: undefined }];
+    if (f.key === 'cargo.containers' || sources.some(s => s.hasQuotedHistory) && !f.isAssumption) return [];
+    return [{ ...f, sourceEmailId: undefined, sourceAttachmentId: undefined }];
+  });
+  // A unique explicit own inventory repairs an unsupported AI duplicate, not a conflict.
+  if (!bound.some(f => f.key === 'cargo.containers') && !conflictingContainers && candidates.length) {
+    const candidate = candidates[0], email = emails.find(e => e.id === candidate.emailId);
+    const fallback = email && extractFactsBasic([email], []).find(f => f.key === 'cargo.containers');
+    if (fallback && containerInventoryKey(fallback.value) === candidate.countKey) bound.push(fallback);
+  }
+  return bound;
+}
+
+export async function extractFactsWithAI(
   threadContext: string,
   attachmentContext: string,
   emails: any[],
   attachments: any[],
   apiKey?: string
 ): Promise<ExtractedFact[]> {
+  const basicExtraction = () => bindExtractedFactSources(extractFactsBasic(emails, attachments), emails, attachments, attachmentContext);
   if (!apiKey) {
     console.warn("No LOVABLE_API_KEY, using basic extraction");
-    return extractFactsBasic(emails, attachments);
+    return basicExtraction();
   }
 
   const systemPrompt = `You are an expert freight forwarding analyst. Extract structured facts from email threads about quotation requests.
@@ -8419,6 +8506,8 @@ Return a JSON array of facts with this structure:
       "valueType": "text",
       "confidence": 0.95,
       "sourceExcerpt": "...from Shanghai to Dakar...",
+      "sourceEmailId": "the exact email source_id, or null for a document",
+      "sourceAttachmentId": "the exact attachment ID when applicable, otherwise null",
       "isAssumption": false
     }
   ]
@@ -8476,11 +8565,17 @@ CRITICAL RULES:
    - Never extract them as contacts.client_company.
    - If SODATRA appears in the subject, recipient, signature, or body, treat it as operator/recipient context.
    - The external sender company is usually the client only if identifiable from signature, email domain, or explicit company name.
-   - If the true client company is not explicit, leave contacts.client_company empty rather than guessing.`;
+   - If the true client company is not explicit, leave contacts.client_company empty rather than guessing.
+11. QUOTED HISTORY AND SOURCE BINDING (CRITICAL):
+   - Only each email's own text is an instruction. Quoted/forwarded history is retained in raw sources and is not a new declaration.
+   - Never add quantities merely because a declaration repeats in a reply/forward or MIME representation.
+   - Cite the actual sourceEmailId and exact own sourceExcerpt, or sourceAttachmentId for an attachment. Never assign all facts to the newest email.
+   - Keep distinct own cargo rows separate, even when their equipment and quantity are equal. Goods units do not imply a container count.
+   - When own sources contradict, do not pick a winner or merge them: omit the unresolved fact. Operator/validated decisions are not extraction targets.`;
 
   const userPrompt = `Extract facts from this email thread:
 
-${threadContext}
+${emails.length ? buildFactEmailContext(emails) : threadContext}
 
 ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
 
@@ -8503,7 +8598,7 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
 
     if (!response.ok) {
       console.error("AI extraction failed:", await response.text());
-      return extractFactsBasic(emails, attachments);
+      return basicExtraction();
     }
 
     const data = await response.json();
@@ -8518,14 +8613,8 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
       });
       const facts = Array.isArray(parsed?.facts) ? parsed.facts : [];
 
-      // THREAD-TEMPORAL-PROVENANCE-1: attribute AI facts to the latest relevant
-      // inbound client email (not emails[0], the oldest), so later emails that
-      // amend the request are credited correctly and SOURCE-GUARD-2 client
-      // checks stay valid. null when no inbound email exists (prudent).
-      const provenanceEmailId = pickInboundProvenanceEmailId(emails);
-
-      // Enrich with source email IDs + V4.1.5: ensure JSON values are objects not strings
-      return facts.map((f: any) => {
+      // V4.1.5: JSON strings normalized before binding to actual own/document evidence.
+      const normalized = facts.map((f: ExtractedFact) => {
         let value = f.value;
         // V4.1.5: If valueType is 'json' but value is a string, parse it
         if (f.valueType === 'json' && typeof value === 'string') {
@@ -8535,21 +8624,21 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
           ...f,
           value,
           sourceType: f.isAssumption ? "ai_assumption" : "ai_extraction",
-          sourceEmailId: provenanceEmailId,
         };
       });
+      return bindExtractedFactSources(normalized, emails, attachments, attachmentContext);
     } catch {
-      return extractFactsBasic(emails, attachments);
+      return basicExtraction();
     }
   } catch (error) {
     console.error("AI extraction error:", error);
-    return extractFactsBasic(emails, attachments);
+    return basicExtraction();
   }
 }
 
 export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedFact[] {
   const facts: ExtractedFact[] = [];
-  const firstEmail = emails[0];
+  const firstEmail = emails.find(email => !isSodatraEmail(email.from_address));
 
   if (firstEmail) {
     // Always extract client email
@@ -8563,7 +8652,7 @@ export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedF
       confidence: 1.0,
     });
 
-    const body = extractPlainTextFromMime(firstEmail.body_text || "");
+    const body = ownFactEmailBody(firstEmail.body_text || "");
     const bodyLower = body.toLowerCase();
     const cargoEvidence = emailCargoEvidence(body);
     
@@ -8628,6 +8717,7 @@ export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedF
         valueType: "json",
         sourceType: "email_body",
         sourceEmailId: firstEmail.id,
+        sourceExcerpt: body,
         confidence: 0.8,
       });
     }
@@ -8722,7 +8812,7 @@ export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedF
 // Action 3: Breakbulk patterns expanded
 // Action 4: Post-detection coherence guard
 // P1: Returns { type, ambiguous_lcl_fcl } to flag contradictory LCL+container signals
-function detectRequestType(context: string, facts: ExtractedFact[]): { type: string; ambiguous_lcl_fcl: boolean } {
+export function detectRequestType(context: string, facts: ExtractedFact[]): { type: string; ambiguous_lcl_fcl: boolean } {
   const lowerContext = context.toLowerCase();
 
   // === PRE-SCAN: Strong maritime indicators (Action 1) ===

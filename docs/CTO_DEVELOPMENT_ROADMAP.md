@@ -522,6 +522,22 @@ Règles non négociables :
 - Activation bornée sous GO : work puis build-case-puzzle seule après CI distante et contrôle natif2.6 ; aucune migration/publication publique/envoi. Accusés, diff exact et couverture dans task-3/service-completeness-20261018 ; binaire Edge distant et fournisseurs réels restent non certifiés.
 - Original/deux docs/.claude/guide préexistant préservés ; helpers/conteneurs locaux arrêtés sans supprimer données/volumes, anti-veille35580 conservé jusqu'au19/10 18UTC. Retour ciblé du code sous GO, garder la garde atomique précédente et tout historique/version/PDF.
 
+### 2.34 Citations de courriels et provenance des déclarations — 18 octobre 2026
+
+- Mandat humain weekend confirmé pour le défaut de citations, recette/contre-revue et livraison privée ; même PC/exécutant unique. Justification STRUCTURAL_PATCH_ALLOWED avant édition, aucune priorité entre sources contradictoires décidée.
+- Avant correctif :1PASS/10FAIL sur réponses/transferts/texte neuf ; vue propre/citée séparée pour texte, HTML, base64 et multipart, sans modifier les messages bruts. Décodeur canonique partagé avec pricing conservé identique ; préambule/épilogue MIME exclus.
+- build-case-puzzle seul côté produit : contexte IA/Basic et gardes affectées sans histoire citée comme instruction ; identifiants email/PJ vérifiés sur preuve propre, plus d'attribution globale au dernier message. Sujet propre conservé pour classification.
+- Inventaires propres contradictoires : candidats séparés dans la réponse, aucune nouvelle consolidation conteneurs/FCL ; faits manuels/validés protégés par les gardes existantes. Déclarations distinctes5+5 préservées ; somme IA inventée ou redistribution3+7 refusée. Formules/taux/moteurs/SQL/Auth/RLS inchangés.
+- Replis IA absent/HTTP/JSON/exception soumis au même binding. Contre-revue : cinq blocages bornés corrigés, reprise153PASS/0FAIL sans blocage code restant ; fournisseur réel non appelé.
+- CI complète exit0 :928Vitest,2418Deno/0échec/6ignorés ; config/bundles/types app-node/build PASS, Deno49/5 inchangé, lint708/16 contre709/16 ; aucun seuil relevé ni test ignoré ajouté.
+- Recette locale réelle GoTrue/PostgREST/PostgreSQL/handlers :39appels/13nouvellescopies,24messages bruts et2830lignes antérieures sur136tables conservés ; compte/rôle synthétique existant seulement. Réponse2x40HC et44000kg, transfert seul sans quantité, nouveau texte3, lots5+5, conflit2/3 et décision manuelle7 intacts, HTML2 sans999 cité.
+- AIR/DDP brut190/net151/taxable inconnu et quatre prestations destination conservés ; onze parcours sans périmètre déterministe restent scope500 sans IA puis pricing400 fermé. Aucun tarif local incomplet présenté comme équivalence réelle.
+- GoTrans :39unités cabinets55t/SOC20HQ/UN3536,13unités transformateurs18t/SOC20HQ et3conteneurs40HQ COC/rechanges10–15t séparés dans le relevé documentaire privé.39/13 ne deviennent pas conteneurs ; plage arithmétique2409–2424t non adoptée, fait2361t non corrigé, scénario opérateur2424t non modifié.
+- PARTIAL : extraction GoTrans3x40HQ/45t limitée aux rechanges, pas au dossier entier ; export stocké avec quantité seulement citée non adopté. Extrait déterministe traversant plusieurs messages : source_email_id nul prudent. Offre sortante non certifiée demande entrante ; pas de nouvelle validation métier.
+- Question produit déjà relayée par le fil principal sur les faits non validés ; aucune réponse inférée. Recette Cloud authentifiée/IMAP/OCR/IA/Vault natif et nouveau PDF/version NOT_RUN ; binaire Edge distant UNKNOWN.
+- Activation bornée sous mandat existant : work puis build-case-puzzle seule après CI distante/contrôle natif2.6 ; aucune migration/publication publique/envoi. Reçus/diff/limites : task-3/quoted-source-integrity-20261018 ; original/deux docs/.claude/guide préexistant conservés.
+- Retour ciblé du seul code sous GO, garder garde atomique20261018150000 et tous faits/sources/versions/PDF ; banc arrêté sans suppression d'historique/volume, anti-veille35580 conservé jusqu'au19/10 18UTC sans prolongation.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
