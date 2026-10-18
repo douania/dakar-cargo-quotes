@@ -553,7 +553,9 @@ Règles non négociables :
 -3157lignes antérieures/136tables locales et identités conservées. Tarif douanier fictif local4→5 puis restauration exacte : snapshots/histoire et textes PDF identiques ; aucune certification fiscale ni règle de péremption tarifaire inférée.
 - Limites : données synthétiques, fournisseur IA simulé ; précision extrême sans politique nouvelle, ancien handler transitoire encore header-only. Recette Cloud authentifiée/IMAP/OCR/IA/Vault natif NOT_RUN, binaire Edge distant UNKNOWN.
 - Décision humaine reçue ensuite : actualisation automatique des faits non validés avec alerte/historique ; protéger manuels/validés et versions, ne pas adopter citation ancienne ni arbitrer ordre ambigu. Lot distinct suivant, pas encore implémenté ici.
-- Activation privée bornée après CI distante et contrôle natif2.6 : migration unique puis quatre handlers (version/préparation commerciale/PDF/brouillon), aucun autre réglage. Preuves/diff/limites : task-3/quotation-operational-audit-20261018.
+- Migration appliquée une seule fois via Lovable : sourcea6d84c2a…, corpsac4461fb… sans seuls BEGIN/COMMIT externes, transaction gérée par outil ; sept définitions/ACL conformes, treize collections Cloud inchangées, registre source20261018180000 estampillé sans rejeu.
+- Outil natif ayant ajouté Drizzle/dépendances par commits19ecb01/7aba581 : CI39155217564 FAIL à npm ci (package-lock désynchronisé), distinct du PASS4a7c089. Ajouts retirés au profit du dépôt canonique ; seuls14lignes de types utiles conservées, CI complète de reprise requise avant activation Edge.
+- Activation privée suivante : quatre handlers (version/préparation commerciale/PDF/brouillon) après vérification du HEAD final et CI, aucun autre réglage. Preuves/diff/limites : task-3/quotation-operational-audit-20261018.
 - Retour ciblé sous GO sans suppression de faits/versions/PDF ; conserver gardes/ACL et histoire. Original/deux docs/.claude/guide préexistant préservés ; anti-veille35580 jusqu'au19/10 18UTC, sans prolongation.
 
 ## 3. Travaux vérifiés comme terminés
