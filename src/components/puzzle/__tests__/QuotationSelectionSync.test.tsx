@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { QuotationVersionCard } from '../QuotationVersionCard';
 import { SendQuotationPanel } from '../SendQuotationPanel';
 import { PricingResultPanel } from '../PricingResultPanel';
+import { useCockpitState } from '@/hooks/useCockpitState';
 import {syntheticCustoms} from '../../../../supabase/functions/_tests/customs-basis-fixture';
 import {customsBasisSnapshot} from '../../../../supabase/functions/_shared/customs-basis';
 
@@ -175,9 +176,43 @@ function renderPair(caseId: string, client?: QueryClient) {
   };
 }
 
+function QuoteSummaryProbe({caseId}:{caseId:string}) {
+  const {data}=useCockpitState(caseId);
+  const totals=data?.selectedVersionSnapshot?.totals as Record<string,unknown>|undefined;
+  return <output data-testid={'summary-'+caseId}>Version v{data?.selectedVersionNumber} : {String(totals?.total_ht??'')}</output>;
+}
+
+for(const lostResponse of [false,true])it(`selection updates the real cockpit quote summary and preserves another case (${lostResponse?'lost acknowledgement':'success'})`,async()=>{
+ seedTwoVersions('case-a');seedTwoVersions('case-b');throwAfterCommit=lostResponse;
+ const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}});
+ render(<QueryClientProvider client={client}><QuotationVersionCard caseId="case-a" /><QuoteSummaryProbe caseId="case-a" /><QuoteSummaryProbe caseId="case-b" /></QueryClientProvider>);
+ await waitFor(()=>expect(screen.getByTestId('summary-case-a')).toHaveTextContent('Version v1 : 1000000'));
+ await waitFor(()=>expect(screen.getByTestId('summary-case-b')).toHaveTextContent('Version v1 : 1000000'));
+ const other=client.getQueryState(['cockpit-state','case-b']);
+ await userEvent.click(await screen.findByRole('button',{name:'Sélectionner'}));
+ await waitFor(()=>expect(screen.getByTestId('summary-case-a')).toHaveTextContent('Version v2 : 2000000'));
+ expect(screen.getByTestId('summary-case-b')).toHaveTextContent('Version v1 : 1000000');
+ expect(client.getQueryState(['cockpit-state','case-b'])).toEqual(other);
+ expect(db.quotation_versions).toHaveLength(4);expect(invokeMock).not.toHaveBeenCalled();expect(updateSpy).not.toHaveBeenCalled();client.clear();
+});
+
 function amountPattern(n: number) {
   return new RegExp(n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'));
 }
+
+it('a pending first draft read cannot restore the old version after selection',async()=>{
+ seedTwoVersions('case-a');seedDraft('case-a-v1',{});seedDraft('case-a-v2',{});
+ const gate=createDeferred();refetchGate=gate;const pair=renderPair('case-a');
+ await waitFor(()=>expect(pair.client.getQueryState(['send-quotation-data','case-a'])?.fetchStatus).toBe('fetching'));
+ expect(pair.client.getQueryData(['send-quotation-data','case-a'])).toBeUndefined();
+ fireEvent.click(await pair.card().findByRole('button',{name:'Sélectionner'}));
+ await waitFor(()=>expect(db.quotation_versions.find(v=>v.id==='case-a-v2')?.is_selected).toBe(true));
+ await act(async()=>{refetchGate=null;gate.resolve();});
+ await pair.panel().findByDisplayValue('Corps case-a-v2');
+ expect(pair.panel().queryByDisplayValue('Corps case-a-v1')).not.toBeInTheDocument();
+ expect(pair.client.getQueryData<{selectedVersion:{id:string}}>(['send-quotation-data','case-a'])?.selectedVersion.id).toBe('case-a-v2');
+ expect(invokeMock).not.toHaveBeenCalled();expect(updateSpy).not.toHaveBeenCalled();pair.client.clear();
+});
 
 function CaseStatusProbe({ caseId }: { caseId: string }) {
   const { data } = useQuery({
@@ -783,17 +818,17 @@ describe('selection synchronization review regressions', () => {
     expect(screen.getAllByText('Sélectionnée')).toHaveLength(1);
   });
 
-  it('invalidates an inactive cached panel before it mounts again', async () => {
+  it('refreshes an inactive cached panel before it mounts again', async () => {
     seedTwoVersions('case-a');
     seedDraft('case-a-v1', {});
     seedDraft('case-a-v2', {});
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity } } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity, refetchOnMount:false } } });
     const pair = renderPair('case-a', client);
     await pair.panel().findByDisplayValue('Corps case-a-v1');
     pair.rerender(<QueryClientProvider client={client}><QuotationVersionCard caseId="case-a" /></QueryClientProvider>);
     await userEvent.click(await screen.findByRole('button', { name: 'Sélectionner' }));
     await waitFor(() => expect(client.isMutating()).toBe(0));
-    expect(client.getQueryState(['send-quotation-data', 'case-a'])?.isInvalidated).toBe(true);
+    expect(client.getQueryData<{selectedVersion:{id:string}}>(['send-quotation-data','case-a'])?.selectedVersion.id).toBe('case-a-v2');
     pair.rerender(<QueryClientProvider client={client}><SendQuotationPanel caseId="case-a" /></QueryClientProvider>);
     await screen.findByDisplayValue('Corps case-a-v2');
     expect(screen.getByText('v2')).toBeInTheDocument();

@@ -146,12 +146,16 @@ async function fixture(run: (state: State) => Promise<void>) {
       if (name === 'read_pad_weight_context') return json({ case_id: 'fixture-case', case_status: tables.quote_cases[0].status, context_hash: 'fixture', request_count: tables.quote_request_lines.length,
         heads: [], facts: tables.quote_facts.map(f => ({ key: f.fact_key, text: f.value_text, number: f.value_number, json: f.value_json })), scenario: null, weight_facts: [], weight_reconciliation: null });
       if (name === 'get_next_pricing_run_number') return json(tables.pricing_runs.length + 1);
-      if (name === 'get_next_quotation_version_number') return json(tables.quotation_versions.length + 1);
-      if (name === 'insert_quotation_version_atomic') {
+      if (name === 'create_canonical_quotation_version') {
+        const existing = tables.quotation_versions.find(v=>v.case_id===body.p_case && v.pricing_run_id===body.p_run && !v.commercial_revision_id);
+        if(existing) return json({version_id:existing.id,version_number:existing.version_number,snapshot:existing.snapshot,idempotent:true,status_after:tables.quote_cases[0].status});
+        const id=crypto.randomUUID(),n=tables.quotation_versions.length+1;
+        const snapshot={...body.p_snapshot,meta:{...body.p_snapshot.meta,version_id:id,version_number:n}};
         tables.quotation_versions.forEach(v => v.is_selected = false);
-        tables.quotation_versions.push({ id: body.p_id, case_id: body.p_case_id, pricing_run_id: body.p_pricing_run_id, version_number: body.p_version_number,
-          snapshot: body.p_snapshot, created_by: body.p_created_by, is_selected: true });
-        return json(null);
+        tables.quotation_versions.push({id,case_id:body.p_case,pricing_run_id:body.p_run,version_number:n,snapshot,created_by:body.p_actor,is_selected:true,source_kind:'canonical'});
+        tables.quotation_version_lines.push(...body.p_lines.map((line:Row)=>({...line,quotation_version_id:id})));
+        tables.quote_cases[0].status='QUOTED_VERSIONED';
+        return json({version_id:id,version_number:n,snapshot,idempotent:false,status_after:'QUOTED_VERSIONED'});
       }
       throw Error(`Unexpected RPC: ${name}`);
     }
@@ -177,6 +181,19 @@ async function fixture(run: (state: State) => Promise<void>) {
   };
   try { await run(state); } finally { globalThis.fetch = oldFetch; keys.forEach((key, i) => oldEnv[i] === undefined ? Deno.env.delete(key) : Deno.env.set(key, oldEnv[i]!)); }
 }
+
+for (const savedSnapshot of [null,{totals:{total_ht:200,total_ttc:200,currency:'XOF'}}]) Deno.test(`canonical historical replay bypasses incompatible legacy run parsing (${savedSnapshot===null?'null':'minimal'} snapshot)`,async()=>{
+ await fixture(async state=>{
+  state.tables.quote_cases[0].status='QUOTED_VERSIONED';
+  state.tables.pricing_runs.push({id:'legacy-run',case_id:'fixture-case',status:'success',run_number:1,tariff_lines:{unsupported:'legacy shape'}});
+  const version={id:'saved-version',case_id:'fixture-case',pricing_run_id:'legacy-run',version_number:1,snapshot:savedSnapshot,is_selected:false,source_kind:'canonical',commercial_revision_id:null};
+  state.tables.quotation_versions.push(version);const before=structuredClone(version);
+  const response=await state.invoke('generate-quotation-version',{case_id:'fixture-case',pricing_run_id:'legacy-run'});
+  assertEquals(response.status,200,JSON.stringify(response.body));assertEquals(response.body.data.version_id,'saved-version');assertEquals(response.body.data.idempotent,true);
+  assertEquals(state.tables.quotation_versions,[before]);assertEquals(state.tables.quotation_version_lines,[]);
+  assert(!state.calls.some(call=>call.includes('create_canonical_quotation_version')));
+ });
+});
 
 Deno.test('partial destination: real pricing → immutable snapshot → real PDF preserves unknowns and known synthetic forfaits', async () => {
   await fixture(async state => {

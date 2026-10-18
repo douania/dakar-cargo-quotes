@@ -9,7 +9,7 @@ import { readOperatorBasis, type OperatorQuotationBasis } from "../_shared/opera
  * - Runtime contract (Phase 14-15): respondOk/respondError, logRuntimeEvent, correlationId
  * - FSM: PRICED_DRAFT|HUMAN_REVIEW → QUOTED_VERSIONED
  * - Idempotence: (case_id, pricing_run_id) → no-op if version exists
- * - Atomicity: Option 6A rollback (previousSelectedId)
+ * - Atomicity: header, lines, selection, FSM and event in one RPC
  * - verify_jwt = false + requireUser (pattern projet S1)
  *
  * Ajustement CTO:
@@ -264,7 +264,6 @@ Deno.serve(async (req) => {
       return await fail(serviceClient, "FORBIDDEN_OWNER", "Pricing run does not belong to this case", correlationId, t0, userId, { case_id, pricing_run_id: pricingRun.id });
     }
 
-    // ── Idempotence guard (Ajustement CTO #3 corrigé) ───
     // Lookup ANY version for (case_id, pricing_run_id), selected or not
     const { data: existingVersion } = await serviceClient
       .from("quotation_versions")
@@ -272,6 +271,7 @@ Deno.serve(async (req) => {
       .eq("case_id", case_id)
       .eq("pricing_run_id", pricingRun.id)
       .is("commercial_revision_id", null)
+      .eq("source_kind", "canonical")
       .order("version_number", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -316,24 +316,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── Option 6A: capture previous selected for rollback ─
-    const { data: prevSelected } = await serviceClient
-      .from("quotation_versions")
-      .select("id")
-      .eq("case_id", case_id)
-      .eq("is_selected", true)
-      .limit(1)
-      .maybeSingle();
-    const previousSelectedId: string | null = prevSelected?.id ?? null;
-
-    // ── Atomic version number ────────────────────────────
-    const { data: versionNumber, error: rpcError } = await serviceClient
-      .rpc("get_next_quotation_version_number", { p_case_id: case_id });
-
-    if (rpcError || versionNumber === null) {
-      return await fail(serviceClient, "UPSTREAM_DB_ERROR", "Failed to get version number", correlationId, t0, userId, { rpc_error: rpcError?.message });
-    }
-
     // ── Build snapshot ───────────────────────────────────
     const inputs = pricingRun.inputs_json || {};
     const factsSnapshot = pricingRun.facts_snapshot || {};
@@ -353,7 +335,7 @@ Deno.serve(async (req) => {
       ...(operatorBasis ? { operator_basis: operatorBasis } : {}),
       meta: {
         version_id: versionId,
-        version_number: versionNumber,
+        version_number: 0,
         created_at: now,
         pricing_run_id: pricingRun.id,
         pricing_run_number: pricingRun.run_number,
@@ -478,24 +460,7 @@ Deno.serve(async (req) => {
       }));
     }
 
-    // ── Atomic insert (RPC deselects + inserts) ──────────
-    const { error: insertError } = await serviceClient
-      .rpc("insert_quotation_version_atomic", {
-        p_id: versionId,
-        p_case_id: case_id,
-        p_pricing_run_id: pricingRun.id,
-        p_version_number: versionNumber,
-        p_snapshot: snapshot,
-        p_created_by: userId,
-      });
-
-    if (insertError) {
-      return await fail(serviceClient, "UPSTREAM_DB_ERROR", `Failed to create version: ${insertError.message}`, correlationId, t0, userId, { case_id });
-    }
-
-    // ── Insert version lines ─────────────────────────────
     const versionLines = snapshot.lines.map((line, idx) => ({
-      quotation_version_id: versionId,
       line_order: idx,
       service_code: line.service_code,
       description: line.description,
@@ -508,74 +473,40 @@ Deno.serve(async (req) => {
       breakdown: versionLineBreakdown(line, tariffLines[idx]?.breakdown),
     }));
 
-    if (versionLines.length > 0) {
-      const { error: linesError } = await serviceClient
-        .from("quotation_version_lines")
-        .insert(versionLines);
-
-      if (linesError) {
-        console.error(`[${FUNCTION_NAME}] Lines insert failed, rolling back version ${versionId}`);
-        // Rollback: delete orphan version
-        await serviceClient.from("quotation_versions").delete().eq("id", versionId);
-        // Option 6A: restore exact previous selected
-        if (previousSelectedId) {
-          await serviceClient
-            .from("quotation_versions")
-            .update({ is_selected: true })
-            .eq("id", previousSelectedId);
-        }
-        return await fail(serviceClient, "UPSTREAM_DB_ERROR", `Failed to create version lines: ${linesError.message}`, correlationId, t0, userId, { case_id, version_id: versionId });
-      }
-    }
-
-    // ── FSM: transition to QUOTED_VERSIONED ──────────────
-    await serviceClient
-      .from("quote_cases")
-      .update({ status: "QUOTED_VERSIONED", updated_at: now })
-      .eq("id", case_id);
-
-    // ── Timeline event (best-effort) ─────────────────────
-    await serviceClient.from("case_timeline_events").insert({
-      case_id,
-      event_type: "quotation_version_created",
-      event_data: {
-        version_id: versionId,
-        version_number: versionNumber,
-        pricing_run_id: pricingRun.id,
-        pricing_run_number: pricingRun.run_number,
-        total_ht: snapshot.totals.total_ht,
-        lines_count: snapshot.lines.length,
-        has_raw_lines: snapshot.raw_lines.length > 0,
-        status_after: "QUOTED_VERSIONED",
-      },
-      actor_type: "user",
-      actor_user_id: userId,
+    // Header, lines, selection, FSM and timeline commit together; replay returns the saved result.
+    const { data: stored, error: insertError } = await serviceClient.rpc("create_canonical_quotation_version", {
+      p_case: case_id, p_run: pricingRun.id, p_actor: userId, p_snapshot: snapshot, p_lines: versionLines,
     });
+    if (insertError || !stored) {
+      const code = ['40001','PT409'].includes(insertError?.code ?? '') ? 'CONFLICT_INVALID_STATE' : insertError?.code === '42501' ? 'FORBIDDEN_OWNER' : 'UPSTREAM_DB_ERROR';
+      return await fail(serviceClient, code, insertError?.message ?? 'Failed to create version', correlationId, t0, userId, { case_id });
+    }
+    const savedSnapshot = stored.snapshot as VersionSnapshot;
 
-    // ── Success ──────────────────────────────────────────
     const durationMs = Date.now() - t0;
     await logRuntimeEvent(serviceClient, {
       correlationId,
       functionName: FUNCTION_NAME,
-      op: "create_version",
+      op: stored.idempotent ? "idempotent_hit" : "create_version",
       userId,
       status: "ok",
       httpStatus: 200,
       durationMs,
-      meta: { version_id: versionId, version_number: versionNumber, lines_count: snapshot.lines.length },
+      meta: { version_id: stored.version_id, version_number: stored.version_number, lines_count: savedSnapshot.lines.length },
     });
 
     return respondOk(
       {
         case_id,
         pricing_run_id: pricingRun.id,
-        version_id: versionId,
-        version_number: versionNumber,
-        lines_count: snapshot.lines.length,
-        total_ht: snapshot.totals.total_ht,
-        total_ttc: snapshot.totals.total_ttc,
-        currency: snapshot.totals.currency,
-        status_after: "QUOTED_VERSIONED",
+        version_id: stored.version_id,
+        version_number: stored.version_number,
+        lines_count: savedSnapshot.lines.length,
+        total_ht: savedSnapshot.totals.total_ht,
+        total_ttc: savedSnapshot.totals.total_ttc,
+        currency: savedSnapshot.totals.currency,
+        status_after: stored.status_after,
+        idempotent: stored.idempotent,
       },
       correlationId,
     );

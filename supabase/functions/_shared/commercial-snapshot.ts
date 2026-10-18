@@ -28,6 +28,11 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
   const lines = draft.lines.map((line,index) => {
     const originalLine = row(line.original);
     const inherited = line.status === 'source' && line.kind === 'source';
+    const sourceIndex = /^source:(0|[1-9]\d*)$/.exec(line.id);
+    const savedLine = sourceIndex && Array.isArray(source.lines) ? row(source.lines[Number(sourceIndex[1])]) : {};
+    // Prefer the saved normalized line; legacy raw sources may attest an explicit rate.
+    const sourceQuantity = savedLine.quantity ?? originalLine.quantity;
+    const sourceUnitPrice = savedLine.unit_price ?? originalLine.unitPrice ?? originalLine.unit_price ?? originalLine.rate;
     const value = line.included && number(line.client_amount_xof) ? line.client_amount_xof : null;
     const unresolved = line.included && (value === null || (!inherited && line.amount_basis === 'unknown'));
     if (unresolved) unknown++;
@@ -43,7 +48,9 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
       : 'Montant retenu par l’opérateur, estimatif et révisable.' : 'Montant repris de la version source.';
     return {service_code:String(originalLine.service_code ?? originalLine.category ?? `COMMERCIAL_${index+1}`),description:label,label,
       category:customsEstimate ? 'CUSTOMS_PROVISION' : originalLine.category ?? line.kind,
-      quantity:1,unit_price:line.included && !unresolved ? value : null,amount:line.included && !unresolved ? value : null,currency:'XOF',
+      quantity:inherited && number(sourceQuantity) && number(sourceUnitPrice) ? sourceQuantity : 1,
+      unit_price:line.included && !unresolved ? inherited && number(sourceQuantity) && number(sourceUnitPrice) ? sourceUnitPrice : value : null,
+      amount:line.included && !unresolved ? value : null,currency:'XOF',
       bloc:taxable ? 'honoraires' : 'debours',explanation,
       source:{type:!line.included ? 'EXCLUDED_BY_RULE' : unresolved ? 'TO_CONFIRM' : modified ? 'OPERATOR_ESTIMATE' : 'SAVED_SOURCE',
         reference:!line.included ? 'COMMERCIAL_REMOVED' : 'COMMERCIAL_REVISION',firm_eligible:false},

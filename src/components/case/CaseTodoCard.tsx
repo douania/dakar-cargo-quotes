@@ -3,7 +3,6 @@ import { ReservationList } from "@/components/case/ReservationList";
 import { readableReservationText } from "@/lib/reservationPresentation";
 import { SourceText } from "@/components/SourceText";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatScenarioPricingAmount } from "@/lib/scenarioPricing";
 import type { QuotationPreparationSummary } from "@/components/puzzle/SendQuotationPanel";
 import { guidedActionLabel, guidedSituation, type GuidedQuoteSummary, type PilotageAction } from "@/pages/case-view/presentation";
 
@@ -83,7 +82,7 @@ export function CaseTodoCard({ status, action, quote, loading, error, missingIte
       {quote ? <>
         <p className={`text-sm font-medium${quote.qualificationLevel === "firm" ? "" : " text-primary"}`}>{quote.qualification}</p>
         <p className="text-2xl font-semibold [overflow-wrap:anywhere]">{quote.amount
-          ? formatScenarioPricingAmount(quote.amount.amount, quote.amount.currency) : "Montant non disponible"}</p>
+          ? `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 3 }).format(quote.amount.amount)} ${quote.amount.currency}` : "Montant non disponible"}</p>
         {quote.projection?.totalNote && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{quote.projection.totalNote}</p>}
         {quote.pendingItems.length > 0 && <div className="space-y-1">
           <p className="text-sm font-medium">Postes à confirmer, exclus du total ({quote.pendingItems.length})</p>

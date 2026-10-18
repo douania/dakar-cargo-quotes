@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildDeterministicBody } from "./index.ts";
+import { buildDeterministicBody, requiresDeterministicQuotationBody } from "./index.ts";
 Deno.test("global retained weight is reserved even when every category weight was confirmed", () => {
   const snapshot = { totals: { total_ht: 4500, currency: "XOF" }, raw_lines: [{ quantity: 45, source: {
     weight_basis: "confirmed", weight_reconciliation: { id: "synthetic", total_weight_kg: 2424000, reservation: "Révisable sur documents définitifs." },
@@ -18,6 +18,5 @@ Deno.test("reserved weight never produces a firm total and preserves all exact w
     assert(body.includes("3 conteneurs × 15 tonnes/conteneur = 45 tonnes"));
     assert(body.includes("Révisable sur documents définitifs."));
   }
-  const source = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
-  assertEquals(source.includes('if (useAiEnrichment && quotationWeightNotices('), true);
+  assertEquals(requiresDeterministicQuotationBody(snapshot), true);
 });

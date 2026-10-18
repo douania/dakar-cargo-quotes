@@ -390,7 +390,7 @@ export async function generateDraftPdf(snapshot: any, caseId: string): Promise<U
     descLines.forEach((text, i) => {
       currentPage.drawText(text, { x: colDesc, y: y - i * 11, size: 9, font, color: black });
     });
-    const quantityText = isToConfirm && line.quantity === null ? '?' : (line.quantity || 1).toString();
+    const quantityText = isToConfirm && line.quantity === null ? '?' : (line.quantity ?? 1).toString();
     currentPage.drawText(quantityText, { x: colQty, y, size: 9, font, color: black });
     if (isToConfirm) {
       currentPage.drawText(sanitize('—'), { x: colRate, y, size: 9, font, color: gray });

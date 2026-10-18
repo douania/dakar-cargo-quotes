@@ -210,14 +210,23 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
       // settles — never assume the previous version is still selected just
       // because the RPC call itself errored.
       // Invalidate inactive queries too: a remounted panel must not reuse an old
-      // selection. Settle BOTH reads before releasing the mutation's action lock.
+      // selection. Settle every view before releasing the mutation's action lock.
+      // A first load without cached data can otherwise finish with the old selection.
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ['send-quotation-data', caseId], exact: true }),
+        queryClient.cancelQueries({ queryKey: ['cockpit-state', caseId], exact: true }),
+      ]);
       const reads = await Promise.allSettled([
         queryClient.invalidateQueries(
-          { queryKey: ['send-quotation-data', caseId], exact: true },
+          { queryKey: ['send-quotation-data', caseId], exact: true, refetchType:'all' },
           { throwOnError: true },
         ),
         queryClient.invalidateQueries(
           { queryKey: ['quotation-versions', caseId] },
+          { throwOnError: true },
+        ),
+        queryClient.invalidateQueries(
+          { queryKey: ['cockpit-state', caseId], exact: true, refetchType:'all' },
           { throwOnError: true },
         ),
       ]);

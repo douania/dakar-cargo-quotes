@@ -539,6 +539,23 @@ Règles non négociables :
 - Activation bornée sous mandat existant : work puis build-case-puzzle seule après CI distante/contrôle natif2.6 ; aucune migration/publication publique/envoi. Reçus/diff/limites : task-3/quoted-source-integrity-20261018 ; original/deux docs/.claude/guide préexistant conservés.
 - Retour ciblé du seul code sous GO, garder garde atomique20261018150000 et tous faits/sources/versions/PDF ; banc arrêté sans suppression d'historique/volume, anti-veille35580 conservé jusqu'au19/10 18UTC sans prolongation.
 
+### 2.35 Intégrité des versions, quantités et restitution client - 18 octobre 2026
+
+- Mandat humain : audit opérationnel borné, défauts prouvés, tests/contre-revue/livraison privée ; même PC, un écrivain, aucun envoi/publication ni calcul métier Cloud.
+- Avant : concurrence canonique HTTP200/500 ; faits modifiés avant relecture acceptés sur ancienne base ; PDF quantité0→1, héritage2×100→1×200 et IA999 pour total200 reproduits.
+- Migration additive20261018180000 : création canonique transactionnelle (en-tête/lignes/sélection/statut/événement), admission après attente, rejeu avant fraîcheur sans resélection ; ancien RPC conservé avec verrous case→select→insert.
+- Nouvelle écriture sur base de faits non comparable/modifiée refusée ; lignes de demande verrouillées, changements depuis début du calcul refusés. Validation NULL normalisée comme le producteur ; conflit PT409 explicite, sans boucle de retry40001.
+- PDF conserve zéro ; lignes commerciales héritées inchangées gardent quantité/prix attestés, y compris rate legacy explicite. Aucun calcul, taux ou composant moteur FROZEN modifié.
+- Brouillon financier/réservé déterministe, y compris anciens totaux chaînes/tableaux vides. Brouillons/PDF préexistants conservés ; aucune correction silencieuse d'histoire.
+- UI réelle : annulation des premières lectures obsolètes, relecture des caches actifs/inactifs du seul dossier et cockpit avant déverrouillage ; résumé garde618,5 comme version/PDF/brouillon au lieu de619. Régressions avant en FAIL,39tests UI ciblés PASS.
+- PostgreSQL isolé :13groupes PASS, chevauchements canoniques/legacy/commerciaux et verrous réels, refus clients/admission, rejeu ancien et rollback lignes/événement. HTTP9contrôles et App/Auth/CaseView9contrôles PASS, v1→v2→v1, reload/390px, aucun envoi.
+- CI complète exit0 :933Vitest/76fichiers,2427Deno/0échec/6ignorés ; config/bundles/types/build PASS, Deno49/5 et lint708/16 inchangés. Audit UI119constats hérités ; contre-revue sans blocage.
+-3157lignes antérieures/136tables locales et identités conservées. Tarif douanier fictif local4→5 puis restauration exacte : snapshots/histoire et textes PDF identiques ; aucune certification fiscale ni règle de péremption tarifaire inférée.
+- Limites : données synthétiques, fournisseur IA simulé ; précision extrême sans politique nouvelle, ancien handler transitoire encore header-only. Recette Cloud authentifiée/IMAP/OCR/IA/Vault natif NOT_RUN, binaire Edge distant UNKNOWN.
+- Décision humaine reçue ensuite : actualisation automatique des faits non validés avec alerte/historique ; protéger manuels/validés et versions, ne pas adopter citation ancienne ni arbitrer ordre ambigu. Lot distinct suivant, pas encore implémenté ici.
+- Activation privée bornée après CI distante et contrôle natif2.6 : migration unique puis quatre handlers (version/préparation commerciale/PDF/brouillon), aucun autre réglage. Preuves/diff/limites : task-3/quotation-operational-audit-20261018.
+- Retour ciblé sous GO sans suppression de faits/versions/PDF ; conserver gardes/ACL et histoire. Original/deux docs/.claude/guide préexistant préservés ; anti-veille35580 jusqu'au19/10 18UTC, sans prolongation.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

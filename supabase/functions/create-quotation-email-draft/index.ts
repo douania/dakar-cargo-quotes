@@ -379,6 +379,18 @@ Le body_text doit commencer par une salutation et finir par "Cordialement,\\nL'�
 
 // ── Main handler ─────────────────────────────────────────────────────────────
 
+/** Financial commitments and reservations must use the saved client projection verbatim. */
+export function requiresDeterministicQuotationBody(value: unknown): boolean {
+  const snapshot = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const totals = snapshot.totals && typeof snapshot.totals === 'object' ? snapshot.totals as Record<string, unknown> : {};
+  const qualification = resolveQuoteQualification(snapshot);
+  const hasNumber = (amount: unknown) => typeof amount === 'number' ||
+    typeof amount === 'string' && amount.trim() !== '' && Number.isFinite(Number(amount));
+  return qualification.level !== 'firm' || qualification.reasons.length > 0 ||
+    [snapshot.lines, snapshot.raw_lines, snapshot.lots].some(lines => Array.isArray(lines) && lines.length > 0) ||
+    Object.values(totals).some(hasNumber) || [snapshot.total_ht, snapshot.total_ttc].some(hasNumber);
+}
+
 if (import.meta.main) Deno.serve(async (req: Request) => {
   const corsResp = handleCors(req);
   if (corsResp) return corsResp;
@@ -563,9 +575,9 @@ if (import.meta.main) Deno.serve(async (req: Request) => {
   let finalBody = deterministicBody;
   let generationMode: "ai" | "deterministic" = "deterministic";
 
-  // For a reserved weight basis, keep the deterministic commercial wording.
-  // An AI marker alone cannot guarantee preservation of the exact reservation.
-  if (useAiEnrichment && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0 && !snapshot?.operator_basis && !qualification.reasons.some(r=>r.code==='CUSTOMS_OPERATOR_ESTIMATE')) {
+  // Amounts and reservations must remain the exact saved client projection.
+  // Qualification words alone cannot attest an AI-generated financial statement.
+  if (useAiEnrichment && !requiresDeterministicQuotationBody(snapshot) && quotationWeightNotices(Array.isArray(snapshot?.raw_lines) ? snapshot.raw_lines : []).length === 0 && !snapshot?.operator_basis && !qualification.reasons.some(r=>r.code==='CUSTOMS_OPERATOR_ESTIMATE')) {
     const contextPack = buildAiContextPack(snapshot, version.version_number, isMultiLot, lotCount, hasPdf, qualification, lotSummaryLines);
     const aiBody = await tryAiEnrichment(contextPack);
     if (aiBody) {

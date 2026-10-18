@@ -12,7 +12,7 @@ export function commercialClients(auth: AuthResult) {
 }
 export function commercialError(error: {code?: string;message?: string} | null): never {
   const message=error?.message ?? 'Commercial operation unavailable';
-  throw Object.assign(new Error(message),{status:error?.code==='42501'?403:error?.code==='40001'?409:400});
+  throw Object.assign(new Error(message),{status:error?.code==='42501'?403:['40001','PT409'].includes(error?.code??'')?409:400});
 }
 export async function readCommercial(auth: AuthResult,caseId: string) {
   const {user}=commercialClients(auth);
