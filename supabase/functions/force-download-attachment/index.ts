@@ -271,7 +271,7 @@ function parseBodyStructure(response: string): AttachmentInfo[] {
 }
 
 // Simple IMAP client
-class IMAPClient {
+export class IMAPClient {
   private conn: Deno.TlsConn | Deno.TcpConn | null = null;
   private encoder = new TextEncoder();
   private decoder = new TextDecoder();
@@ -542,10 +542,17 @@ export const handler = async (req: Request) => {
     const attachments = await client.fetchBodyStructure(uid);
     console.log(`Found ${attachments.length} attachments in message`);
     
-    // Find matching attachment by filename
-    const targetAttachment = attachments.find(a => 
+    // Old rows have no proven MIME-part identity. Never repair from an arbitrary homonym.
+    const matchingAttachments = attachments.filter(a =>
       a.filename.toLowerCase() === attachment.filename.toLowerCase()
     );
+    if (matchingAttachments.length > 1) {
+      client.close();
+      return new Response(JSON.stringify({success:false,code:'ATTACHMENT_IDENTITY_AMBIGUOUS',
+        error:'Plusieurs pièces jointes portent ce nom. Le contenu à reprendre doit être identifié avant réparation.'}),
+        {status:409,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    }
+    const targetAttachment = matchingAttachments[0];
     
     if (!targetAttachment) {
       client.close();
@@ -573,15 +580,14 @@ export const handler = async (req: Request) => {
     console.log(`Downloaded ${content.length} bytes`);
     
     // Upload to storage
-    const timestamp = Date.now();
     const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const storagePath = `email-attachments/${email.id}/${timestamp}_${safeName}`;
+    const storagePath = `email-attachments/${email.id}/${crypto.randomUUID()}_${safeName}`;
     
     const { error: uploadError } = await supabase.storage
       .from('documents')
       .upload(storagePath, content, {
         contentType: attachment.content_type || 'application/octet-stream',
-        upsert: true
+        upsert: false
       });
     
     if (uploadError) {

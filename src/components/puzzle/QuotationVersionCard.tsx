@@ -1,4 +1,5 @@
 import { QuotationBasis } from "@/components/case/QuotationBasis";
+import { CaseSourceChangesNotice } from '@/components/case/CaseSourceChangesNotice';
 import { readableReservations } from "@/lib/reservationPresentation";
 /**
  * Phase 12 + Lot 3A: QuotationVersionCard
@@ -457,6 +458,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
                       </div>
 
                       <QuotationBasis context={`Version v${version.version_number}${version.is_selected ? " sélectionnée" : ""}`} inputs={snapshot?.inputs} lots={snapshot?.lots} onReview={onReviewBasis} collapsed={!version.is_selected} />
+                      <CaseSourceChangesNotice caseId={caseId} runId={version.pricing_run_id} refreshToken={refreshToken} />
                       {Number.isFinite(displayedTotal) && (
                         <p className="mt-2 text-lg font-bold">
                           {formatAmount(displayedTotal)} {currency}

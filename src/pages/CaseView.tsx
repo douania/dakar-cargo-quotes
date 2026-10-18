@@ -74,6 +74,7 @@ import CaseDocumentsTab from "@/components/case/CaseDocumentsTab";
 import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
 import { PricingResultPanel } from "@/components/puzzle/PricingResultPanel";
 import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
+import { CaseSourceChangesNotice } from "@/components/case/CaseSourceChangesNotice";
 import { SendQuotationPanel, type QuotationPreparationSummary } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
@@ -589,6 +590,7 @@ export default function CaseView() {
     queryClient.invalidateQueries({ queryKey: ["quote-request-lines-count", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-source-emails-count", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["case-source-changes", caseId] });
     refetchCase();
     refetchFacts();
     refetchEvents();
@@ -1539,6 +1541,7 @@ export default function CaseView() {
           </div>
         </section>}
 
+        <CaseSourceChangesNotice caseId={caseId!} overview refreshToken={versionRefreshToken} onReview={() => openGuidedSection('documents')} />
         {analysisStatusAllowed && (
           <Card className="mb-6 border-primary/30 bg-primary/5" aria-label="Analyse de la demande">
             <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">

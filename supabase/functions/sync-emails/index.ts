@@ -1135,7 +1135,7 @@ function decodeQuotedPrintableAttachment(content: string): Uint8Array {
 
 // ============ ATTACHMENT IMPORT SUB-FLOW (non-blocking) ============
 
-async function processEmailAttachments(
+export async function processEmailAttachments(
   client: SimpleIMAPClient,
   uid: number,
   emailId: string,
@@ -1143,6 +1143,7 @@ async function processEmailAttachments(
 ): Promise<void> {
   const attachments = await client.fetchBodyStructure(uid);
   let failed = false;
+  const seenParts = new Set<string>();
   
   if (attachments.length === 0) {
     console.log(`[sync-emails/attachments] No attachments found for UID ${uid}`);
@@ -1153,6 +1154,9 @@ async function processEmailAttachments(
   
   for (const attachment of attachments) {
     try {
+      if (!/^\d+(?:\.\d+)*$/.test(attachment.partNumber)) throw new Error('Identité de partie MIME invalide');
+      if (seenParts.has(attachment.partNumber)) continue;
+      seenParts.add(attachment.partNumber);
       if (attachment.contentType.startsWith('image/')) {
         const isTinyImage = attachment.size < INLINE_IMAGE_MIN_BYTES;
         const hasSignatureFilename = SIGNATURE_IMAGE_FILENAME_PATTERN.test(attachment.filename);
@@ -1164,31 +1168,8 @@ async function processEmailAttachments(
         console.log(`[sync-emails/attachments] Keeping inline image candidate: ${attachment.filename} (${attachment.contentType}, ${attachment.size} bytes, part ${attachment.partNumber})`);
       }
 
-      // Idempotency guard: check if attachment already exists for this email
-      let existingQuery = supabase
-        .from('email_attachments')
-        .select('id, storage_path, size')
-        .eq('email_id', emailId)
-        .eq('filename', attachment.filename);
-
-      if (attachment.size > 0) {
-        existingQuery = existingQuery.eq('size', attachment.size);
-      }
-
-      const { data: existingAttachment, error: existingErr } = await existingQuery
-        .limit(1)
-        .maybeSingle();
-      
-      if (existingErr) {
-        failed = true;
-        console.warn(`[sync-emails/attachments] Error checking existing attachment:`, existingErr.message);
-        continue;
-      }
-      
-      if (existingAttachment) {
-        console.log(`[sync-emails/attachments] Attachment already exists: ${attachment.filename} (id=${existingAttachment.id}), skipping`);
-        continue;
-      }
+      // Called only for a newly inserted email; message replay is stopped by the caller.
+      // Distinct MIME parts can share both filename and size.
       
       // Handle oversized attachments: create record but don't download
       if (attachment.size > MAX_ATTACHMENT_SIZE) {
@@ -1226,15 +1207,14 @@ async function processEmailAttachments(
       console.log(`[sync-emails/attachments] Downloaded ${content.length} bytes for ${attachment.filename}`);
       
       // Upload to storage
-      const timestamp = Date.now();
       const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const storagePath = `email-attachments/${emailId}/${timestamp}_${safeName}`;
+      const storagePath = `email-attachments/${emailId}/${crypto.randomUUID()}_${safeName}`;
       
       const { error: uploadError } = await supabase.storage
         .from('documents')
         .upload(storagePath, content, {
           contentType: attachment.contentType,
-          upsert: true
+          upsert: false
         });
       
       if (uploadError) {

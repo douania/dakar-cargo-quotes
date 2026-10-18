@@ -477,6 +477,21 @@ Règles non négociables :
 - Livraison privée frontend après reçu backend231edc8 ; client refuse ancien DTO/offset contradictoire. Preuves/diff/recette/CI/reprise dans task-3/mail-list-integrity-20261018 ; guide préexistant et dépôt original préservés.
 - Retour : inverser seulement le frontend, puis backend si nécessaire sous GO ; conserver historiques, PJ, versions et PDF. Recette Cloud authentifiée toujours BLOCKED tant que capacité officielle signed_out ; aucun contournement ni accès persistant créé.
 
+### 2.31 Évolution du fil et pièces homonymes — réalisation locale du 18 octobre 2026
+
+- Reprise du mandat courriels sur le même PC/work4bb48e7 ; exécuteur unique et contre-revue lecture seule. GO weekend clarifié : commit/push et livraison privée du lot vérifié autorisés ; aucun nouveau compte/rôle/secret/configuration mail.
+- PJ : chemins UUID sans écrasement dans import/sync/repair ; sync distingue les parties MIME plutôt que nom/taille ; repair ambigu refuse409 avant téléchargement/écriture. Rejeu borné aux gardes des appelants, aucune atomicité globale Storage/DB ni réparation des anciennes collisions revendiquée.
+- CaseView et chaque version signalent les sources enregistrées après le début du calcul associé ; racine UUID exacte, PJ par email_id, documents par case_id, lectures RLS paginées. Date d'en-tête/date de version non utilisées ; erreur/reprise et sources sans date explicites.
+- Couverture historique toujours inconnue sans manifeste : aucun fait, statut, montant, tarif, qualification enregistrée ou historique promu/modifié par l'alerte. Les modifications tardives d'une source existante ne sont pas détectées.
+- CI complète locale exit0 :928Vitest/75fichiers,2350Deno/0échec/6ignorés ; config/bundles/types app-node/build PASS, Deno49/5 et lint710/16 identiques à la base. Audit UI119/73violations/46inconnus identique.
+- Ciblés :8PJ et10UI PASS ; avant PJ2PASS/6FAIL, sans assimiler ces six échecs à six pertes distinctes. Contre-revue ciblée sans BLOQUANT ; tests non exécutés par le relecteur.
+- PostgreSQL canonique en transaction annulée : racines distinctes au même sujet, sujet corrigé même racine, Date ancienne, UUID/rejeu/corps et lien dossier conservés. RPC import absente du banc permanent : aucune configuration ni migration d'adoption persistante créée.
+- Recette HTTP Auth/REST/SQL/Storage réels sur deux nouveaux dossiers fictifs : ensure-case idempotent, quatre PJ homonymes/octets distincts, correction et document tardif. Wrapper IMAP simulé ; son rejeu ne remplace pas la preuve du handler canonique.
+- Chrome headless/profil localhost dédié :7contrôles PASS, carte/version réelles, erreur injectée/reprise, captures bureau390px inspectées ; CaseView complet non recetté ici. Faits/décisions/versions préexistants et original/deux docs/.claude/guide préservés.
+- PARTIAL : protections FROZEN inégales, repli premier email, citations et attribution IA restent démontrés. Proposition supersede_fact hors dépôt : avant3FAIL/2PASS, après5PASS sous verrou, ACL clients fermées, ROLLBACK/définition restaurée ; aucun correctif RPC installé. Concurrence intersessions/operator_correction SQL NOT_RUN.
+- Preuves/diff/reprise : task-3/thread-evolution-20261018/checkpoint.json. Fournisseurs réels IMAP/OCR/IA, Vault natif et recette Cloud authentifiée NOT_RUN/BLOCKED. Aucun calcul/version/PDF métier Cloud, envoi ou publication publique.
+- Suite FROZEN : vérifier la portée de l'exception structurelle existante pour garde atomique/refus/appelants/corrections/citations ; ne pas inférer un GO nouveau. Livraison indépendante sous GO weekend : work, frontend privé et trois fonctions PJ nommées ; aucune migration requise. Retour : inverse ciblé/redéploiement sous GO, sources/historiques conservés ; anti-veille jusqu'au19/10 18UTC sans prolongation.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

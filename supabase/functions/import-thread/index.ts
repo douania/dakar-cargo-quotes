@@ -1121,7 +1121,7 @@ function getAttachmentDedupKey(filename: string, size: number): string {
   return size > 0 ? `${filename}|${size}` : filename;
 }
 
-async function processAttachment(
+export async function processAttachment(
   client: IMAPClient,
   uid: number,
   attachment: AttachmentInfo,
@@ -1186,16 +1186,15 @@ async function processAttachment(
     console.log(`Downloaded ${content.length} bytes for ${attachment.filename}`);
     
     // Generate storage path
-    const timestamp = Date.now();
     const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const storagePath = `email-attachments/${emailId}/${timestamp}_${safeName}`;
+    const storagePath = `email-attachments/${emailId}/${crypto.randomUUID()}_${safeName}`;
     
     // Upload to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from('documents')
       .upload(storagePath, content, {
         contentType: attachment.contentType,
-        upsert: true
+        upsert: false
       });
     
     if (uploadError) {
