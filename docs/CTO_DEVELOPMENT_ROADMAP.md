@@ -507,6 +507,21 @@ Règles non négociables :
 - PARTIAL maintenu : correction récente d'un fait non validé, citations et attribution IA restent distinctes. Un arbitrage produit unique porte sur proposition avec confirmation ou actualisation visible des seuls faits non validés ; aucun nouveau courriel n'est ici déclaré prioritaire ni validé automatiquement.
 - Preuves locales et original/deux docs/.claude/guide conservés ; fixtures/concurrences fictives gardées, jamais de suppression d'historique. Retour : code ciblé sous GO ; ne restaurer l'ancienne RPC permissive qu'après arbitrage explicite, préférer correction en avant et garder les faits/version/PDF.
 
+### 2.33 Complétude des demandes et preuve numérique des conteneurs — 18 octobre 2026
+
+- Mandat humain de vérification sourcée/corrections reproduites sous GO weekend ; même PC, exécuteur unique et contre-revue lecture seule. Aucun nouveau taux/règle métier, SQL/Auth/RLS/secret/configuration ni écriture métier Cloud.
+- Défaut LoLo reproduit : demande2x40HC enrichie de deux4x20GP issus du téléphone420355. Justification STRUCTURAL_PATCH_ALLOWED avant édition : deux reconnaisseurs de build-case-puzzle et fallback taille seuls, pipeline/provenance/gardes préservés, aucun refactor ni moteur tarifaire touché.
+- Tokens numériques complets et marque/unité/suffixe explicites requis ; téléphone/date/référence/dimensions ne deviennent plus équipements. Tailles20/40/45 seules admises sur chaîne entière ; FT conservé dans les deux chemins, HQ Basic sans troncature GP. Fusions distinctes des deux chemins inchangées.
+- Régression avant2PASS/7FAIL ; HQ avant9PASS/1FAIL puis43ciblés PASS. Contre-revue : blocage FT corrigé puis HQ borné accepté ; aucun BLOQUANT code/tests restant, aucune certification générale de classification.
+- Recette45appels réels GoTrue/PostgREST/PostgreSQL/handlers sur15nouvelles copies de5demandes sources : LoLo final2x40HC sans poids inventé ; faits manuels/validés testés conservés,621lignes préexistantes/identité locale et historiques inchangés.
+- AIR/DDP : quatre prestations destination proposées, fret origine absent, contrôle documentaire maintenu ; brut190/net151/taxable inconnu distincts. Handling/transport/douane inconnus réservés, zéro technique non affiché gratuit. Aucun arbitrage fiscal/aérien/commercial réel ni nouveau PDF.
+- Frais350000/200000 : règles Cloud existantes relues sans écriture, résolveur et projection du run sauvegardé649000provisoire vérifiés4PASS ; ce test ne certifie pas l'équivalence des catalogues incomplets du banc.
+- PARTIAL : quatre parcours scope500 sans IA puis pricing400 bloqué ; GoTrans conserve DG manuel mais extraction globale3x40HQ ne reconstitue pas ses trois lots/scénario opérateur non cloné. Export cité encore dupliqué et offre sortante fondée sur contexte cité : priorité/citations non corrigées.
+- Question produit déjà en attente : proposer une contradiction avec confirmation opérateur (recommandé) ou actualiser visiblement les seuls faits non validés avec provenance/alerte/historique ; aucune réponse inférée ni nouvelle demande envoyée.
+- CI complète finale exit0 :928Vitest/75fichiers,2380Deno/0échec/6ignorés ; config/bundles/types app-node/build PASS, Deno49/5 et lint709/16 inchangés. Sources identiques avant/après CI ; aucun seuil relevé.
+- Activation bornée sous GO : work puis build-case-puzzle seule après CI distante et contrôle natif2.6 ; aucune migration/publication publique/envoi. Accusés, diff exact et couverture dans task-3/service-completeness-20261018 ; binaire Edge distant et fournisseurs réels restent non certifiés.
+- Original/deux docs/.claude/guide préexistant préservés ; helpers/conteneurs locaux arrêtés sans supprimer données/volumes, anti-veille35580 conservé jusqu'au19/10 18UTC. Retour ciblé du code sous GO, garder la garde atomique précédente et tout historique/version/PDF.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

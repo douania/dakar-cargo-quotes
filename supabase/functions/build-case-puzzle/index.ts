@@ -2332,8 +2332,9 @@ export function parseContainersFromText(raw: string): Array<{ type: string; quan
 
   // quantity x size [unit] [type]. Multi-word special types come first in the
   // alternation so "FLAT RACK"/"OPEN TOP" win over the bare FR/OT tokens.
+  // STRUCTURAL_PATCH_ALLOWED: numeric references are not equipment evidence.
   const re =
-    /(\d+)\s*(?:X|\*|PCS|PC)?\s*(20|40|45)\s*(?:'|FT\.?|FEET|FOOT)?\s*[-]?\s*(FLAT\s*RACK|FLATRACK|OPEN\s*TOP|REEFER|HC|HQ|DV|GP|STD|FR|OT|RF)?/g;
+    /(?<![A-Z0-9])(\d+)\s*(?:X|\*|PCS|PC)?\s*(20|40|45)(?!\d)\s*(?:'|FT\.?|FEET|FOOT)?\s*[-]?\s*(FLAT\s*RACK|FLATRACK|OPEN\s*TOP|REEFER|HC|HQ|DV|GP|STD|FR|OT|RF)?(?![A-Z0-9])/g;
   const out: Array<{ type: string; quantity: number }> = [];
   let m: RegExpExecArray | null;
 
@@ -2341,6 +2342,8 @@ export function parseContainersFromText(raw: string): Array<{ type: string; quan
     const qty = Number(m[1]);
     const size = m[2];
     if (!Number.isFinite(qty) || qty <= 0) continue;
+    if (!m[3] && !/(?:X|\*|PCS?|['’′]|(?:FT\.?|FEET|FOOT)\b)/.test(m[0])) continue;
+    if (/^(?:[X*]\s*\d|(?:CM|MM|M|METRES?|METERS?)\b)/.test(cleaned.slice(re.lastIndex).trimStart())) continue;
     out.push({ type: `${size}${normalizeContainerSuffix(m[3] || "")}`, quantity: qty });
   }
 
@@ -2355,12 +2358,9 @@ export function parseContainersFromText(raw: string): Array<{ type: string; quan
     if (adjacent) {
       out.push({ type: `${adjacent[1]}${normalizeContainerSuffix(adjacent[2])}`, quantity: 1 });
     } else {
-      const has40 = cleaned.includes("40");
-      const has20 = cleaned.includes("20");
-      const has45 = cleaned.includes("45");
-      if (has40) out.push({ type: "40GP", quantity: 1 });
-      else if (has20) out.push({ type: "20GP", quantity: 1 });
-      else if (has45) out.push({ type: "45GP", quantity: 1 });
+      const unitOnly = cleaned.match(/\b(20|40|45)(?!\d)\s*(?:'|FT\.?\b|FEET\b|FOOT\b)/);
+      if (unitOnly) out.push({ type: `${unitOnly[1]}GP`, quantity: 1 });
+      else if (/^(20|40|45)$/.test(cleaned)) out.push({ type: `${cleaned}GP`, quantity: 1 });
     }
   }
 
@@ -8607,14 +8607,18 @@ export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedF
       }
     }
 
-    // Container detection
-    const containerMatch = body.match(/(\d+)\s*x?\s*(20|40)\s*'?\s*(hc|dv|rf|gp|ot|fr)?/gi);
-    if (containerMatch) {
-      const containers = containerMatch.map((m: string) => {
-        const parts = m.match(/(\d+)\s*x?\s*(20|40)\s*'?\s*(hc|dv|rf|gp|ot|fr)?/i);
+    // STRUCTURAL_PATCH_ALLOWED: keep this path's separate declarations while
+    // rejecting phone/reference digits and physical dimensions as containers.
+    const containerPattern = /(?<![a-z0-9])(\d+)\s*x?\s*(20|40)(?!\d)\s*(?:'|ft\.?|feet|foot)?\s*(hc|hq|dv|rf|gp|ot|fr)?(?![a-z0-9])/gi;
+    const containerMatch = Array.from(body.matchAll(containerPattern)).filter(m =>
+      (Boolean(m[3]) || /(?:[x']|(?:ft\.?|feet|foot)\b)/i.test(m[0])) &&
+      !/^(?:[x*]\s*\d|(?:cm|mm|m|metres?|meters?)\b)/i.test(body.slice((m.index ?? 0) + m[0].length).trimStart())
+    );
+    if (containerMatch.length > 0) {
+      const containers = containerMatch.map(parts => {
         return {
-          quantity: parseInt(parts?.[1] || "1"),
-          type: `${parts?.[2]}${(parts?.[3] || "GP").toUpperCase()}`.replace("DV", "GP"),
+          quantity: parseInt(parts[1]),
+          type: `${parts[2]}${(parts[3] || "GP").toUpperCase()}`.replace("DV", "GP"),
         };
       });
       facts.push({
