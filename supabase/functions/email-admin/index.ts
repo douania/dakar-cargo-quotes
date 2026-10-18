@@ -476,24 +476,32 @@ export const handler = async (req: Request) => {
 
       case 'get_threads_paginated': {
         // Paginated thread fetching
-        const page = data?.page || 0;
-        const pageSize = Math.min(data?.pageSize || 30, 50); // Max 50 per page
-        const from = page * pageSize;
+        const page = data?.page ?? 0;
+        const requestedSize = data?.pageSize ?? 30;
+        if (!Number.isSafeInteger(page) || page < 0 || !Number.isSafeInteger(requestedSize) || requestedSize < 1) {
+          throw new Error('Pagination invalide');
+        }
+        const pageSize = Math.min(requestedSize, 50);
+        const from = data?.offset ?? page * pageSize;
         const to = from + pageSize - 1;
+        if (!Number.isSafeInteger(from) || from < 0 || !Number.isSafeInteger(to)) throw new Error('Décalage invalide');
 
         const { data: threads, error, count } = await supabase
           .from('email_threads')
-          .select('id, subject_normalized, email_count, last_message_at, is_quotation_thread, client_email, our_role', { count: 'exact' })
+          .select('id, subject_normalized, email_count, first_message_at, last_message_at, is_quotation_thread, client_email, client_company, our_role, partner_email, project_name, participants, status', { count: 'exact' })
           .order('last_message_at', { ascending: false })
+          .order('id')
           .range(from, to);
 
         if (error) throw error;
+        if (count === null) throw new Error('Étendue des fils inconnue');
 
         return new Response(
           JSON.stringify({
             success: true,
             threads: threads || [],
-            totalCount: count || 0,
+            totalCount: count,
+            offset: from,
             page,
             pageSize
           }),

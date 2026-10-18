@@ -455,6 +455,15 @@ Règles non négociables :
 - Lecture Cloud de métadonnées :279mails dont271RFQ,164fils,68cas actifs,57messages au maximum par référence et7strings legacy ambiguës. Les limites des listes100mails/50cas/50fils et la recherche Dashboard restent au lot suivant ; aucun historique réparé ni donnée métier écrite.
 - Preuves/diff/recette/audit : task-3/email-history-ui-20261018 ; original/deux docs/.claude, guide local et anti-veille existant préservés. Retour : inverse ciblé UI sous GO, conserver liens et messages ; aucune migration ni publication générale.
 
+### 2.29 Lecture paginée des fils côté administration - 18 octobre 2026
+
+- GO weekend courriels appliqué ; exécuteur unique, contre-revue indépendante lecture seule. Sous-lot backend livré avant le client dépendant de l'offset explicite.
+- email-admin/get_threads_paginated uniquement : offset validé, plafond50 conservé, ordre last_message_at/id stable et total exact requis ; DTO complété avec les métadonnées déjà exploitées par les filtres UI. Anciens appels page conservés.
+- 8 tests du vrai handler/SDK avec transport fictif PASS ; sur le code précédent0PASS/8FAIL. Paramètres invalides refusés avant lecture métier, total absent distinct du zéro.
+- Aucun changement des gardes admin/workspace, Auth/RLS/Vault, migration, moteur FROZEN, calcul/tarif, compte/secret/configuration ; aucune écriture métier ni lecture IMAP réelle.
+- Contre-revue : echo offset exigé par le futur client, ancien DTO refusé ; aucun blocage backend résiduel. Preuves dans task-3/mail-list-integrity-20261018 ; CI et reçu natif à consolider après livraison privée.
+- Retour : inversion du seul delta puis redéploiement email-admin sous GO ; conserver les historiques. Le frontend des listes constitue le sous-lot suivant.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
