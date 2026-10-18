@@ -6,7 +6,7 @@ import { requireWorkspaceAccess } from "../_shared/auth.ts";
  * CTO Fix: Uses atomic supersede_fact RPC for fact updates
  * A1: AIR detection priority, cargo extraction, chargeable weight, incoterm fix
  */
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { loadPadGroupState, syncPadGroupGap, padGroupScopeRequired } from "../_shared/pad-group-store.ts";
 import { PAD_WEIGHT_REVIEW_FR } from "../_shared/pad-weight-reconciliation.ts";
@@ -908,16 +908,7 @@ async function deactivateSubjectContaminatedCurrentAirportFacts(
 
     if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals, emails)) continue;
 
-    const { error } = await serviceClient
-      .from("quote_facts")
-      .update({ is_current: false, updated_at: new Date().toISOString() })
-      .eq("id", fact.id)
-      .eq("case_id", caseId);
-
-    if (error) {
-      console.error(`[SUBJECT-GUARD] failed to deactivate stale current airport fact ${fact.fact_key}:`, error.message);
-      continue;
-    }
+    if (!await deactivateUnprotectedCurrentFact(serviceClient, caseId, fact.id)) continue;
 
     const side = routingSideForFactKey(fact.fact_key);
     const subjectMatch = getStaleEmailSubjectMatch(fact.source_excerpt, emails);
@@ -1056,6 +1047,22 @@ const DOC_TYPE_PRIORITY: Record<string, string[]> = {
 
 // S4: Canonical set for human-entered sources (legacy + current)
 const MANUAL_PROTECTED_SOURCES = new Set(['operator', 'manual_input']);
+class FactWriteNotConfirmedError extends Error {}
+
+// STRUCTURAL_PATCH_ALLOWED: conditional UPDATE rechecks protection under the row
+// lock, including a validation committed after an earlier extraction SELECT.
+// Only known automatic deactivation paths use this helper; no value is promoted.
+export async function deactivateUnprotectedCurrentFact(serviceClient: Pick<SupabaseClient, 'from'>, caseId: string, factId: string): Promise<boolean> {
+  const { data, error } = await serviceClient.from('quote_facts')
+    .update({ is_current: false, updated_at: new Date().toISOString() })
+    .eq('id', factId).eq('case_id', caseId).eq('is_current', true)
+    .not('is_validated', 'is', true)
+    .not('source_type', 'in', '(operator,manual_input,operator_correction)')
+    .select('id');
+  if (error) throw new FactWriteNotConfirmedError('Fact deactivation could not be confirmed: ' + error.message);
+  if (!Array.isArray(data)) throw new FactWriteNotConfirmedError('Fact deactivation result unavailable');
+  return data.length === 1;
+}
 
 // Sources that cannot be overwritten by assumptions
 const ASSUMPTION_PROTECTED_SOURCES = new Set([
@@ -2541,17 +2548,6 @@ function hasTransitFinalDestinationSignal(text: string): boolean {
   return /\b(?:in\s*transit|intransit|transit\s+(?:to|for|towards))\b/i.test(text || "");
 }
 
-function hasStoredFactValue(row: any): boolean {
-  if (!row) return false;
-  if (row.value_number !== null && row.value_number !== undefined && Number.isFinite(Number(row.value_number))) return true;
-  if (row.value_text !== null && row.value_text !== undefined && String(row.value_text).trim().length > 0) return true;
-  if (row.value_json !== null && row.value_json !== undefined) {
-    if (Array.isArray(row.value_json)) return row.value_json.length > 0;
-    return true;
-  }
-  return false;
-}
-
 const FCL_DETERMINISTIC_FACT_SOURCE_TYPE = "ai_extraction";
 
 function fclDeterministicSourceExcerpt(sourceExcerpt: string): string {
@@ -2562,7 +2558,7 @@ function fclDeterministicSourceExcerpt(sourceExcerpt: string): string {
   return prefixed.slice(0, 500);
 }
 
-async function upsertDeterministicFact(
+export async function upsertDeterministicFact(
   serviceClient: any,
   args: {
     case_id: string;
@@ -2578,13 +2574,13 @@ async function upsertDeterministicFact(
 ): Promise<"added" | "updated" | "skipped"> {
   const { data: existingFact } = await serviceClient
     .from("quote_facts")
-    .select("id, value_text, value_number, value_json, source_type")
+    .select("id, value_text, value_number, value_json, source_type, is_validated")
     .eq("case_id", args.case_id)
     .eq("fact_key", args.fact_key)
     .eq("is_current", true)
     .maybeSingle();
 
-  if (existingFact && hasStoredFactValue(existingFact) && MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? "")) {
+  if (existingFact && (existingFact.is_validated || existingFact.source_type === 'operator_correction' || MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? ""))) {
     console.log(`[FCL constraints] Skipping ${args.fact_key}: protected source (${existingFact.source_type})`);
     return "skipped";
   }
@@ -2611,8 +2607,7 @@ async function upsertDeterministicFact(
   });
 
   if (error) {
-    console.warn(`[FCL constraints] Failed to upsert ${args.fact_key}: ${error.message}`);
-    return "skipped";
+    throw new Error(`[FCL constraints] Failed to upsert ${args.fact_key}: ${error.message}`);
   }
 
   return existingFact ? "updated" : "added";
@@ -2676,10 +2671,7 @@ async function clearUnsafePerContainerTotalIfNeeded(
   const currentWeight = Number(existingFact.value_number);
   const excerpt = String(existingFact.source_excerpt || "");
   if (Number.isFinite(currentWeight) && currentWeight === perContainerWeightKg && /\bper\s*(?:container|cntr|ctr)\b/i.test(excerpt)) {
-    await serviceClient
-      .from("quote_facts")
-      .update({ is_current: false, updated_at: new Date().toISOString() })
-      .eq("id", existingFact.id);
+    if (!await deactivateUnprotectedCurrentFact(serviceClient, case_id, existingFact.id)) return false;
     console.log("[FCL constraints] Deactivated unsafe cargo.weight_kg copied from per-container weight");
     return true;
   }
@@ -3068,10 +3060,7 @@ async function deactivateConflictingCargoFact(
     return false;
   }
 
-  await serviceClient
-    .from("quote_facts")
-    .update({ is_current: false, updated_at: new Date().toISOString() })
-    .eq("id", existingFact.id);
+  if (!await deactivateUnprotectedCurrentFact(serviceClient, case_id, existingFact.id)) return false;
   console.log(`[CARGO-CONFLICT-GUARD] Deactivated conflicting current fact ${fact_key} (source=${source})`);
   return true;
 }
@@ -3727,12 +3716,10 @@ export async function applyClientValueCurrencyGuard(args: {
   if (created) result.gapsIdentified++;
 
   if (!MANUAL_PROTECTED_SOURCES.has(source)) {
-    await args.serviceClient
-      .from("quote_facts")
-      .update({ is_current: false, updated_at: new Date().toISOString() })
-      .eq("id", existingFact.id);
-    result.factsDeactivated++;
-    console.log(`[CURRENCY-GUARD] Deactivated stored value_currency=${storedCode} (source=${source}); client states ${clientCurrency}`);
+    if (await deactivateUnprotectedCurrentFact(args.serviceClient, args.case_id, existingFact.id)) {
+      result.factsDeactivated++;
+      console.log(`[CURRENCY-GUARD] Deactivated stored value_currency=${storedCode} (source=${source}); client states ${clientCurrency}`);
+    }
   } else {
     console.log(`[CURRENCY-GUARD] value_currency=${storedCode} from protected source '${source}' - gap raised, fact left untouched`);
   }
@@ -4151,7 +4138,7 @@ async function detectFlowType(serviceClient: any, factMap: Map<string, { value: 
   return 'UNKNOWN';
 }
 
-async function applyAssumptionRules(
+export async function applyAssumptionRules(
   caseId: string,
   serviceClient: any,
   emailIds: string[],
@@ -4162,7 +4149,7 @@ async function applyAssumptionRules(
   // Step 1: Load existing facts
   const { data: facts } = await serviceClient
     .from('quote_facts')
-    .select('fact_key, value_text, value_number, value_json, source_type')
+    .select('fact_key, value_text, value_number, value_json, source_type, is_validated')
     .eq('case_id', caseId)
     .eq('is_current', true);
 
@@ -4171,7 +4158,7 @@ async function applyAssumptionRules(
     for (const f of facts) {
       factMap.set(f.fact_key, {
         value: f.value_text || (f.value_json ? JSON.stringify(f.value_json) : '') || String(f.value_number || ''),
-        source: f.source_type,
+        source: f.is_validated || f.source_type === 'operator_correction' ? 'operator' : f.source_type,
       });
     }
   }
@@ -4631,6 +4618,12 @@ export async function injectAttachmentFacts(
         }
       }
 
+      // STRUCTURAL_PATCH_ALLOWED: re-check the effective target after a city/country redirect.
+      if (MANUAL_PROTECTED_SOURCES.has(factSourceMap.get(effectiveFactKey) ?? '')) {
+        result.skipped++;
+        continue;
+      }
+
       // Call supersede_fact RPC
       const { error: rpcError } = await serviceClient.rpc('supersede_fact', {
         p_case_id: caseId,
@@ -4751,7 +4744,7 @@ export async function injectAttachmentFacts(
               if (currency && !injectedKeys.has('cargo.value_currency')) {
                 const existCurr = factSourceMap.get('cargo.value_currency');
                 if (!MANUAL_PROTECTED_SOURCES.has(existCurr ?? '') && existCurr !== 'attachment_extracted') {
-                  await serviceClient.rpc('supersede_fact', {
+                  const { error: currencyError } = await serviceClient.rpc('supersede_fact', {
                     p_case_id: caseId, p_fact_key: 'cargo.value_currency', p_fact_category: 'cargo',
                     p_value_text: currency, p_value_number: null, p_value_json: null, p_value_date: null,
                     p_source_type: 'attachment_extracted', p_source_email_id: attachment.email_id || null,
@@ -4759,6 +4752,7 @@ export async function injectAttachmentFacts(
                     p_source_excerpt: `[${attachment.filename}] tariff_line currency: ${currency}`,
                     p_confidence: sourceConfidence(attachment.extracted_data),
                   });
+                  if (currencyError) throw new Error('Attachment currency could not be recorded: ' + currencyError.message);
                   injectedKeys.add('cargo.value_currency');
                   factSourceMap.set('cargo.value_currency', 'attachment_extracted');
                   result.added++;
@@ -4803,7 +4797,7 @@ export async function injectAttachmentFacts(
               if (currency && !injectedKeys.has('cargo.freight_currency')) {
                 const existCurr = factSourceMap.get('cargo.freight_currency');
                 if (!MANUAL_PROTECTED_SOURCES.has(existCurr ?? '') && existCurr !== 'attachment_extracted') {
-                  await serviceClient.rpc('supersede_fact', {
+                  const { error: currencyError } = await serviceClient.rpc('supersede_fact', {
                     p_case_id: caseId, p_fact_key: 'cargo.freight_currency', p_fact_category: 'cargo',
                     p_value_text: currency, p_value_number: null, p_value_json: null, p_value_date: null,
                     p_source_type: 'attachment_extracted', p_source_email_id: attachment.email_id || null,
@@ -4811,6 +4805,7 @@ export async function injectAttachmentFacts(
                     p_source_excerpt: `[${attachment.filename}] tariff_line currency: ${currency}`,
                     p_confidence: sourceConfidence(attachment.extracted_data),
                   });
+                  if (currencyError) throw new Error('Attachment freight currency could not be recorded: ' + currencyError.message);
                   injectedKeys.add('cargo.freight_currency');
                   factSourceMap.set('cargo.freight_currency', 'attachment_extracted');
                   result.added++;
@@ -6870,10 +6865,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         // C3.1-D: Guard against empty HS code — skip validation, deactivate fact
         if (!rawHsValue) {
           console.warn("[HS Post-Attach] Empty cargo.hs_code — skipping validation, deactivating fact");
-          await serviceClient.from("quote_facts")
-            .update({ is_current: false, updated_at: new Date().toISOString() })
-            .eq("id", hsFactRow.id);
-          factsUpdated++;
+          if (await deactivateUnprotectedCurrentFact(serviceClient, case_id, hsFactRow.id)) factsUpdated++;
         } else {
         // P1 Guard: skip post-attach validation for multi-HS CSV values
         const hsTokens = rawHsValue.split(/[;,]/).map((c: string) => c.trim()).filter(Boolean);
@@ -6894,11 +6886,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           // l'invalider et basculer en suggestion (jamais d'écriture cargo.hs_code par inférence SH6→unique).
           if (digitsOnly.length < 10) {
             console.warn(`[HS Post-Attach] Refused sub-10 promotion for existing fact (digits=${digitsOnly.length}, raw=${rawHsValue})`);
-            await serviceClient
-              .from("quote_facts")
-              .update({ is_current: false, updated_at: new Date().toISOString() })
-              .eq("id", hsFactRow.id);
-            factsUpdated++;
+            if (await deactivateUnprotectedCurrentFact(serviceClient, case_id, hsFactRow.id)) factsUpdated++;
             const { data: descFactPA } = await serviceClient
               .from("quote_facts").select("value_text").eq("case_id", case_id)
               .eq("fact_key", "cargo.description").eq("is_current", true).maybeSingle();
@@ -6920,7 +6908,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
             // Re-validation d'un cargo.hs_code DÉJÀ présent (manuel ou écrit par M3.4b/c sous garde Option C).
             // La garde Option C s'applique uniquement aux paths d'écriture initiale (M3.4b/c),
             // pas à la re-validation Post-Attach qui ne crée pas de nouveau fact d'origine externe.
-            await serviceClient.rpc("supersede_fact", {
+            const { error: hsResolutionError } = await serviceClient.rpc("supersede_fact", {
               p_case_id: case_id,
               p_fact_key: "cargo.hs_code",
               p_fact_category: "cargo",
@@ -6934,18 +6922,16 @@ export const buildCasePuzzleHandler = async (req: Request) => {
               p_source_excerpt: `[HS Resolution] ${rawHsValue} → ${hsResult.code10} (${hsResult.description || "N/A"})`,
               p_confidence: 1.0,
             });
+            if (hsResolutionError) throw new FactWriteNotConfirmedError('HS fact could not be superseded: ' + hsResolutionError.message);
             console.log(`[HS Post-Attach] Resolved ${rawHsValue} → ${hsResult.code10}`);
 
           } else {
             // ambiguous or not_found → invalidate the fact + create GAP
             // Deactivate the invalid fact
-            await serviceClient
-              .from("quote_facts")
-              .update({ is_current: false, updated_at: new Date().toISOString() })
-              .eq("id", hsFactRow.id);
-            factsUpdated++;
+            const hsDeactivated = await deactivateUnprotectedCurrentFact(serviceClient, case_id, hsFactRow.id);
+            if (hsDeactivated) factsUpdated++;
 
-            console.warn(`[HS Post-Attach] Invalidated cargo.hs_code=${rawHsValue} (${hsResult.status})`);
+            console.warn(`[HS Post-Attach] ${hsDeactivated ? 'Invalidated' : 'Preserved protected or concurrent'} cargo.hs_code=${rawHsValue} (${hsResult.status})`);
 
             // Create blocking GAP for cargo.hs_code
             const { data: existingHsGap } = await serviceClient
@@ -6981,6 +6967,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         } // end else (non-empty rawHsValue)
       }
     } catch (hsErr) {
+      if (hsErr instanceof FactWriteNotConfirmedError) throw hsErr;
       console.error("[HS Post-Attach] Unexpected error:", hsErr);
     }
 

@@ -492,6 +492,20 @@ Règles non négociables :
 - Preuves/diff/reprise : task-3/thread-evolution-20261018/checkpoint.json. Fournisseurs réels IMAP/OCR/IA, Vault natif et recette Cloud authentifiée NOT_RUN/BLOCKED. Aucun calcul/version/PDF métier Cloud, envoi ou publication publique.
 - Suite FROZEN : vérifier la portée de l'exception structurelle existante pour garde atomique/refus/appelants/corrections/citations ; ne pas inférer un GO nouveau. Livraison indépendante sous GO weekend : work, frontend privé et trois fonctions PJ nommées ; aucune migration requise. Retour : inverse ciblé/redéploiement sous GO, sources/historiques conservés ; anti-veille jusqu'au19/10 18UTC sans prolongation.
 
+### 2.32 Préservation atomique des faits opérateur/validés — 18 octobre 2026
+
+- GO weekend technique existant et invariant humain de préservation applicables ; justification STRUCTURAL_PATCH_ALLOWED propre aux faits consignée avant écriture, cinq conditions MASTER_CONTEXT/roadmap§2.1 vérifiées et contre-revues. Aucun nouveau GO FROZEN déduit du seul précédent AIR ni d'un avis IA.
+- Défauts prouvés : RPC canonique sans garde, cible pays redirigée contournant la protection, déterministe/hypothèses sans validation, sept désactivations directes et trois refus non contrôlés. Avant fonctions2PASS/11FAIL (7nouveaux tests helper exclus) ; après20SDK/handler PASS.
+- Seul build-case-puzzle FROZEN modifié : garde cible effective et faits validés, sept UPDATE conditionnels id/dossier/courant/source/validation avec RETURNING, compteurs réels ; refus devises/déterministe/HS observables, refus HS500 avant hypothèses. Aucun nouveau calcul/tarif/ordre de priorité entre demandes.
+- Migration20261018150000 : supersede_fact relit le courant FOR UPDATE sous verrou advisory existant et refuse P0001 avant archive/insertion automatique. Signature/SECURITY DEFINER/search_path/ACL service-only/CHECK source conservés ; aucun fait historique migré ni type operator_correction ajouté.
+- Fait manuel vide ou valeur validée inconnue préservés ; seul chemin manuel explicite peut les remplacer en conservant l'ancien et supersedes_fact_id. set-case-fact inchangé, deux contrôles du vrai handler PASS : manual_input accepté et erreur avant CL1/timeline.
+- PostgreSQL local natif :12contrôles + deux refus ACL PASS, empreinte pg_get_functiondef d3c75fc986055778c200475d6e447a2f et rejeu migration PASS. Deux contentions observées dans pg_stat_activity/pg_blocking_pids avant COMMIT (transactionid/advisory) ;100validé/courant et une seule ligne conservés.
+- CI complète exit0 :928Vitest/75fichiers,2370Deno/0échec/6ignorés ; types/config/bundles/build PASS, Deno49/5 inchangé, lint709/16 contre710/16. Nouveau TS2345 corrigé avant clôture ; onze anciennes fixtures échouaient sur not/UPDATE RETURNING manquants, contrat de cinq fakes adapté sans changer leurs assertions,75ciblés PASS.
+- Lot précédent livré78a15a2 : CI39136047574 tentative2SUCCESS (première timeout isolé brouillons), contrôle natif Deno2.6.10 ciblé0 ; import-thread/sync-emails/force-download-attachment seuls déployés, sondes200/401. Aperçu privé ready/non publié ; binaire distant UNKNOWN, aucune recette authentifiée réelle.
+- Livraison A sous même mandat après contre-revue/CI distante : work, migration bornée et build-case-puzzle seule ; étapes exactes/reçus dans task-3/fact-preservation-20261018. Aucun calcul/version/PDF métier Cloud, envoi, publication publique, rôle/compte/secret ou configuration modifiés.
+- PARTIAL maintenu : correction récente d'un fait non validé, citations et attribution IA restent distinctes. Un arbitrage produit unique porte sur proposition avec confirmation ou actualisation visible des seuls faits non validés ; aucun nouveau courriel n'est ici déclaré prioritaire ni validé automatiquement.
+- Preuves locales et original/deux docs/.claude/guide conservés ; fixtures/concurrences fictives gardées, jamais de suppression d'historique. Retour : code ciblé sous GO ; ne restaurer l'ancienne RPC permissive qu'après arbitrage explicite, préférer correction en avant et garder les faits/version/PDF.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

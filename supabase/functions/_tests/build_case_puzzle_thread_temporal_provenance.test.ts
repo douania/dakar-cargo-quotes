@@ -154,18 +154,30 @@ type GapRow = {
 
 class QueryBuilder {
   private filters: Array<[string, unknown]> = [];
+  private negativeFilters: Array<(row: Record<string, unknown>) => boolean> = [];
+  private returning = false;
   private operation: "select" | "update" | null = null;
   private updatePayload: Record<string, unknown> | null = null;
 
   constructor(private db: FakeServiceClient, private table: string) {}
 
   select() {
-    this.operation = "select";
+    if (this.operation === "update") this.returning = true;
+    else this.operation = "select";
     return this;
   }
 
   eq(key: string, value: unknown) {
     this.filters.push([key, value]);
+    return this;
+  }
+
+  not(key: string, operator: string, value: unknown) {
+    if (operator === "is" && value === true) this.negativeFilters.push(row => row[key] !== true);
+    else if (operator === "in" && typeof value === "string") {
+      const values = value.slice(1, -1).split(",");
+      this.negativeFilters.push(row => !values.includes(String(row[key])));
+    } else throw new Error("Unsupported negative fixture predicate");
     return this;
   }
 
@@ -191,8 +203,9 @@ class QueryBuilder {
 
   private execute() {
     if (this.operation === "update") {
-      for (const row of this.rows()) Object.assign(row as Record<string, unknown>, this.updatePayload);
-      return Promise.resolve({ data: null, error: null });
+      const rows = this.rows();
+      for (const row of rows) Object.assign(row as Record<string, unknown>, this.updatePayload);
+      return Promise.resolve({ data: this.returning ? rows : null, error: null });
     }
     return Promise.resolve({ data: this.rows(), error: null });
   }
@@ -200,6 +213,7 @@ class QueryBuilder {
   private rows(): Array<Record<string, unknown>> {
     const source = (this.table === "quote_facts" ? this.db.facts : this.db.gaps) as Array<Record<string, unknown>>;
     return source.filter((row: Record<string, unknown>) => {
+      if (!this.negativeFilters.every(predicate => predicate(row))) return false;
       for (const [key, value] of this.filters) {
         if (row[key] !== value) return false;
       }
