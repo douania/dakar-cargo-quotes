@@ -9,9 +9,10 @@ function fixture(facts:Row[]=[],attachments:Row[]=[]){
  const project=(r:Row,columns:string|null)=>!columns||columns==='*'?r:Object.fromEntries(columns.split(',').map(key=>[key,r[key]]));
  const json=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
  const client=createClient('https://fixture.invalid','synthetic-anon',{auth:{persistSession:false,autoRefreshToken:false},global:{fetch:async(input,init)=>{
-  const url=new URL(String(input)),table=url.pathname.split('/').pop()!,method=init?.method??'GET';assertEquals(url.hostname,'fixture.invalid');
-  if(table==='supersede_fact'){const p=JSON.parse(String(init?.body));rpc.push(p);return p.p_fact_key===failKey?json({message:'PROTECTED_FACT_REQUIRES_OPERATOR',code:'P0001'},400):json('new-fact');}
-  if(table==='case_timeline_events'&&method==='POST'){events.push(JSON.parse(String(init?.body)));return json(null,201);}
+  const options=init as {method?:string;body?:unknown;headers?:HeadersInit}|undefined;
+  const url=new URL(String(input)),table=url.pathname.split('/').pop()!,method=options?.method??'GET';assertEquals(url.hostname,'fixture.invalid');
+  if(table==='supersede_fact'){const p=JSON.parse(String(options?.body));rpc.push(p);return p.p_fact_key===failKey?json({message:'PROTECTED_FACT_REQUIRES_OPERATOR',code:'P0001'},400):json('new-fact');}
+  if(table==='case_timeline_events'&&method==='POST'){events.push(JSON.parse(String(options?.body)));return json(null,201);}
   if(method==='PATCH'){
    updates.push(url);if(failUpdate)return json({message:'Update refused'},503);
    if(validateBeforeUpdate&&rows[0])rows[0].is_validated=true;
@@ -23,8 +24,8 @@ function fixture(facts:Row[]=[],attachments:Row[]=[]){
    if(value==='not.is.true')selected=selected.filter(r=>r[key]!==true);
    if(value.startsWith('not.in.('))selected=selected.filter(r=>!value.slice(8,-1).split(',').includes(String(r[key])));
   }
-  if(method==='PATCH'){const patch=JSON.parse(String(init?.body));selected.forEach(r=>Object.assign(r,patch));}
-  const data=selected.map(r=>project(r,url.searchParams.get('select'))),single=new Headers(init?.headers).get('Accept')?.includes('vnd.pgrst.object');
+  if(method==='PATCH'){const patch=JSON.parse(String(options?.body));selected.forEach(r=>Object.assign(r,patch));}
+  const data=selected.map(r=>project(r,url.searchParams.get('select'))),single=new Headers(options?.headers).get('Accept')?.includes('vnd.pgrst.object');
   return json(single?data[0]??null:data);
  }}});
  return {client,rows,rpc,updates,events,set failKey(v:string){failKey=v;},set failRead(v:boolean){failRead=v;},set failUpdate(v:boolean){failUpdate=v;},set validateBeforeUpdate(v:boolean){validateBeforeUpdate=v;}};
@@ -77,19 +78,20 @@ Deno.test('fact preservation: real handler exposes HS resolution refusal instead
  Deno.env.set(keys[0],'https://fixture.invalid');Deno.env.set(keys[1],'synthetic-anon');Deno.env.set(keys[2],'synthetic-service');Deno.env.delete(keys[3]);
  const hs={id:'protected-hs',case_id:'case',fact_key:'cargo.hs_code',value_text:'99999999999',source_type:'email_body',is_validated:true,is_current:true};let refused=0,laterAssumptions=0;
  globalThis.fetch=async(input,init)=>{
-  const url=new URL(input instanceof Request?input.url:String(input)),method=init?.method??'GET';assertEquals(url.hostname,'fixture.invalid');
+  const options=init as {method?:string;body?:unknown;headers?:HeadersInit}|undefined;
+  const url=new URL(input instanceof Request?input.url:String(input)),method=options?.method??'GET';assertEquals(url.hostname,'fixture.invalid');
   const json=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json','Content-Range':'0-0/1'}});
   if(url.pathname.endsWith('/user'))return json({id:'operator',email:'operator@fixture.invalid'});
   if(url.pathname.endsWith('/has_workspace_access'))return json(true);
   if(url.pathname.endsWith('/supersede_fact')){
-   const p=JSON.parse(String(init?.body));
+   const p=JSON.parse(String(options?.body));
    if(p.p_fact_key==='cargo.hs_code'&&p.p_source_type==='hs_resolution'){refused++;return json({code:'P0001',message:'PROTECTED_FACT_REQUIRES_OPERATOR'},400);}
    if(p.p_source_type==='ai_assumption')laterAssumptions++;return json('new-fact');
   }
   if(url.pathname.includes('/rpc/'))return json([]);
   if(method==='HEAD')return new Response(null,{headers:{'Content-Range':'*/0'}});
   if(method!=='GET')return json([]);
-  const single=new Headers(init?.headers).get('Accept')?.includes('vnd.pgrst.object'),table=url.pathname.split('/').pop();
+  const single=new Headers(options?.headers).get('Accept')?.includes('vnd.pgrst.object'),table=url.pathname.split('/').pop();
   if(table==='quote_cases')return json({id:'case',thread_id:'thread',status:'FACTS_PARTIAL',request_type:'UNKNOWN',email_threads:{id:'thread',client_email:'buyer@fixture.invalid',subject_normalized:'Merci'}});
   if(table==='emails')return json([{id:'mail',thread_ref:'thread',from_address:'buyer@fixture.invalid',to_addresses:['operator@fixture.invalid'],subject:'Merci',body_text:'Merci reçu.',sent_at:'2026-10-18T12:00:00Z'}]);
   if(table==='hs_codes'){const code={code_normalized:'9999999999',description:'SYNTHETIC ONLY'};return json(single?code:[code]);}
