@@ -66,9 +66,11 @@ async function run(s: Scenario = {}) {
     throw new Error(`Unhandled fixture filter ${key}=${filter}`);
   };
   globalThis.fetch = async (input, init) => {
+    // Deno/Node define different RequestInit overloads; this fixture consumes only these fields.
+    const options = init as { method?: string; body?: unknown; headers?: HeadersInit } | undefined;
     const url = new URL(input instanceof Request ? input.url : String(input));
     assertEquals(url.hostname, "fixture.invalid");
-    const method = init?.method ?? "GET", table = url.pathname.split("/").at(-1)!;
+    const method = options?.method ?? "GET", table = url.pathname.split("/").at(-1)!;
     requests.push(`${method} ${table} ${url.search}`);
     const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
     if (table === "user") return json({ id: "fixture-operator", email: "operator@example.invalid" });
@@ -86,13 +88,13 @@ async function run(s: Scenario = {}) {
       });
       return matches(row, key, value);
     }));
-    if (method === "PATCH") { const patch = JSON.parse(String(init?.body)); rows.forEach(row => Object.assign(row, patch)); return json(rows); }
+    if (method === "PATCH") { const patch = JSON.parse(String(options?.body)); rows.forEach(row => Object.assign(row, patch)); return json(rows); }
     if (method === "POST") {
-      const row = { id: `new-${table}`, ...JSON.parse(String(init?.body)) }; db[table].push(row); return json(row);
+      const row = { id: `new-${table}`, ...JSON.parse(String(options?.body)) }; db[table].push(row); return json(row);
     }
     const offset = Number(url.searchParams.get("offset") ?? 0), limit = Number(url.searchParams.get("limit") ?? rows.length);
     rows = rows.slice(offset, offset + limit);
-    const accept = new Headers(init?.headers).get("accept") ?? "";
+    const accept = new Headers(options?.headers).get("accept") ?? "";
     return json(accept.includes("vnd.pgrst.object") ? rows[0] ?? null : rows);
   };
   try {

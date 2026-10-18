@@ -439,7 +439,21 @@ Règles non négociables :
 - CI finale npm run ci exit0 :873Vitest/69fichiers,2334Deno/0échec/6ignorés ; config/bundles/types app/node/build PASS, Deno49/5 et lint716/16 identiques au départ, seuils inchangés.
 - Contre-revue : blocage horodatage/reçus corrigé puis levé ; aucun BLOQUANT résiduel sur le delta. Preuves/diff/CI et statut d’accès dans task-3/email-request-integrity-20261018 ; guide local de clôture et original/deux docs/.claude préservés.
 - Statut natif Lovable relu le18/10 : navigateur isolé signed_out, aucun outil navigateur officiel ; recette Cloud authentifiée BLOCKED. Anti-veille existant PID35580 actif jusqu’au19/10 18UTC, sans prolongation ni nouveau réglage.
-- Livraison privée : uniquement sync-emails depuis le commit validé ; aucune synchronisation réelle déclenchée. Retour ciblé par inverse du delta/redéploiement sous GO, sans suppression d’historique. Les listes/recherches UI voisines font l’objet du lot suivant.
+- Livraison privée fe614f6 : CI39128159059 SUCCESS, accusé natif sync-emails seul, OPTIONS200/POST sans auth401 ; arbre fonctions8d9a2ee9. Aucune synchronisation réelle déclenchée. Retour ciblé par inverse du delta/redéploiement sous GO, sans suppression d’historique. Les listes/recherches UI voisines font l’objet du lot suivant.
+
+### 2.28 Historique de conversation et références affichées - 18 octobre 2026
+
+- GO weekend de poursuite appliqué au lot lecture UI ; exécutant unique, contre-revue indépendante. Aucun changement Auth/RLS/SQL/Storage, moteur FROZEN, fait/tarif ni corps/PJ persisté.
+- Fil exact sous RLS existante : pages récentes de50, total serveur requis, décalage réel avancé même sous plafond API réduit ; suite accessible et affichage chronologique. Compteurs PJ paginés par IDs de la page, refus de lecture jamais converti en zéro.
+- Erreur initiale, échec après fil vide en cache et page ancienne refusée : alerte/reprise explicites, pages acquises conservées ; réponse tardive d’un autre fil invisible. Le0 nu issu d’une condition React est supprimé.
+- Badges expéditeur à adresse/domaine exacts, sans rôle inféré depuis un morceau de nom ou un domaine ressemblant ; aucune règle de sécurité backend modifiée.
+- Tableau de bord : helper de groupement extrait seul pour testabilité ; référence canonique propre prioritaire, legacy ambigu non fusionné, référence ultérieure ouvrable et pages chevauchantes dédupliquées. Aucune adoption persistante.
+- 14tests UI PASS, avant1PASS/13FAIL ; contrôles métier de lecture/erreur/reprise et identité. Recette Chrome headless à profil dédié localhost7PASS : HTTP/SDK réels, données fictives, clavier,51messages/1001PJ et390px ; captures inspectées. Auth/RLS/SQL/IMAP réels non validés par ce banc, aucun profil personnel consulté.
+- CI finale npm run ci exit0 :887Vitest/71fichiers,2334Deno/0échec/6ignorés ; config/bundles/types app/node/build PASS, Deno49/5 identique, lint715/16 contre716/16 ; audit UI119constats/73violations/46inconnus avant/après, aucune conformité globale revendiquée.
+- Compilateur Lovable2.6 : quatreTS2339 nouveaux du mock RequestInit identifiés, jamais assimilés à la baseline ; fixture seule rendue structurellement portable, contrôle local explicite et34handlers PASS. Contrôle natif frais requis après synchronisation ; index backend inchangé, aucun redéploiement Edge nécessaire.
+- Contre-revue : cache vide/erreur corrigé puis levé ; complément zéro/fixture et7reçus accepté, aucun BLOQUANT local. Pagination par décalage sans instantané concurrent et groupement limité aux lignes chargées restent des limites connues.
+- Lecture Cloud de métadonnées :279mails dont271RFQ,164fils,68cas actifs,57messages au maximum par référence et7strings legacy ambiguës. Les limites des listes100mails/50cas/50fils et la recherche Dashboard restent au lot suivant ; aucun historique réparé ni donnée métier écrite.
+- Preuves/diff/recette/audit : task-3/email-history-ui-20261018 ; original/deux docs/.claude, guide local et anti-veille existant préservés. Retour : inverse ciblé UI sous GO, conserver liens et messages ; aucune migration ni publication générale.
 
 ## 3. Travaux vérifiés comme terminés
 

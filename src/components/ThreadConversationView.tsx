@@ -7,6 +7,7 @@ import { Paperclip, Star, User, Building, Briefcase } from 'lucide-react';
 import { extractPlainTextFromMime } from '@/lib/email/extractPlainTextFromMime';
 import { useThreadEmails, getSenderType, type SenderType } from '@/hooks/useThreadEmails';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface ThreadConversationViewProps {
@@ -76,7 +77,10 @@ function formatDate(dateStr: string | null): string {
 }
 
 export function ThreadConversationView({ threadId, clientEmail, partnerEmail }: ThreadConversationViewProps) {
-  const { data: thread, isLoading } = useThreadEmails(threadId);
+  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetching, isFetchNextPageError } = useThreadEmails(threadId);
+  const thread = data?.pages[0];
+  const emails = [...new Map(data?.pages.flatMap(page => page.emails).map(email => [email.id, email]) ?? []).values()]
+    .sort((a, b) => (Date.parse(a.sent_at || '') || 0) - (Date.parse(b.sent_at || '') || 0) || a.id.localeCompare(b.id));
 
   if (isLoading) {
     return (
@@ -94,7 +98,14 @@ export function ThreadConversationView({ threadId, clientEmail, partnerEmail }: 
     );
   }
 
-  if (!thread || thread.emails.length === 0) {
+  if (isError && (!thread || emails.length === 0)) {
+    return <div role="alert" className="space-y-3 py-4 text-destructive">
+      <p>Impossible de charger ce fil et ses pièces jointes.</p>
+      <Button variant="outline" onClick={() => void refetch()}>Réessayer</Button>
+    </div>;
+  }
+
+  if (!thread || emails.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         Aucun message dans ce fil
@@ -105,7 +116,7 @@ export function ThreadConversationView({ threadId, clientEmail, partnerEmail }: 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
-        <span>{thread.emails.length} message{thread.emails.length > 1 ? 's' : ''}</span>
+        <span>{emails.length} message{emails.length > 1 ? 's' : ''}{hasNextPage ? ' chargés · historique partiel' : ''}</span>
         {thread.client_email && (
           <Badge variant="outline" className="gap-1">
             <User className="h-3 w-3" />
@@ -125,7 +136,7 @@ export function ThreadConversationView({ threadId, clientEmail, partnerEmail }: 
         <div className="absolute left-5 top-0 bottom-0 w-px bg-border" />
 
         <div className="space-y-4">
-          {thread.emails.map((email, index) => {
+          {emails.map((email) => {
             const senderType = getSenderType(
               email.from_address, 
               clientEmail || thread.client_email, 
@@ -190,7 +201,7 @@ export function ThreadConversationView({ threadId, clientEmail, partnerEmail }: 
                     </div>
 
                     {/* Attachments indicator */}
-                    {email.attachmentCount && email.attachmentCount > 0 && (
+                    {(email.attachmentCount ?? 0) > 0 && (
                       <div className="flex items-center gap-1 mt-3 text-xs text-muted-foreground">
                         <Paperclip className="h-3 w-3" />
                         {email.attachmentCount} pièce{email.attachmentCount > 1 ? 's' : ''} jointe{email.attachmentCount > 1 ? 's' : ''}
@@ -203,6 +214,11 @@ export function ThreadConversationView({ threadId, clientEmail, partnerEmail }: 
           })}
         </div>
       </div>
+      {isError && <p role="alert" className="text-sm text-destructive">Historique incomplet : la dernière lecture a échoué. Les messages déjà chargés sont conservés.</p>}
+      {(hasNextPage || isError) && <Button variant="outline" disabled={isFetching}
+        onClick={() => void (isFetchNextPageError || (!isError && hasNextPage) ? fetchNextPage() : refetch())}>
+        {isFetching ? 'Chargement…' : isError ? 'Réessayer' : 'Charger les messages plus anciens'}
+      </Button>}
     </div>
   );
 }

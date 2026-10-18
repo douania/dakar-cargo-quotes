@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 export interface ThreadEmail {
@@ -25,8 +25,8 @@ export interface ThreadWithEmails {
 const SODATRA_DOMAINS = ['sodatra.sn', 'sodatra.com'];
 
 export function isSodatraEmail(email: string): boolean {
-  const domain = email.split('@')[1]?.toLowerCase();
-  return SODATRA_DOMAINS.some(d => domain?.includes(d));
+  const parts = email.trim().toLowerCase().split('@');
+  return parts.length === 2 && !!parts[0] && SODATRA_DOMAINS.includes(parts[1]);
 }
 
 export type SenderType = 'internal' | 'client' | 'partner' | 'unknown';
@@ -36,31 +36,22 @@ export function getSenderType(
   clientEmail: string | null, 
   partnerEmail: string | null
 ): SenderType {
-  const from = fromAddress.toLowerCase();
+  const from = fromAddress.trim().toLowerCase();
   
   if (isSodatraEmail(from)) return 'internal';
-  if (clientEmail && from.includes(clientEmail.toLowerCase().split('@')[0])) return 'client';
-  if (partnerEmail && from.includes(partnerEmail.toLowerCase().split('@')[0])) return 'partner';
-  
-  // Check domain match for client/partner
-  const fromDomain = from.split('@')[1];
-  if (clientEmail) {
-    const clientDomain = clientEmail.split('@')[1];
-    if (fromDomain === clientDomain) return 'client';
-  }
-  if (partnerEmail) {
-    const partnerDomain = partnerEmail.split('@')[1];
-    if (fromDomain === partnerDomain) return 'partner';
-  }
+  if (clientEmail && from === clientEmail.trim().toLowerCase()) return 'client';
+  if (partnerEmail && from === partnerEmail.trim().toLowerCase()) return 'partner';
   
   return 'unknown';
 }
 
 export function useThreadEmails(threadId: string | null) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['thread-emails', threadId],
-    queryFn: async (): Promise<ThreadWithEmails | null> => {
-      if (!threadId) return null;
+    initialPageParam: 0,
+    getNextPageParam: (page: ThreadWithEmails & { nextOffset: number | null }) => page.nextOffset ?? undefined,
+    queryFn: async ({ pageParam }): Promise<ThreadWithEmails & { nextOffset: number | null }> => {
+      if (!threadId) throw new Error('Fil absent');
       
       // Fetch thread info
       const { data: thread, error: threadError } = await supabase
@@ -70,10 +61,10 @@ export function useThreadEmails(threadId: string | null) {
         .single();
       
       if (threadError) throw threadError;
-      if (!thread) return null;
+      if (!thread) throw new Error('Fil inaccessible');
       
-      // Fetch all emails in thread
-      const { data: emails, error: emailsError } = await supabase
+      // Server count and an advancing cursor prevent a server row cap from hiding history.
+      const { data: emails, error: emailsError, count } = await supabase
         .from('emails')
         .select(`
           id,
@@ -84,29 +75,41 @@ export function useThreadEmails(threadId: string | null) {
           body_text,
           sent_at,
           is_quotation_request
-        `)
+        `, { count: 'exact' })
         .eq('thread_ref', threadId)
-        .order('sent_at', { ascending: true });
+        .order('sent_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false })
+        .range(pageParam, pageParam + 49);
       
       if (emailsError) throw emailsError;
+      if (!emails || !Number.isSafeInteger(count) || count === null || count < 0) {
+        throw new Error('Étendue de l’historique indisponible');
+      }
       
       // Fetch attachment counts
-      const emailIds = (emails || []).map(e => e.id);
-      const { data: attachments } = await supabase
-        .from('email_attachments')
-        .select('email_id')
-        .in('email_id', emailIds);
-      
+      const visibleEmails = (emails || []).slice(0, 50);
+      if (visibleEmails.length === 0 && pageParam < count) throw new Error('Historique incomplet');
+      const emailIds = visibleEmails.map(e => e.id);
       const attachmentCounts: Record<string, number> = {};
-      (attachments || []).forEach(att => {
-        if (att.email_id) {
-          attachmentCounts[att.email_id] = (attachmentCounts[att.email_id] || 0) + 1;
+      if (emailIds.length > 0) {
+        for (let offset = 0; ;) {
+          const { data: attachments, error: attachmentError, count: total } = await supabase
+            .from('email_attachments').select('email_id', { count: 'exact' }).in('email_id', emailIds)
+            .order('id').range(offset, offset + 499);
+          if (attachmentError || !attachments || total === null || !Number.isSafeInteger(total)
+            || total < 0 || (attachments.length === 0 && offset < total)) throw new Error('Lecture des pièces jointes impossible');
+          for (const att of attachments) {
+            if (att.email_id) attachmentCounts[att.email_id] = (attachmentCounts[att.email_id] || 0) + 1;
+          }
+          offset += attachments.length;
+          if (offset >= total) break;
         }
-      });
+      }
       
       return {
         ...thread,
-        emails: (emails || []).map(e => ({
+        nextOffset: pageParam + visibleEmails.length < count ? pageParam + visibleEmails.length : null,
+        emails: visibleEmails.map(e => ({
           ...e,
           attachmentCount: attachmentCounts[e.id] || 0,
         })),
