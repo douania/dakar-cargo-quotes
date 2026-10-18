@@ -134,10 +134,10 @@ describe('listes de courriels sous lecture existante', () => {
       to_addresses: ['recipient@fixture.invalid'], body_text: 'Fictif' }));
     f.failConfig = true; show(); tab(/Brouillons/); await screen.findByText('Brouillon 0');
     f.failDraftAt = 0;
-    fireEvent.click(screen.getByRole('button', { name: 'Réessayer les lectures' }));
-    await screen.findByRole('button', { name: 'Réessayer les brouillons' });
+    fireEvent.click(screen.getByText('Réessayer les lectures', { selector: 'button' }));
+    await screen.findByText('Réessayer les brouillons', { selector: 'button' });
     f.failDraftAt = null; const before = f.reads.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Réessayer les brouillons' }));
+    fireEvent.click(screen.getByText('Réessayer les brouillons', { selector: 'button' }));
     await waitFor(() => expect(f.reads.length).toBeGreaterThan(before));
     expect(f.reads.slice(before).filter(r => r.table === 'email_drafts').map(r => r.from)).toEqual([0]);
     expect(screen.queryByText('Brouillon 60')).not.toBeInTheDocument();
