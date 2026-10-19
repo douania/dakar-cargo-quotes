@@ -1628,7 +1628,7 @@ Deno.serve(async (req) => {
 
     const effectiveBlockingGapsRows = (blockingGapsRows || []).filter((g: {gap_key:string}) => !customsBasis || !['cargo.hs_code','cargo.value','cargo.value_currency','customs.regime_code'].includes(g.gap_key));
     const blockingGapsCount = effectiveBlockingGapsRows.length;
-    if (partialDestination && blockingGapsReadError) throw new Error('Blocking gap verification failed');
+    if (blockingGapsReadError) throw new Error('Blocking gap verification failed');
     if (partialDestination) for (const gap of effectiveBlockingGapsRows) {
       if (PARTIAL_CUSTOMS_GAP_KEYS.has(gap.gap_key)) partialCustomsDependencies.add(gap.gap_key);
     }

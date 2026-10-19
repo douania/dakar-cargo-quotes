@@ -258,6 +258,14 @@ Deno.test("export SEA_FREIGHT orchestration is idempotent on rerun", async () =>
   assertEquals(db.gaps.filter((g) => g.status === "open").length, 1);
   assertEquals(db.requests.length, 1);
 });
+Deno.test('export SEA_FREIGHT draft retains final city when no final_destination alias is stored',async()=>{
+ const facts=exportFacts().filter(f=>!['routing.destination_port','routing.final_destination'].includes(f.fact_key));
+ facts.push(fact('case-export','routing.destination_city','Bunia'));
+ const db=new FakeServiceClient(facts);
+ await ensureExportSeaFreightPartnerOrchestration({case_id:'case-export',serviceClient:db});
+ assert(db.requests[0].purpose_detail?.includes('Destination finale : Bunia'));
+ assertEquals(db.requests[0].status,'draft');assertEquals(db.requests[0].partner_email,null);
+});
 
 Deno.test("export SEA_FREIGHT orchestration keeps gap but does not duplicate existing open freight_rate request", async () => {
   const db = new FakeServiceClient(exportFacts());

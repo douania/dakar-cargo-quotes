@@ -5,6 +5,8 @@ import { assertLoadedDocumentSources, beginDocumentAnalysis, documentAnalysisJob
 import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { decodeEmailQuoteView, splitEmailQuoteContext } from "../_shared/email-quote-context.ts";
+import { assessRequestSourceContract, contractHash, explicitSeaGatewayClauses, seaGatewayAliasCandidates,
+  SOURCE_CONTRACT_PREFIX, syncRequestSourceContract, type ContractEvidence, type ContractSource } from '../_shared/request-source-contract.ts';
 /**
  * Phase A1: build-case-puzzle
  * Analyzes thread emails/attachments and populates facts/gaps
@@ -968,6 +970,7 @@ const ATTACHMENT_FACT_MAPPING: Record<string, { factKey: string; category: strin
   'vessel_name': { factKey: 'transport.vessel', category: 'transport', valueType: 'text' },
   'bl_number': { factKey: 'transport.bl_number', category: 'transport', valueType: 'text' },
   'number_of_packages': { factKey: 'cargo.pieces_count', category: 'cargo', valueType: 'number' },
+  'number_of_containers': { factKey: 'cargo.containers', category: 'cargo', valueType: 'text' },
   'customer_name': { factKey: 'contacts.client_company', category: 'contacts', valueType: 'text' },
   'supplier_name': { factKey: 'contacts.shipper', category: 'contacts', valueType: 'text' },
 };
@@ -2052,12 +2055,74 @@ export function ownFactEmailBody(rawBody: string): string {
 
 function quoteAwareEmailText(rawBody:string):string { return decodeEmailQuoteView(rawBody,extractPlainTextFromMime); }
 
-type FactEmailSource = { id: string; from_address?: string; body_text?: string | null; sent_at?: string | null; subject?: string | null };
+type FactEmailSource = { id: string; from_address?: string | null; body_text?: string | null; sent_at?: string | null; subject?: string | null };
 export function buildFactEmailContext(emails: FactEmailSource[]): string {
   return emails.filter(e => !isSodatraEmail(e.from_address || '')).map(e => {
     const sections = splitEmailQuoteContext(quoteAwareEmailText(e.body_text || ''));
     return `[Email source_id=${e.id}; sent_at=${e.sent_at || 'unknown'}; sender=${e.from_address || 'unknown'}; subject_metadata=${JSON.stringify(e.subject || '')}]\n${sections.ownText}\n${sections.hasQuotedHistory ? '[Quoted/forwarded history retained in raw source; not a new instruction.]' : ''}`;
   }).join('\n\n---\n\n');
+}
+
+export async function extractExplicitSeaGatewayFacts(client: SupabaseClient, emails: FactEmailSource[]): Promise<ExtractedFact[]> {
+  const sources=emails.filter(e=>!isSodatraEmail(e.from_address || '')).map(e=>({id:e.id,text:ownFactEmailBody(e.body_text || '')}));
+  if(!/\b(?:container|vessel|sea\s*freight)\b/i.test(buildFactEmailContext(emails)))return [];
+  const facts: ExtractedFact[]=[];
+  for(const proposal of explicitSeaGatewayClauses(sources)){
+    const aliases=seaGatewayAliasCandidates(proposal.gateway);if(!aliases.length)continue;
+    const {data,error}=await client.from('location_aliases')
+      .select('locations_reference!inner(canonical_name,location_type,is_active)')
+      .in('normalized_alias',aliases).eq('locations_reference.location_type','sea').eq('locations_reference.is_active',true);
+    if(error)throw new Error('Sea gateway reference could not be verified: '+error.message);
+    const names=new Set((data || []).flatMap(row=>Array.isArray(row.locations_reference)?row.locations_reference:[row.locations_reference])
+      .filter(location=>location?.is_active&&location.location_type==='sea').map(location=>String(location.canonical_name)));
+    if(names.size!==1)continue;
+    for(const [key,value] of [['routing.destination_port',[...names][0]],['routing.destination_city',proposal.finalCity],['routing.final_destination',proposal.finalCity]]){
+      facts.push({key,category:'routing',value,valueType:'text',sourceType:'email_body',sourceEmailId:proposal.emailId,sourceExcerpt:proposal.excerpt,confidence:.95});
+    }
+  }
+  return facts;
+}
+
+export async function applySourceContractReview(caseId:string,client:SupabaseClient,sources:ContractSource[],collectionComplete:boolean):Promise<number>{
+  const evidence=await assessRequestSourceContract(sources,collectionComplete);
+  let previousEventId:string|null=null;
+  return await syncRequestSourceContract({
+    async readPrevious(){
+      const {data,error}=await client.from('case_timeline_events').select('id,event_data').eq('case_id',caseId)
+        .eq('event_type','case_reasoning_v1').eq('event_data->>kind','source_contract_review')
+        .order('created_at',{ascending:false}).limit(1).maybeSingle();
+      if(error)throw new Error('Contract evidence read failed: '+error.message);
+      if(!data)return null;
+      previousEventId=data.id;
+      const value=data.event_data;
+      if(value?.kind!=='source_contract_review'||value.version!==1||typeof value.fingerprint!=='string'||!Array.isArray(value.conflicts))throw new Error('Contract evidence invalid');
+      return value as ContractEvidence;
+    },
+    async readGaps(){
+      const {data,error}=await client.from('quote_gaps').select('id,gap_key,status,question_fr,is_blocking,waived_by,waived_reason')
+        .eq('case_id',caseId).in('gap_key',[SOURCE_CONTRACT_PREFIX+'export_customs',SOURCE_CONTRACT_PREFIX+'rfq_deadline']);
+      if(error||!Array.isArray(data))throw new Error('Contract gaps read failed: '+(error?.message || 'invalid rows'));
+      return data;
+    },
+    async ensureGap(conflict,existing){
+      const values=[...new Set(conflict.assertions.map(a=>`${a.sourceKind==='email'?'Courriel':'Pièce'} : ${a.value}`))].join(' ; ');
+      const question=conflict.question+' '+values;
+      if(existing?.is_blocking&&existing.question_fr===question)return;
+      const payload={is_blocking:true,priority:'critical',question_fr:question,question_en:question};
+      const result=existing
+        ? await client.from('quote_gaps').update(payload).eq('id',existing.id).eq('case_id',caseId).eq('status','open').select('id').single()
+        : await client.from('quote_gaps').insert({...payload,case_id:caseId,gap_key:conflict.key,gap_category:conflict.category,status:'open'}).select('id').single();
+      if(result.error||!result.data)throw new Error('Contract conflict could not be recorded: '+(result.error?.message || 'no receipt'));
+    },
+    async appendEvidence(value){
+      const hash=await contractHash(caseId+':'+(previousEventId || 'initial')+':'+value.fingerprint);
+      const id=`${hash.slice(0,8)}-${hash.slice(8,12)}-5${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
+      const {error}=await client.from('case_timeline_events').upsert({id,case_id:caseId,event_type:'case_reasoning_v1',actor_type:'system',event_data:{...value,
+        summary:value.conflicts.length?'Contradictions documentaires à arbitrer avant cotation':'Comparaison sourcée des clauses de demande',
+        previous_contract_event_id:previousEventId,questions_to_confirm:value.conflicts.map(c=>c.question),services_expected:[],confidence:value.conflicts.length?'low':'high'}},{onConflict:'id',ignoreDuplicates:true});
+      if(error)throw new Error('Contract evidence could not be recorded: '+error.message);
+    },
+  },evidence);
 }
 
 export function ownEvidenceEmailId(excerpt: string, sources: Array<{id:string; text:string}>): string | null {
@@ -2349,7 +2414,7 @@ export function parseContainersFromText(raw: string, mergeSameTypes = true, expl
   const s = stripQuotedEmailHistory(raw || "").toUpperCase();
   const cleaned = s
     .replace(/\s+/g, " ")
-    .replace(/[\u2018\u2019\u2032]/g, "'")
+    .replace(/[\u2018\u2019\u2032\u02bc\uff07]/g, "'")
     .replace(/CONT(?:A)?INER(S)?/g, "")
     .replace(/CNTR(S)?/g, "")
     .trim();
@@ -3804,7 +3869,7 @@ function buildExportSeaFreightPurposeDetail(facts: Array<Record<string, any>>): 
   const lines = [
     ["Origine", readFactText(facts, "routing.origin_port")],
     ["Destination", readFactText(facts, "routing.destination_port")],
-    ["Destination finale", readFactText(facts, "routing.final_destination")],
+    ["Destination finale", readFactText(facts, "routing.final_destination") || readFactText(facts, "routing.destination_city")],
     ["Incoterm", readFactText(facts, "routing.incoterm")],
     ["Conteneurs", containerSummary],
     ["Poids", weight ? `${weight} kg` : ""],
@@ -3838,6 +3903,7 @@ export async function ensureExportSeaFreightPartnerOrchestration(args: {
     "routing.origin_port",
     "routing.destination_port",
     "routing.final_destination",
+    "routing.destination_city",
     "routing.incoterm",
     "cargo.containers",
     "cargo.container_count",
@@ -5485,6 +5551,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       reloadedAttachments || [],
       lovableApiKey
     );
+    // STRUCTURAL_PATCH_ALLOWED: explicit own route + existing sea aliases, never a selected sailing.
+    extractedFacts.push(...await extractExplicitSeaGatewayFacts(serviceClient, inboundEmails));
 
     const { data: subjectGuardCurrentFacts } = await serviceClient
       .from("quote_facts")
@@ -5668,7 +5736,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // guards above and monetary provenance below remain mandatory; no price calculation.
     const revisionGroups = await prepareRevisionGroups({
       emails, facts: eligibleFacts, ownBody: ownFactEmailBody,
-      basic: email => extractFactsBasic([email], []).filter(f => f.key !== 'cargo.hs_code'),
+      basic: email => bindExtractedFactSources(extractFactsBasic([email], []), [email], []).filter(f => f.key !== 'cargo.hs_code'),
       eligible: fact => {
         const source = emails.find(e => e.id === fact.sourceEmailId);
         if (!source || isSodatraEmail(source.from_address)) return false;
@@ -7081,6 +7149,13 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // A1: Pass requestType so AIR_IMPORT assumptions can be applied
     const assumptionResult = await applyAssumptionRules(case_id, serviceClient, emailIds, detectedType);
     factsAdded += assumptionResult.added;
+    const contractSources: ContractSource[] = [
+      ...await Promise.all(inboundEmails.map(async e => ({id:e.id,kind:'email' as const,text:ownFactEmailBody(e.body_text || ''),sentAt:e.sent_at,emailId:e.id,sourceHash:await contractHash(e.body_text || '')}))),
+      ...(reloadedAttachments || []).filter(a=>inboundEmails.some(e=>e.id===a.email_id)).map(a => ({id:a.id,kind:'attachment' as const,name:a.filename,emailId:a.email_id,
+        text:typeof a.extracted_text==='string'?a.extracted_text:typeof a.extracted_data?.text_content==='string'?a.extracted_data.text_content:''})),
+      ...(caseDocuments || []).filter(d=>!INTERNAL_DOC_TYPES.has(d.document_type)).map(d => ({id:d.id,kind:'attachment' as const,name:d.file_name,text:d.extracted_text || ''})),
+    ];
+    gapsIdentified += await applySourceContractReview(case_id,serviceClient,contractSources,imoGoodsEmailsComplete);
 
     // STRUCTURAL_PATCH_ALLOWED: Export gap profile — use flowType for gap analysis when EXPORT_SENEGAL (2026-04-07)
     const gapProfileType = assumptionResult.flowType === "EXPORT_SENEGAL" && MANDATORY_FACTS.EXPORT_SENEGAL
@@ -7399,7 +7474,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
 
       // Source-revision gaps belong to the explicit resolution protocol, not the request type.
       const orphanGaps = allOpenGaps.filter(g =>
-        !g.gap_key.startsWith("source_revision.") && !mandatorySet.has(g.gap_key));
+        !g.gap_key.startsWith("source_revision.") && !g.gap_key.startsWith(SOURCE_CONTRACT_PREFIX) && !mandatorySet.has(g.gap_key));
 
       for (const orphan of orphanGaps) {
         await serviceClient
@@ -7753,6 +7828,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         if (gap["gap_key"] === DOCUMENT_COVERAGE_GAP) continue;
         // A fact's presence cannot replace an explicit source-conflict resolution receipt.
         if (String(gap["gap_key"]).startsWith("source_revision.")) continue;
+        if (String(gap["gap_key"]).startsWith(SOURCE_CONTRACT_PREFIX)) continue;
         const fact = factsMapForSync.get(gap["gap_key"]);
         if (!fact) continue;
 
@@ -8816,9 +8892,11 @@ export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedF
     // STRUCTURAL_PATCH_ALLOWED: keep this path's separate declarations while
     // rejecting phone/reference digits and physical dimensions as containers.
     const containerPattern = /(?<![a-z0-9])(\d+)\s*x?\s*(20|40)(?!\d)\s*(?:'|ft\.?|feet|foot)?\s*(hc|hq|dv|rf|gp|ot|fr)?(?![a-z0-9])/gi;
-    const containerMatch = Array.from(body.matchAll(containerPattern)).filter(m =>
+    // STRUCTURAL_PATCH_ALLOWED: keep the original source excerpt; normalize equipment punctuation only.
+    const containerBody = body.replace(/[\u2018\u2019\u2032\u02bc\uff07]/g, "'");
+    const containerMatch = Array.from(containerBody.matchAll(containerPattern)).filter(m =>
       (Boolean(m[3]) || /(?:[x']|(?:ft\.?|feet|foot)\b)/i.test(m[0])) &&
-      !/^(?:[x*]\s*\d|(?:cm|mm|m|metres?|meters?)\b)/i.test(body.slice((m.index ?? 0) + m[0].length).trimStart())
+      !/^(?:[x*]\s*\d|(?:cm|mm|m|metres?|meters?)\b)/i.test(containerBody.slice((m.index ?? 0) + m[0].length).trimStart())
     );
     if (containerMatch.length > 0) {
       const containers = containerMatch.map(parts => {
@@ -8929,6 +9007,12 @@ export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedF
 // Action 3: Breakbulk patterns expanded
 // Action 4: Post-detection coherence guard
 // P1: Returns { type, ambiguous_lcl_fcl } to flag contradictory LCL+container signals
+export function hasCargoLclSignal(context: string): boolean {
+  // A commercial partial-award clause is not a declaration of consolidated cargo.
+  return /\b(?:lcl|less\s+than\s+(?:a\s+)?container|groupage|consolidation)\b/i.test(context)
+    || /\bpart\s+of\s+(?:(?:a|the|one)\s+)?(?:(?:20|40|45)\s*(?:['’′]|ft)?\s*(?:hc|hq|gp|dv)?\s*)?(?:container|tc)\b/i.test(context);
+}
+
 export function detectRequestType(context: string, facts: ExtractedFact[]): { type: string; ambiguous_lcl_fcl: boolean } {
   const lowerContext = context.toLowerCase();
 
@@ -8978,10 +9062,7 @@ export function detectRequestType(context: string, facts: ExtractedFact[]): { ty
   // Step 2: Maritime on strong indicators
   if (hasStrongMaritime) {
     // Step 2a: Separate LCL and explicit container signals
-    const lclPatterns = ["lcl", "less than container", "groupage", "consolidation"];
-    const isLclByPartOf = lowerContext.includes("part of") &&
-      (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
-    const hasLclSignal = lclPatterns.some(p => lowerContext.includes(p)) || isLclByPartOf;
+    const hasLclSignal = hasCargoLclSignal(lowerContext);
 
     // P1: Explicit container patterns (20ft, 40HC, etc.)
     const explicitContainerPatterns = [
@@ -9010,10 +9091,7 @@ export function detectRequestType(context: string, facts: ExtractedFact[]): { ty
   }
 
   // Step 2c: LCL without strong maritime (standalone LCL mention)
-  const lclStandalonePatterns = ["lcl", "less than container", "groupage", "consolidation"];
-  const isStandaloneLclByPartOf = lowerContext.includes("part of") &&
-    (lowerContext.includes("container") || /\btc\b/.test(lowerContext));
-  if (lclStandalonePatterns.some(p => lowerContext.includes(p)) || isStandaloneLclByPartOf) {
+  if (hasCargoLclSignal(lowerContext)) {
     console.log(`[Detection] SEA_LCL_IMPORT (standalone LCL pattern)`);
     return { type: "SEA_LCL_IMPORT", ambiguous_lcl_fcl: false };
   }

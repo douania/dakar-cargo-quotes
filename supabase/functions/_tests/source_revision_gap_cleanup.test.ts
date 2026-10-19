@@ -4,24 +4,25 @@ const { buildCasePuzzleHandler } = await import('../build-case-puzzle/index.ts')
 
 // Execute the entire analyser. Only its HTTP boundary is synthetic: no provider,
 // database, credentials or client data. Native SQL coverage is a separate bench.
+for (const protectedKey of ['source_revision.cargo.description','source_contract.export_customs','source_contract.rfq_deadline'])
 for (const status of ['open', 'pending_response', 'resolved']) {
-  for (const homonym of [false, true]) Deno.test(`source revision gaps: ${status}, homonymous fact=${homonym}`, async () => {
+  for (const homonym of [false, true]) Deno.test(`source integrity gap ${protectedKey}: ${status}, homonymous fact=${homonym}`, async () => {
     const priorFetch = globalThis.fetch;
     const envKeys = ['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY','LOVABLE_API_KEY'];
     const priorEnv = envKeys.map(key => Deno.env.get(key));
     Deno.env.set(envKeys[0], 'https://fixture.invalid');
     Deno.env.set(envKeys[1], 'synthetic-anon'); Deno.env.set(envKeys[2], 'synthetic-service'); Deno.env.delete(envKeys[3]);
     const gaps: Array<Record<string, unknown>> = [
-      {id:'source-gap',case_id:'case',gap_key:'source_revision.cargo.description',status,is_blocking:true,gap_category:'cargo'},
+      {id:'source-gap',case_id:'case',gap_key:protectedKey,status,is_blocking:true,gap_category:'cargo'},
       {id:'orphan-gap',case_id:'case',gap_key:'unused.synthethic',status:'open',is_blocking:false,gap_category:'cargo'},
     ];
     const requests: Array<Record<string, unknown>> = [
-      {case_id:'case',gap_key:'source_revision.cargo.description',status:'drafted'},
+      {case_id:'case',gap_key:protectedKey,status:'drafted'},
       {case_id:'case',gap_key:'unused.synthethic',status:'drafted'},
     ];
     const original = {id:'manual-fob',case_id:'case',fact_key:'routing.incoterm',fact_category:'routing',value_text:'FOB',source_type:'manual_input',is_current:true,is_validated:true};
     const facts = [original, {id:'description',case_id:'case',fact_key:'cargo.description',fact_category:'cargo',value_text:'Marchandises générales',source_type:'email_body',is_current:true,is_validated:false},
-      ...(homonym ? [{id:'legacy-homonym',case_id:'case',fact_key:'source_revision.cargo.description',fact_category:'cargo',value_text:'This is not a resolution receipt',source_type:'manual_input',is_current:true,is_validated:true}] : [])];
+      ...(homonym ? [{id:'legacy-homonym',case_id:'case',fact_key:protectedKey,fact_category:'cargo',value_text:'This is not a resolution receipt',source_type:'manual_input',is_current:true,is_validated:true}] : [])];
     const factSnapshot=JSON.stringify(facts), events: Array<Record<string, unknown>> = [], calls: string[] = [];
     const tables: Record<string, Array<Record<string, unknown>>> = {quote_gaps:gaps,client_gap_requests:requests,quote_facts:facts,case_timeline_events:events,
       emails:[{id:'existing-email',thread_ref:'thread',body_text:'Bonjour.',from_address:'client@example.test',sent_at:'2026-10-19T10:00:00Z'}]};
@@ -59,7 +60,7 @@ for (const status of ['open', 'pending_response', 'resolved']) {
         const body=await response.json();assertEquals(response.status,200,JSON.stringify(body));
         assertEquals(gaps.find(g=>g.id==='source-gap')!.status,status);
         assertEquals(requests[0].status,'drafted');
-        assertEquals(events.filter(e=>e.event_type==='gap_resolved'&&(e.event_data as Record<string,unknown>)?.gap_key==='source_revision.cargo.description').length,0);
+        assertEquals(events.filter(e=>e.event_type==='gap_resolved'&&(e.event_data as Record<string,unknown>)?.gap_key===protectedKey).length,0);
         assertEquals(JSON.stringify(facts),factSnapshot);
       }
       assertEquals(gaps.find(g=>g.id==='orphan-gap')!.status,'resolved');assertEquals(requests[1].status,'cancelled');

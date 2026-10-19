@@ -238,6 +238,27 @@ export const analyzeServiceScopeHandler = async (req: Request) => {
     if (operatorScopeError) return errorResponse('Failed to load operator scope', 500);
     const retainedScope = operatorScope ? readServiceScopeEvent(operatorScope.event_data) : null;
     if (operatorScope && !retainedScope) return errorResponse('Invalid operator scope; review required', 409);
+    // An AI scope proposal cannot decide an email/document contractual disagreement.
+    const {data:contractReview,error:contractReviewError}=await serviceClient.from('case_timeline_events')
+      .select('event_data').eq('case_id',case_id).eq('event_type','case_reasoning_v1')
+      .eq('event_data->>kind','source_contract_review').order('created_at',{ascending:false}).limit(1).maybeSingle();
+    if(contractReviewError)return errorResponse('Failed to load contract source review',500);
+    const {data:openContractGaps,error:contractGapError}=await serviceClient.from('quote_gaps').select('gap_key')
+      .eq('case_id',case_id).eq('status','open').eq('is_blocking',true)
+      .in('gap_key',['source_contract.export_customs','source_contract.rfq_deadline']);
+    if(contractGapError||!Array.isArray(openContractGaps))return errorResponse('Failed to verify contract review gaps',500);
+    if(contractReview){
+      const review=contractReview.event_data;
+      if(review?.version!==1||!Array.isArray(review.conflicts))return errorResponse('Invalid contract source review',409);
+      if(review.conflicts.length||review.collectionComplete===false||openContractGaps.length){
+        if(retainedScope)return jsonResponse({ok:true,idempotent:true,case_id,scope:retainedScope,
+          reasoning:review,requires_contract_review:true,operator_scope_preserved:true,created:[]});
+        return jsonResponse({ok:false,error:'SOURCE_CONTRACT_REVIEW_REQUIRED',
+          message:'Les désaccords entre courriel et pièce jointe doivent être arbitrés avant de proposer un périmètre.',
+          requires_contract_review:true,source_contract_review:review},409);
+      }
+    }
+    if(openContractGaps.length)return jsonResponse({ok:false,error:'SOURCE_CONTRACT_REVIEW_REQUIRED',requires_contract_review:true},409);
     const requestEvidence = emails.length < 50
       ? deriveRequestServiceEvidence(emails, quoteFacts ?? [], externalAddresses)
       : null; // A truncated thread cannot establish the current request.

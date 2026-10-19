@@ -4,11 +4,11 @@ const { analyzeServiceScopeHandler } = await import('./index.ts');
 const partner = 'partner@example.invalid';
 const initial = { id: 'root', from_address: partner, sent_at: '2026-01-01T00:00:00Z', body_text: 'Please quote DDP charges and DOOR Delivery charges for attached air shipment.\nPlease talk with above consignee. If they have proper customs documents and registration so we can proceed shipment from the origin.' };
 
-async function fixture(run: (state: { events: Record<string, unknown>[]; emails: typeof initial[]; facts: Record<string, unknown>[]; writes: Record<string, unknown>[]; failHistory: boolean; failAction: boolean; invoke: () => Promise<{ status: number; body: Record<string, unknown> }> }) => Promise<void>) {
+async function fixture(run: (state: { events: Record<string, unknown>[]; emails: typeof initial[]; facts: Record<string, unknown>[]; gaps:Record<string,unknown>[]; writes: Record<string, unknown>[]; failHistory: boolean; failAction: boolean; invoke: () => Promise<{ status: number; body: Record<string, unknown> }> }) => Promise<void>) {
   const oldFetch = globalThis.fetch, keys = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'LOVABLE_API_KEY'];
   const oldEnv = keys.map(k => Deno.env.get(k));
   Deno.env.set(keys[0], 'https://fixture.invalid'); Deno.env.set(keys[1], 'fixture-anon'); Deno.env.set(keys[2], 'fixture-service'); Deno.env.delete(keys[3]);
-  const state = { events: [] as Record<string, unknown>[], emails: [{ ...initial, id: 'ack', from_address: 'destination@example.invalid', sent_at: '2026-01-01T01:00:00Z', body_text: 'Acknowledged. We will proceed.' }, initial], facts: [{ id: 'client', fact_key: 'contacts.client_email', value_text: partner, source_type: 'email_body', is_validated: false }] as Record<string, unknown>[], writes: [] as Record<string, unknown>[], failHistory: false, failAction: false,
+  const state = { events: [] as Record<string, unknown>[], emails: [{ ...initial, id: 'ack', from_address: 'destination@example.invalid', sent_at: '2026-01-01T01:00:00Z', body_text: 'Acknowledged. We will proceed.' }, initial], facts: [{ id: 'client', fact_key: 'contacts.client_email', value_text: partner, source_type: 'email_body', is_validated: false }] as Record<string, unknown>[], gaps:[] as Record<string,unknown>[], writes: [] as Record<string, unknown>[], failHistory: false, failAction: false,
     invoke: async () => { const response = await analyzeServiceScopeHandler(new Request('https://fixture.invalid/analyze-service-scope', { method: 'POST', headers: { Authorization: 'Bearer fixture-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ case_id: 'fixture-case', force_refresh: true }) })); return { status: response.status, body: await response.json() }; } };
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -25,9 +25,10 @@ async function fixture(run: (state: { events: Record<string, unknown>[]; emails:
     }
     if (table === 'quote_cases') return json({ id: 'fixture-case', thread_id: 'fixture-thread', email_threads: { client_email: partner } });
     if (table === 'quote_facts') return json(state.facts, state.facts.length);
+    if (table === 'quote_gaps') return json(state.gaps,state.gaps.length);
     if (table === 'emails') return json(state.emails, state.emails.length);
     if (table === 'case_timeline_events') {
-      const filtered = state.events.filter(row => [...url.searchParams].every(([key, value]) => !value.startsWith('eq.') || String(row[key]) === value.slice(3)));
+      const filtered = state.events.filter(row => [...url.searchParams].every(([key, value]) => !value.startsWith('eq.') || String(key==='event_data->>kind'?(row.event_data as {kind?:unknown})?.kind:row[key]) === value.slice(3)));
       const limit = Number(url.searchParams.get('limit'));
       const rows = limit > 0 ? filtered.slice(0, limit) : filtered;
       return state.failHistory ? json({ message: 'fixture history denied' }, 0, 403) : json(rows, filtered.length);
@@ -47,6 +48,27 @@ Deno.test('scope handler: real deterministic path emits flat scope, exact per-se
     assertEquals(action.status, 'open'); assertEquals(action.requested_gap_keys, undefined);
     assert(state.writes.every(e => e.actor_type === 'system'));
   });
+});
+Deno.test('scope handler: recorded email/document contradiction prevents AI scope selection',async()=>{
+ await fixture(async state=>{
+  state.events.unshift({id:'contract',case_id:'fixture-case',event_type:'case_reasoning_v1',actor_type:'system',event_data:{kind:'source_contract_review',version:1,conflicts:[{key:'source_contract.export_customs'}]}});
+  const result=await state.invoke();assertEquals(result.status,409);assertEquals(result.body.error,'SOURCE_CONTRACT_REVIEW_REQUIRED');assertEquals(state.writes,[]);
+ });
+});
+Deno.test('scope handler: later empty/incomplete evidence cannot hide a retained blocking contract gap',async()=>{
+ await fixture(async state=>{
+  state.events.unshift({id:'later',case_id:'fixture-case',event_type:'case_reasoning_v1',actor_type:'system',event_data:{kind:'source_contract_review',version:1,collectionComplete:false,conflicts:[]}});
+  state.gaps.push({gap_key:'source_contract.export_customs'});
+  const r=await state.invoke();assertEquals(r.status,409);assertEquals(r.body.error,'SOURCE_CONTRACT_REVIEW_REQUIRED');assertEquals(state.writes,[]);
+ });
+});
+Deno.test('scope handler: contract review preserves explicit operator scope without claiming resolved disagreement',async()=>{
+ await fixture(async state=>{
+  const scope={shipment_type:'export',freight_scope:true,customs_scope:false};
+  state.events.unshift({id:'contract',case_id:'fixture-case',event_type:'case_reasoning_v1',actor_type:'system',event_data:{kind:'source_contract_review',version:1,conflicts:[{key:'source_contract.export_customs'}]}},
+   {id:'human',case_id:'fixture-case',event_type:'service_scope_v1',actor_type:'operator',event_data:scope});
+  const result=await state.invoke();assertEquals(result.status,200);assertEquals(result.body.scope,scope);assertEquals(result.body.requires_contract_review,true);assertEquals(state.writes,[]);
+ });
 });
 Deno.test('scope handler: forced replay and new acknowledgement are inert; human-closed action is preserved', async () => {
   await fixture(async state => {
