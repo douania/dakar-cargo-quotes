@@ -1,3 +1,4 @@
+import { prepareRevisionGroups, writeEmailFactRevisions } from '../_shared/email-fact-revisions.ts';
 import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { decodeEmailQuoteView, splitEmailQuoteContext } from "../_shared/email-quote-context.ts";
@@ -905,7 +906,7 @@ async function deactivateSubjectContaminatedCurrentAirportFacts(
 
   for (const fact of currentFacts || []) {
     if (!SUBJECT_GUARD_AIRPORT_KEYS.has(fact.fact_key)) continue;
-    if (fact.source_type === "attachment_extracted" || MANUAL_PROTECTED_SOURCES.has(fact.source_type ?? "")) continue;
+    if (fact.source_type === "attachment_extracted" || MANUAL_PROTECTED_SOURCES.has(protectedFactSource(fact))) continue;
 
     if (!shouldBlockSubjectAirportFact(fact, fullAttachmentContext, signals, emails)) continue;
 
@@ -1048,6 +1049,11 @@ const DOC_TYPE_PRIORITY: Record<string, string[]> = {
 
 // S4: Canonical set for human-entered sources (legacy + current)
 const MANUAL_PROTECTED_SOURCES = new Set(['operator', 'manual_input']);
+// Preserve the stored source vocabulary; this local guard also recognizes an ordered decision.
+function protectedFactSource(fact: {source_type?: string | null; is_validated?: boolean | null; source_revision_id?: string | null} | null | undefined): string {
+  return fact?.source_revision_id || fact?.is_validated || fact?.source_type === 'operator_correction' ? 'operator' : fact?.source_type ?? '';
+}
+
 class FactWriteNotConfirmedError extends Error {}
 
 // STRUCTURAL_PATCH_ALLOWED: conditional UPDATE rechecks protection under the row
@@ -1059,6 +1065,7 @@ export async function deactivateUnprotectedCurrentFact(serviceClient: Pick<Supab
     .eq('id', factId).eq('case_id', caseId).eq('is_current', true)
     .not('is_validated', 'is', true)
     .not('source_type', 'in', '(operator,manual_input,operator_correction)')
+    .is('source_revision_id', null)
     .select('id');
   if (error) throw new FactWriteNotConfirmedError('Fact deactivation could not be confirmed: ' + error.message);
   if (!Array.isArray(data)) throw new FactWriteNotConfirmedError('Fact deactivation result unavailable');
@@ -2587,13 +2594,13 @@ export async function upsertDeterministicFact(
 ): Promise<"added" | "updated" | "skipped"> {
   const { data: existingFact } = await serviceClient
     .from("quote_facts")
-    .select("id, value_text, value_number, value_json, source_type, is_validated")
+    .select("id, value_text, value_number, value_json, source_type, is_validated, source_revision_id")
     .eq("case_id", args.case_id)
     .eq("fact_key", args.fact_key)
     .eq("is_current", true)
     .maybeSingle();
 
-  if (existingFact && (existingFact.is_validated || existingFact.source_type === 'operator_correction' || MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? ""))) {
+  if (existingFact && (existingFact.is_validated || existingFact.source_type === 'operator_correction' || MANUAL_PROTECTED_SOURCES.has(protectedFactSource(existingFact)))) {
     console.log(`[FCL constraints] Skipping ${args.fact_key}: protected source (${existingFact.source_type})`);
     return "skipped";
   }
@@ -2674,13 +2681,13 @@ async function clearUnsafePerContainerTotalIfNeeded(
 ): Promise<boolean> {
   const { data: existingFact } = await serviceClient
     .from("quote_facts")
-    .select("id, value_number, source_type, source_excerpt")
+    .select("id, value_number, source_type, source_excerpt, source_revision_id")
     .eq("case_id", case_id)
     .eq("fact_key", "cargo.weight_kg")
     .eq("is_current", true)
     .maybeSingle();
 
-  if (!existingFact || MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? "")) return false;
+  if (!existingFact || MANUAL_PROTECTED_SOURCES.has(protectedFactSource(existingFact))) return false;
   const currentWeight = Number(existingFact.value_number);
   const excerpt = String(existingFact.source_excerpt || "");
   if (Number.isFinite(currentWeight) && currentWeight === perContainerWeightKg && /\bper\s*(?:container|cntr|ctr)\b/i.test(excerpt)) {
@@ -2706,7 +2713,7 @@ export async function applyFclConstraintPostProcessing(args: {
 
   const { data: currentFacts } = await args.serviceClient
     .from("quote_facts")
-    .select("fact_key, value_text, value_number, value_json, source_type, source_excerpt")
+    .select("fact_key, value_text, value_number, value_json, source_type, source_excerpt, source_revision_id")
     .eq("case_id", args.case_id)
     .eq("is_current", true)
     .in("fact_key", [
@@ -3057,14 +3064,14 @@ async function deactivateConflictingCargoFact(
 ): Promise<boolean> {
   const { data: existingFact } = await serviceClient
     .from("quote_facts")
-    .select("id, value_number, value_text, source_type, source_excerpt")
+    .select("id, value_number, value_text, source_type, source_excerpt, source_revision_id")
     .eq("case_id", case_id)
     .eq("fact_key", fact_key)
     .eq("is_current", true)
     .maybeSingle();
 
   if (!existingFact?.id) return false;
-  const source = existingFact.source_type ?? "";
+  const source = protectedFactSource(existingFact);
   if (MANUAL_PROTECTED_SOURCES.has(source)) return false;
   if (!CARGO_GUARD_NON_PROTECTED_SOURCES.has(source)) return false;
   if (!predicate({
@@ -3098,7 +3105,7 @@ export async function applyCargoConflictGuards(args: {
 
   const { data: currentFactRows } = await args.serviceClient
     .from("quote_facts")
-    .select("fact_key, value_text, value_number, source_type, source_excerpt")
+    .select("fact_key, value_text, value_number, source_type, source_excerpt, source_revision_id")
     .eq("case_id", args.case_id)
     .eq("is_current", true)
     .in("fact_key", ["cargo.pieces_count", "cargo.weight_kg", "cargo.value", "cargo.containers"]);
@@ -3426,7 +3433,7 @@ export async function applyEmailDocProvenanceGuard(args: {
 
   const { data: currentFactRows } = await args.serviceClient
     .from("quote_facts")
-    .select("fact_key, value_text, value_number, source_type, source_excerpt")
+    .select("fact_key, value_text, value_number, source_type, source_excerpt, source_revision_id")
     .eq("case_id", args.case_id)
     .eq("is_current", true)
     .in("fact_key", ["cargo.pieces_count", "cargo.weight_kg", "cargo.value", "cargo.containers"]);
@@ -3530,7 +3537,7 @@ export async function applyLatestClientPiecesCountGuard(args: {
 
   const { data: existingFact } = await args.serviceClient
     .from("quote_facts")
-    .select("id, value_number, value_text, source_type, source_excerpt")
+    .select("id, value_number, value_text, source_type, source_excerpt, source_revision_id")
     .eq("case_id", args.case_id)
     .eq("fact_key", "cargo.pieces_count")
     .eq("is_current", true)
@@ -3559,7 +3566,7 @@ export async function applyLatestClientPiecesCountGuard(args: {
   // Deactivate only a non-protected current value. deactivateConflictingCargoFact
   // protects operator/manual_input and restricts to non-protected auto-extraction
   // sources (ai_extraction / attachment_extracted) — which covers the PDF-sourced fact.
-  const source = existingFact.source_type ?? "";
+  const source = protectedFactSource(existingFact);
   if (MANUAL_PROTECTED_SOURCES.has(source)) {
     console.log(
       `[PIECES-COUNT-GUARD] client total=${clientBusTotal} != current pieces_count=${currentVal} from protected source '${source}' — gap raised, fact left untouched`,
@@ -3706,7 +3713,7 @@ export async function applyClientValueCurrencyGuard(args: {
 
   const { data: existingFact } = await args.serviceClient
     .from("quote_facts")
-    .select("id, value_text, source_type")
+    .select("id, value_text, source_type, source_revision_id")
     .eq("case_id", args.case_id)
     .eq("fact_key", "cargo.value_currency")
     .eq("is_current", true)
@@ -3718,7 +3725,7 @@ export async function applyClientValueCurrencyGuard(args: {
   const storedCode = normalizeCurrencyCode(storedRaw);
   if (!storedCode || storedCode === clientCurrency) return result; // unknown / matching -> no-op
 
-  const source = existingFact.source_type ?? "";
+  const source = protectedFactSource(existingFact);
 
   const q = buildValueCurrencyConflictQuestion(clientCurrency, storedCode);
   const created = await ensureDeterministicBlockingGap(args.serviceClient, {
@@ -4164,7 +4171,7 @@ export async function applyAssumptionRules(
   // Step 1: Load existing facts
   const { data: facts } = await serviceClient
     .from('quote_facts')
-    .select('fact_key, value_text, value_number, value_json, source_type, is_validated')
+    .select('fact_key, value_text, value_number, value_json, source_type, is_validated, source_revision_id')
     .eq('case_id', caseId)
     .eq('is_current', true);
 
@@ -4173,7 +4180,7 @@ export async function applyAssumptionRules(
     for (const f of facts) {
       factMap.set(f.fact_key, {
         value: f.value_text || (f.value_json ? JSON.stringify(f.value_json) : '') || String(f.value_number || ''),
-        source: f.is_validated || f.source_type === 'operator_correction' ? 'operator' : f.source_type,
+        source: protectedFactSource(f),
       });
     }
   }
@@ -4402,14 +4409,14 @@ export async function injectAttachmentFacts(
   // 2. CTO Adjustment #1: Read existing facts from DB (not from LLM output)
   const { data: existingFacts } = await serviceClient
     .from('quote_facts')
-    .select('fact_key, source_type, is_validated, confidence, value_text, value_number, value_json, source_email_id, source_attachment_id')
+    .select('fact_key, source_type, is_validated, confidence, value_text, value_number, value_json, source_email_id, source_attachment_id, source_revision_id')
     .eq('case_id', caseId)
     .eq('is_current', true);
 
   const factSourceMap = new Map<string, string>();
   if (existingFacts) {
     for (const f of existingFacts) {
-      factSourceMap.set(f.fact_key, f.is_validated || f.source_type === 'operator_correction' ? 'operator' : f.source_type);
+      factSourceMap.set(f.fact_key, protectedFactSource(f));
     }
   }
 
@@ -4699,7 +4706,7 @@ export async function injectAttachmentFacts(
   if (dimensionSources.length) {
     const value = { type: 'dimension_groups_v1', conflict: dimensionGroupsDisagree(dimensionSources.map(s => s.groups)), sources: dimensionSources };
     const previous = existingFacts?.find((f: { fact_key: string }) => f.fact_key === 'cargo.dimensions_evidence');
-    if (!previous?.is_validated && !['operator_correction', ...MANUAL_PROTECTED_SOURCES].includes(previous?.source_type ?? '') && JSON.stringify(previous?.value_json) !== JSON.stringify(value)) {
+    if (!previous?.source_revision_id && !previous?.is_validated && !['operator_correction', ...MANUAL_PROTECTED_SOURCES].includes(previous?.source_type ?? '') && JSON.stringify(previous?.value_json) !== JSON.stringify(value)) {
       const first = dimensionSources.find(s => s.attachment_id) ?? dimensionSources[0];
       const { error } = await serviceClient.rpc('supersede_fact', { p_case_id: caseId, p_fact_key: 'cargo.dimensions_evidence', p_fact_category: 'cargo',
         p_value_text: null, p_value_number: null, p_value_date: null, p_value_json: value, p_source_type: 'attachment_extracted',
@@ -5419,7 +5426,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
 
     const { data: subjectGuardCurrentFacts } = await serviceClient
       .from("quote_facts")
-      .select("id, fact_key, value_text, value_number, value_json, source_type, source_excerpt")
+      .select("id, fact_key, value_text, value_number, value_json, source_type, source_excerpt, source_revision_id")
       .eq("case_id", case_id)
       .eq("is_current", true)
       .in("fact_key", [
@@ -5565,8 +5572,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     }
     const factsToWrite = docProvenanceDrop.kept;
 
+    const eligibleFacts: ExtractedFact[] = [];
     for (const fact of factsToWrite) {
-      try {
         // --- CLIENT-COMPANY-GUARD: reject SODATRA as contacts.client_company ---
         if (fact.key === "contacts.client_company" && isSodatraCompanyName(fact.value)) {
           console.log(`[client-company-guard] rejected "${fact.value}" as contacts.client_company`);
@@ -5593,10 +5600,34 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         }
 
 
+      eligibleFacts.push(fact);
+    }
+    // STRUCTURAL_PATCH_ALLOWED: source ordering/history only. Existing classification
+    // guards above and monetary provenance below remain mandatory; no price calculation.
+    const revisionGroups = await prepareRevisionGroups({
+      emails, facts: eligibleFacts, ownBody: ownFactEmailBody,
+      basic: email => extractFactsBasic([email], []).filter(f => f.key !== 'cargo.hs_code'),
+      eligible: fact => {
+        const source = emails.find(e => e.id === fact.sourceEmailId);
+        if (!source || isSodatraEmail(source.from_address)) return false;
+        if (fact.key === 'contacts.client_company' && isSodatraCompanyName(fact.value)) return false;
+        return !SENSITIVE_MONETARY_FACTS.has(fact.key) || classifyEmailProvenance(source.from_address, threadClientEmail, threadPartnerEmail) === 'client';
+      },
+    });
+    const emailFactRevisions = await writeEmailFactRevisions(serviceClient, {
+      caseId: case_id, actorId: userId, groups: revisionGroups, allEmails: emails, collectionComplete: imoGoodsEmailsComplete,
+    });
+    const revisedKeys = new Set(emailFactRevisions.map(r => r.key));
+    for (const decision of emailFactRevisions) {
+      if (decision.changed) { if (decision.had_current === false) factsAdded++; else factsUpdated++; } else factsSkipped++;
+    }
+    for (const fact of eligibleFacts) {
+      if (revisedKeys.has(fact.key)) continue;
+      try {
         // Check if fact already exists
         const { data: existingFact } = await serviceClient
           .from("quote_facts")
-          .select("id, value_text, value_number, value_json, source_type, is_validated")
+          .select("id, value_text, value_number, value_json, source_type, is_validated, source_revision_id")
           .eq("case_id", case_id)
           .eq("fact_key", fact.key)
           .eq("is_current", true)
@@ -5610,7 +5641,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           const existingValue = existingFact.value_text ?? existingFact.value_number ?? existingFact.value_json;
           const hasRealValue = existingValue !== null && existingValue !== undefined &&
             (typeof existingValue === 'number' ? Number.isFinite(existingValue) : String(existingValue).trim().length > 0);
-          if (hasRealValue && (existingFact.is_validated || existingFact.source_type === 'operator_correction' || MANUAL_PROTECTED_SOURCES.has(existingFact.source_type ?? '') ||
+          if (hasRealValue && (existingFact.is_validated || existingFact.source_type === 'operator_correction' || MANUAL_PROTECTED_SOURCES.has(protectedFactSource(existingFact)) ||
             (existingFact.source_type === 'attachment_extracted' && fact.sourceType !== 'attachment_extracted'))) {
             console.log(`[AI extract] Skipping ${fact.key}: protected manual source (${existingFact.source_type})`);
             factsSkipped++;
@@ -5730,7 +5761,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       // Guard: only proceed if cargo.articles_detail not already injected (email or operator)
       const { data: existingArtFact } = await serviceClient
         .from("quote_facts")
-        .select("id, source_type")
+        .select("id, source_type, source_revision_id")
         .eq("case_id", case_id)
         .eq("fact_key", "cargo.articles_detail")
         .eq("is_current", true)
@@ -5742,7 +5773,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       if (!hasExisting) {
         proceedWithExtraction = true;
       } else if (force_articles_detail) {
-        const existingSourceType = existingArtFact[0]?.source_type;
+        const existingSourceType = protectedFactSource(existingArtFact[0]);
         if (MANUAL_PROTECTED_SOURCES.has(existingSourceType ?? '')) {
           console.log(`[M3.4c] force requested but current fact is protected manual source (${existingSourceType}); skipping`);
         } else {
@@ -5986,7 +6017,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       // 1. Check if cargo.hs_code already exists and is valid 10-digit in DB
       const { data: hsFactDoc } = await serviceClient
         .from("quote_facts")
-        .select("id, value_text, source_type")
+        .select("id, value_text, source_type, source_revision_id")
         .eq("case_id", case_id)
         .eq("fact_key", "cargo.hs_code")
         .eq("is_current", true)
@@ -6079,7 +6110,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           // 4. Idempotency: skip if existing HS is identical
           if (hsDigitsDoc === uniqueCodes[0]) {
             console.log("[HS doc-regex] HS identical to existing, skip supersede");
-          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactDoc?.source_type ?? '')) {
+          } else if (MANUAL_PROTECTED_SOURCES.has(protectedFactSource(hsFactDoc))) {
             console.log("[HS doc-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedCandidates.find(r => r.code10 === uniqueCodes[0])!;
@@ -6181,7 +6212,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       // 1. Reload current cargo.hs_code (may have been updated by M3.4b)
       const { data: hsFactEmail } = await serviceClient
         .from("quote_facts")
-        .select("id, value_text, source_type")
+        .select("id, value_text, source_type, source_revision_id")
         .eq("case_id", case_id)
         .eq("fact_key", "cargo.hs_code")
         .eq("is_current", true)
@@ -6278,7 +6309,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           // Idempotency: skip if existing HS is identical
           if (hsDigitsEmail === uniqueEmailCodes[0]) {
             console.log("[HS email-regex] HS identical to existing, skip supersede");
-          } else if (MANUAL_PROTECTED_SOURCES.has(hsFactEmail?.source_type ?? '')) {
+          } else if (MANUAL_PROTECTED_SOURCES.has(protectedFactSource(hsFactEmail))) {
             console.log("[HS email-regex] Existing HS is manual source, skip supersede");
           } else {
             const match = resolvedEmailCandidates.find(r => r.code10 === uniqueEmailCodes[0])!;
@@ -6407,7 +6438,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         const cargoFactKeys = ['cargo.value', 'cargo.value_currency', 'cargo.freight_cost', 'cargo.freight_currency'];
         const { data: cargoExistingRows } = await serviceClient
           .from("quote_facts")
-          .select("fact_key, value_text, value_number, source_type")
+          .select("fact_key, value_text, value_number, source_type, source_revision_id")
           .eq("case_id", case_id)
           .eq("is_current", true)
           .in("fact_key", cargoFactKeys);
@@ -6434,7 +6465,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           const ex = existingFacts[factKey];
           const hasRealValue = (ex.value_number !== null && Number.isFinite(ex.value_number))
             || (typeof ex.value_text === 'string' && ex.value_text.trim() !== '');
-          if (ex.source_type && PROTECTED_SOURCES.has(ex.source_type) && hasRealValue) {
+          if (PROTECTED_SOURCES.has(protectedFactSource(ex)) && hasRealValue) {
             console.log(`[cargo-value doc-regex] SKIP ${factKey}: protected source '${ex.source_type}' with real value`);
             return false;
           }
@@ -6699,13 +6730,13 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       // Check existing regime fact (skip if manual_input)
       const { data: existingRegimeFact } = await serviceClient
         .from("quote_facts")
-        .select("id, source_type")
+        .select("id, source_type, source_revision_id")
         .eq("case_id", case_id)
         .eq("fact_key", "customs.regime_code")
         .eq("is_current", true)
         .maybeSingle();
 
-      const isRegimeManual = MANUAL_PROTECTED_SOURCES.has(existingRegimeFact?.source_type ?? '');
+      const isRegimeManual = MANUAL_PROTECTED_SOURCES.has(protectedFactSource(existingRegimeFact));
 
       // 1. If exactly one regime code found and no manual override exists
       if (uniqueRegimeCodes.length === 1 && !isRegimeManual) {
@@ -6770,13 +6801,13 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       if (uniqueTitles.length > 0 && !isRegimeManual) {
         const { data: existingTitleFact } = await serviceClient
           .from("quote_facts")
-          .select("id, source_type")
+          .select("id, source_type, source_revision_id")
           .eq("case_id", case_id)
           .eq("fact_key", "regulatory.exemption_title")
           .eq("is_current", true)
           .maybeSingle();
 
-        if (!existingTitleFact || !MANUAL_PROTECTED_SOURCES.has(existingTitleFact.source_type ?? '')) {
+        if (!existingTitleFact || !MANUAL_PROTECTED_SOURCES.has(protectedFactSource(existingTitleFact))) {
           const { error: titleRpcErr } = await serviceClient.rpc("supersede_fact", {
             p_case_id: case_id,
             p_fact_key: "regulatory.exemption_title",
@@ -6866,7 +6897,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     try {
       const { data: hsFactRow } = await serviceClient
         .from("quote_facts")
-        .select("id, value_text, source_type")
+        .select("id, value_text, source_type, source_revision_id")
         .eq("case_id", case_id)
         .eq("fact_key", "cargo.hs_code")
         .eq("is_current", true)
@@ -6892,7 +6923,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         // Only re-validate if not already a valid 10-digit code
         if (digitsOnly.length !== 10 || !(await isExactHsMatch(serviceClient, digitsOnly))) {
           // S5: protect manual HS from automated re-validation/deactivation
-          if (MANUAL_PROTECTED_SOURCES.has(hsFactRow.source_type ?? '')) {
+          if (MANUAL_PROTECTED_SOURCES.has(protectedFactSource(hsFactRow))) {
             console.log(`[HS Post-Attach] Manual HS preserved, skipping re-validation (source=${hsFactRow.source_type})`);
           } else {
           // DCQ-P0-HS10-SAFE: refuser toute promotion sub-10. Si la valeur courante a moins de 10 chiffres,
@@ -7079,7 +7110,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
             // CTO Correction 1: maybeSingle() + manual override protection
             const { data: existingClientCode } = await serviceClient
               .from("quote_facts")
-              .select("id, source_type")
+              .select("id, source_type, source_revision_id")
               .eq("case_id", case_id)
               .eq("fact_key", "client.code")
               .eq("is_current", true)
@@ -7087,7 +7118,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
 
             const isManual =
               existingClientCode &&
-              MANUAL_PROTECTED_SOURCES.has(existingClientCode.source_type ?? '');
+              MANUAL_PROTECTED_SOURCES.has(protectedFactSource(existingClientCode));
 
             if (!isManual) {
               const { error: clientCodeError } = await serviceClient.rpc("supersede_fact", {
@@ -7154,6 +7185,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
             case_id,
             new_status: "FACTS_PARTIAL",
             facts_added: factsAdded,
+        email_fact_revisions: emailFactRevisions,
             facts_updated: factsUpdated,
             facts_skipped: factsSkipped,
             fact_errors: factErrors,
@@ -8384,6 +8416,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         new_status: newStatus,
         request_type: detectedType,
         facts_added: factsAdded,
+        email_fact_revisions: emailFactRevisions,
         facts_updated: factsUpdated,
         attachment_facts: attachmentFactsResult,
         assumption_result: assumptionResult,
@@ -8571,7 +8604,7 @@ CRITICAL RULES:
    - Never add quantities merely because a declaration repeats in a reply/forward or MIME representation.
    - Cite the actual sourceEmailId and exact own sourceExcerpt, or sourceAttachmentId for an attachment. Never assign all facts to the newest email.
    - Keep distinct own cargo rows separate, even when their equipment and quantity are equal. Goods units do not imply a container count.
-   - When own sources contradict, do not pick a winner or merge them: omit the unresolved fact. Operator/validated decisions are not extraction targets.`;
+   - When own sources contradict, return each explicit declaration separately with its own sourceEmailId and exact excerpt. Do not pick a winner or merge quantities; the ordered writer decides or records a conflict. Operator/validated decisions are not extraction targets.`;
 
   const userPrompt = `Extract facts from this email thread:
 

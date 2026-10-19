@@ -129,6 +129,10 @@ async function fixture(run: (state: State) => Promise<void>) {
     }
     if (url.pathname.includes('/rpc/')) {
       if (name === 'has_workspace_access') return json(true);
+      if (name === 'assert_case_source_revisions_resolved') return state.failTable === name
+        ? json({code:'08006',message:'Synthetic guard unavailable'},0,503)
+        : state.tables.quote_gaps.some(g=>g.gap_key.startsWith('source_revision.') && g.status === 'open')
+          ? json({code:'PT409',message:'Synthetic unresolved source revision'},0,409) : json(null);
       if (name === 'customs_basis_get') {
         const f=state.customsState;
         if(!f||body.p_case!==f.record.case_id||body.p_id!==f.record.id)return json({message:'Synthetic customs access conflict'},0,409);
@@ -671,4 +675,16 @@ for(const rejectFinish of [false,true])Deno.test('customs opt-in actual pricing/
  const snap=state.tables.quotation_versions[0].snapshot;assertEquals(snap.customs_basis.id,f.record.id);const frozen=JSON.stringify(snap);
  f.context.profiles[2].dd=99;assertEquals(JSON.stringify(snap),frozen);
  const text=await pdfText(await generateDraftPdf(snap,'SYNTHETIC-CUSTOMS'));assertStringIncludes(text,'CAF');assert(!text.includes('PRIVATE-SUPPLIER-COST-777'));assert(!text.includes('real conversion'));
+}));
+
+for(const mode of ['partial','standard','customs','unavailable'])Deno.test('source revisions: non-waivable pricing guard '+mode,async()=>fixture(async state=>{
+ if(mode==='customs') { const f=syntheticCustoms();state.customsState=f; }
+ state.tables.quote_gaps.push({case_id:'fixture-case',gap_key:'source_revision.cargo.weight_kg',is_blocking:true,status:'open'});
+ if(mode==='standard')state.tables.quote_cases[0].request_type='SEA_FCL_IMPORT';
+ if(mode==='unavailable')state.failTable='assert_case_source_revisions_resolved';
+ const original=JSON.stringify(state.tables);
+ const result=await state.invoke('run-pricing',{case_id:'fixture-case',allow_provisional:true,quote_mode:mode==='partial'?'partial_destination':undefined,
+  ...(mode==='customs'?{customs_basis_id:state.customsState!.record.id}:{})});
+ assertEquals(result.status,mode==='unavailable'?503:409,JSON.stringify(result.body));assertEquals(result.body.blocked_by_source_revisions,true);
+ assertEquals(JSON.stringify(state.tables),original);assertEquals(state.engineCalls,0);
 }));

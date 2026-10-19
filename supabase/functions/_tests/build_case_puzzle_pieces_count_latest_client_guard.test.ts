@@ -78,6 +78,12 @@ class QueryBuilder {
     return this;
   }
 
+  is(key: string, value: unknown) {
+    if (value !== null) throw new Error('Unsupported fixture IS predicate');
+    this.negativeFilters.push(row => row[key] == null);
+    return this;
+  }
+
   not(key: string, operator: string, value: unknown) {
     if (operator === "is" && value === true) this.negativeFilters.push(row => row[key] !== true);
     else if (operator === "in" && typeof value === "string") {

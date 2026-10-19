@@ -1449,6 +1449,14 @@ Deno.serve(async (req) => {
       );
     }
 
+    // STRUCTURAL_PATCH_ALLOWED: source conflicts cannot be waived by pricing options.
+    // Before pricing writes/engine calls; formulas and rates remain unchanged.
+    const { error: sourceRevisionError } = await serviceClient.rpc('assert_case_source_revisions_resolved', { p_case: case_id });
+    if (sourceRevisionError) return new Response(JSON.stringify({
+      error: sourceRevisionError.code === 'PT409' ? 'Des corrections de sources nécessitent une décision opérateur.' : 'Vérification des corrections de sources indisponible. Réessayez avant de calculer.',
+      blocked_by_source_revisions: true,
+    }), { status: sourceRevisionError.code === 'PT409' ? 409 : 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
     // Phase 16: Intent gate — check latest thread_intent_v1
     const { data: latestIntent } = await serviceClient
       .from("case_timeline_events")

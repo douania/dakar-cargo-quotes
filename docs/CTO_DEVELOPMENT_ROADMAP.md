@@ -554,9 +554,24 @@ Règles non négociables :
 - Limites : données synthétiques, fournisseur IA simulé ; précision extrême sans politique nouvelle, ancien handler transitoire encore header-only. Recette Cloud authentifiée/IMAP/OCR/IA/Vault natif NOT_RUN, binaire Edge distant UNKNOWN.
 - Décision humaine reçue ensuite : actualisation automatique des faits non validés avec alerte/historique ; protéger manuels/validés et versions, ne pas adopter citation ancienne ni arbitrer ordre ambigu. Lot distinct suivant, pas encore implémenté ici.
 - Migration appliquée une seule fois via Lovable : sourcea6d84c2a…, corpsac4461fb… sans seuls BEGIN/COMMIT externes, transaction gérée par outil ; sept définitions/ACL conformes, treize collections Cloud inchangées, registre source20261018180000 estampillé sans rejeu.
-- Outil natif ayant ajouté Drizzle/dépendances par commits19ecb01/7aba581 : CI39155217564 FAIL à npm ci (package-lock désynchronisé), distinct du PASS4a7c089. Ajouts retirés au profit du dépôt canonique ; seuls14lignes de types utiles conservées, CI complète de reprise requise avant activation Edge.
-- Activation privée suivante : quatre handlers (version/préparation commerciale/PDF/brouillon) après vérification du HEAD final et CI, aucun autre réglage. Preuves/diff/limites : task-3/quotation-operational-audit-20261018.
+- Outil natif ayant ajouté Drizzle/dépendances par commits19ecb01/7aba581 : CI39155217564 FAIL à npm ci (package-lock désynchronisé), distinct du PASS4a7c089. Ajouts retirés au profit du dépôt canonique ; seuls14lignes de types utiles conservées, reprise2001f26 : CI locale complète et GitHub39155644107 SUCCESS avant activation Edge.
+- Activation privée terminée : quatre handlers (version/préparation commerciale/PDF/brouillon), accusé natif et OPTIONS200/POST sans auth401 ; HEAD2001f26, aperçu non publié, aucun autre réglage. Preuves/diff/limites : task-3/quotation-operational-audit-20261018.
 - Retour ciblé sous GO sans suppression de faits/versions/PDF ; conserver gardes/ACL et histoire. Original/deux docs/.claude/guide préexistant préservés ; anti-veille35580 jusqu'au19/10 18UTC, sans prolongation.
+
+### 2.36 Actualisation ordonnée des faits avec alerte/historique — local, 18 octobre 2026
+
+- Décision humaine : actualisation automatique des seuls faits non validés lors de l’analyse existante ; texte propre requis, manuels/validés et versions/PDF historiques conservés. Pas de nouvelle synchronisation périodique ni décision fiscale.
+- Justification STRUCTURAL_PATCH_ALLOWED consignée avant édition : protocole source/build et garde run-pricing uniquement, aucune formule/taux, set-case-fact et quotation-engine inchangés ; un écrivain, contre-revue lecture seule.
+- Migration20261018190000 locale seulement : dossier→clé→fait, admission après attente, registre append-only deny-all, manifeste corps/expéditeur/date, instantané cohérent d’identités serveur ; UID+date concordants même source requis, sinon conflit.
+- Nouveau message propre adopte ou confirme avec repère récent ; rejeu immuable sans écriture, même commande divergente refusée. Anciens stages ne peuvent défaire le marqueur ; résolution explicite par successeur manuel ferme seulement le conflit lié, avec avant/après/extrait/horodatage atomiques.
+- Garde de calcul non dérogeable (partiel/provisoire/douane) et nouvelles versions refusées sur registre non résolu même gap fermé à tort ; indisponibilité503 visible. Historiques existants inchangés, aucun recalcul de tarif.
+- Notice existante : sources/valeurs/motif/date, conflit persistant, alerte avant premier calcul et devis à réexaminer ; proposition ignorée distincte d’un changement. Pas de SELECT client du registre privé.
+- CI finale exit0 :938Vitest/76fichiers,2440Deno/0échec/6ignorés ; types/config/bundles/build PASS, Deno49/5 et lint708/16 sous732/16 inchangés. Audit UI119/73/46 hérité.
+- PostgreSQL isolé PASS : avant restauration erronée reproduite, après confirmation/réception inverse, rejeu, concurrence distincte/deux ordres, ban/retrait rôle/manual pendant attente, rollback, valeurs NULL/formes invalides, ACL/append-only et registre autoritaire.
+- HTTP local réel PASS : analyse200→300, rejeu, source400 ambiguë conservant300/pricing409, version historique JSON inchangée ; navigateur dédié7contrôles PASS (notice/version, Auth, résolution300→350, erreur/reprise/reload/390px). Sources/identités IMAP synthétiques ; pas de moteur fiscal/protocole IMAP certifié.
+- Contre-revue : blocage NULL/replay et trois restitutions corrigés puis levés ; CI/recette finales relues séparément. Preuves/diff/reprise : task-3/automatic-fact-corrections-20261018/checkpoint.json ; aucune écriture métier Cloud.
+- HEAD2001f26 inchangé, aucun commit/push/migration distante/déploiement du lot. Suite à approuver : work+CI distante, migration sous préconditions Lovable, build-case-puzzle/run-pricing/frontend privés et recette connectée. Deno natif2.6/Cloud/IMAP/OCR/IA/Vault NOT_RUN.
+- Original/deux docs/.claude, guide antérieur et anti-veille35580 jusqu’au19/10 18UTC conservés. Retour local par inverse ciblé ; une fois adopté, correction en avant sans effacer faits/registres/versions/PDF ni retirer protections.
 
 ## 3. Travaux vérifiés comme terminés
 

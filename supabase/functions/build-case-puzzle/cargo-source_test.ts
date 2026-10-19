@@ -125,6 +125,9 @@ Deno.test('cargo source: full handler replay preserves attachment totals against
     const json = (data: unknown, count=0) => new Response(JSON.stringify(data), { headers:{'Content-Type':'application/json','Content-Range':`0-${Math.max(0,count-1)}/${count}`} });
     if(url.pathname === '/auth/v1/user') return json({id:'fixture-user',email:'operator@example.invalid'});
     if(url.pathname.endsWith('/rpc/has_workspace_access')) return json(true);
+    if(url.pathname.endsWith('/rpc/apply_case_email_fact_revisions')) {
+      return json({decisions:payload.p_groups.map((g:{key:string})=>({key:g.key,status:'conflict',reason:'current_source_not_orderable',fact_id:rows.find(r=>r.fact_key===g.key)?.id??null,changed:false,replay:false}))});
+    }
     if(url.pathname.endsWith('/rpc/supersede_fact')) {
       writes.push(payload); const old = rows.find(r=>r.fact_key === payload.p_fact_key);
       const value = { id:old?.id ?? `fixture-fact-${rows.length}`,fact_key:payload.p_fact_key,fact_category:payload.p_fact_category,is_current:true,is_validated:false,

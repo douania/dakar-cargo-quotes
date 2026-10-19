@@ -330,6 +330,9 @@ for (const scenario of [
         const method = request.method;
         assertEquals(url.origin, "https://unit-test.invalid");
         requests.push(url.pathname);
+        if (url.pathname === '/rest/v1/rpc/assert_case_source_revisions_resolved') {
+          assertEquals(method,'POST');return Response.json(null);
+        }
         if (method !== "GET" && method !== "HEAD") {
           writes.push(method + " " + url.pathname);
           throw new Error("Unexpected write or engine invocation in read-only preflight test");

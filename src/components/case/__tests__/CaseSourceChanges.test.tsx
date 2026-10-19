@@ -129,3 +129,43 @@ it('isole les dossiers et actualise les nouvelles pièces sans toucher aux déci
   await waitFor(() => expect(screen.queryByText(/TARDIF.pdf/)).not.toBeInTheDocument());
   expect(await screen.findByText(/comparaison impossible/)).toBeInTheDocument();
 });
+
+const revision = (id: string, status: string, revisionId = id): Row => ({id,case_id:'case-a',event_type:'fact_updated',created_at:after,
+  event_data:{source:'email-fact-revision',revision_id:revisionId,fact_key:'cargo.weight_kg',status,reason:status==='resolved'?'explicit_manual_successor':'newer_verified_declaration',
+    old_fact:{value_number:2},new_value:3,source_evidence:{selected:{email_id:'correction',excerpt:'Poids corrigé : 3 kg.'},sources:[{id:'correction',sent_at:after}]}}});
+it('affiche historique exact et devis à réexaminer sans réécrire son contenu', async () => {
+  tables.case_timeline_events=[revision('r1','applied')];const frozen=JSON.stringify(tables);
+  mount({caseId:'case-a',runId:'run-a'});
+  expect(await screen.findByText(/Des faits ont été actualisés après ce calcul/)).toBeInTheDocument();
+  expect(screen.getByText('2 → 3')).toBeInTheDocument();expect(screen.getByText('Poids corrigé : 3 kg.')).toBeInTheDocument();
+  expect(screen.getByText(/Courriel correction/)).toBeInTheDocument();expect(screen.getByText(/Actualisé, non validé/)).toBeInTheDocument();
+  expect(JSON.stringify(tables)).toBe(frozen);
+});
+it('garde le conflit visible jusqu’à un événement de décision lié et relit toutes les pages', async () => {
+  tables.case_timeline_events=[revision('r1','conflict'),revision('r2','protected'),revision('r3','ignored')];
+  mount({caseId:'case-a',runId:'run-a'});expect(await screen.findByText(/2 correction\(s\) en conflit/)).toBeInTheDocument();
+  expect(requests.some(u=>u.pathname.endsWith('/case_timeline_events')&&u.searchParams.get('offset')==='2')).toBe(true);
+  const resolved=revision('resolution','resolved','r1');
+  resolved.event_data={...(resolved.event_data as Row),new_value:4,source_evidence:{manual:{source_type:'manual_input',excerpt:'Décision locale explicite'}}};
+  tables.case_timeline_events.push(resolved);fireEvent.click(screen.getByText('Actualiser les sources'));
+  expect(await screen.findByText(/1 correction\(s\) en conflit/)).toBeInTheDocument();
+  expect(screen.getByText(/Résolu par décision manuelle/)).toBeInTheDocument();expect(tables.case_timeline_events).toHaveLength(4);
+  expect(screen.getByText('2 → 4')).toBeInTheDocument();expect(screen.getByText(/Saisie manuelle : Décision locale explicite/)).toBeInTheDocument();
+});
+it('distingue une proposition ignorée d’une valeur appliquée', async () => {
+  const ignored=revision('r1','ignored');ignored.event_data={...(ignored.event_data as Row),old_fact:{value_number:3},new_value:2};
+  tables.case_timeline_events=[ignored];mount({caseId:'case-a',runId:'run-a'});
+  expect(await screen.findByText(/Valeur conservée : 3 · Proposition ignorée : 2/)).toBeInTheDocument();
+  expect(screen.queryByText('3 → 2')).not.toBeInTheDocument();expect(screen.queryByText(/Des faits ont été actualisés/)).not.toBeInTheDocument();
+});
+it('alerte aussi sur une actualisation avant le premier calcul', async () => {
+  tables.pricing_runs=[];tables.case_timeline_events=[revision('r1','applied')];mount({caseId:'case-a',overview:true});
+  expect(await screen.findByRole('alert',{name:''})).toHaveTextContent('Des faits ont été actualisés. Consultez leur historique avant le prochain calcul.');
+  expect(screen.getByText(/comparaison impossible/)).toBeInTheDocument();
+});
+it('refuse un historique illisible et distingue erreur d’absence de correction', async () => {
+  tables.case_timeline_events=[{...revision('r1','applied'),event_data:{source:'email-fact-revision'}}];
+  mount({caseId:'case-a',runId:'run-a'});expect(await screen.findByText(/Vérification des nouvelles sources indisponible/)).toBeInTheDocument();
+  tables.case_timeline_events=[];fireEvent.click(screen.getByText('Réessayer les sources'));
+  expect(await screen.findByText('Nouvelles sources à examiner')).toBeInTheDocument();expect(screen.queryByText(/Historique des corrections/)).not.toBeInTheDocument();
+});

@@ -21,6 +21,7 @@ function fixture(facts:Row[]=[],attachments:Row[]=[]){
   let selected=table==='quote_facts'?rows:table==='email_attachments'?attachments:[];
   for(const [key,value] of url.searchParams){
    if(value.startsWith('eq.'))selected=selected.filter(r=>String(r[key])===value.slice(3));
+   if(value==='is.null')selected=selected.filter(r=>r[key]==null);
    if(value==='not.is.true')selected=selected.filter(r=>r[key]!==true);
    if(value.startsWith('not.in.('))selected=selected.filter(r=>!value.slice(8,-1).split(',').includes(String(r[key])));
   }
@@ -30,18 +31,18 @@ function fixture(facts:Row[]=[],attachments:Row[]=[]){
  }}});
  return {client,rows,rpc,updates,events,set failKey(v:string){failKey=v;},set failRead(v:boolean){failRead=v;},set failUpdate(v:boolean){failUpdate=v;},set validateBeforeUpdate(v:boolean){validateBeforeUpdate=v;}};
 }
-for(const source of ['operator','manual_input','operator_correction','validated']){
+for(const source of ['operator','manual_input','operator_correction','validated','ordered']){
  Deno.test('fact preservation: destination redirect preserves '+source,async()=>{
-  const f=fixture([{fact_key:'routing.destination_country',value_text:'SENEGAL',source_type:source==='validated'?'email_body':source,is_validated:source==='validated'}],
+  const f=fixture([{fact_key:'routing.destination_country',value_text:'SENEGAL',source_type:['validated','ordered'].includes(source)?'email_body':source,is_validated:source==='validated',source_revision_id:source==='ordered'?'revision':null}],
    [{id:'attachment',email_id:'mail',filename:'invoice.pdf',extracted_data:{confidence:.2,extracted_info:{destination_city:'MALI'}}}]);
   const result=await injectAttachmentFacts('case',f.client,['mail']);assertEquals(f.rpc.filter(p=>p.p_fact_key==='routing.destination_country'),[]);assertEquals(result.added,0);
  });
  Deno.test('fact preservation: deterministic stage preserves '+source,async()=>{
-  const f=fixture([{fact_key:'cargo.pieces_count',value_number:40,source_type:source==='validated'?'email_body':source,is_validated:source==='validated'}]);
+  const f=fixture([{fact_key:'cargo.pieces_count',value_number:40,source_type:['validated','ordered'].includes(source)?'email_body':source,is_validated:source==='validated',source_revision_id:source==='ordered'?'revision':null}]);
   assertEquals(await upsertDeterministicFact(f.client,{case_id:'case',fact_key:'cargo.pieces_count',fact_category:'cargo',value_number:99,source_excerpt:'Uncertain source',confidence:.2}),'skipped');assertEquals(f.rpc,[]);
  });
  Deno.test('fact preservation: conditional deactivation preserves '+source,async()=>{
-  const f=fixture([{fact_key:'cargo.weight_kg',value_number:100,source_type:source==='validated'?'email_body':source,is_validated:source==='validated'}]);
+  const f=fixture([{fact_key:'cargo.weight_kg',value_number:100,source_type:['validated','ordered'].includes(source)?'email_body':source,is_validated:source==='validated',source_revision_id:source==='ordered'?'revision':null}]);
   assertEquals(await deactivateUnprotectedCurrentFact(f.client,'case','fact-0'),false);assertEquals(f.rows[0].is_current,true);
  });
 }
@@ -73,10 +74,10 @@ Deno.test('fact preservation: deterministic RPC refusal is an error, no successf
  await assertRejects(()=>upsertDeterministicFact(f.client,{case_id:'case',fact_key:'cargo.pieces_count',fact_category:'cargo',value_number:99,source_excerpt:'Uncertain',confidence:.2}));
 });
 
-Deno.test('fact preservation: real handler exposes HS resolution refusal instead of reporting analysis success',async()=>{
+for(const validated of [false,true])Deno.test('fact preservation: real handler HS guard validated='+validated,async()=>{
  const keys=['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY','LOVABLE_API_KEY'],saved=keys.map(k=>Deno.env.get(k)),oldFetch=globalThis.fetch;
  Deno.env.set(keys[0],'https://fixture.invalid');Deno.env.set(keys[1],'synthetic-anon');Deno.env.set(keys[2],'synthetic-service');Deno.env.delete(keys[3]);
- const hs={id:'protected-hs',case_id:'case',fact_key:'cargo.hs_code',value_text:'99999999999',source_type:'email_body',is_validated:true,is_current:true};let refused=0,laterAssumptions=0;
+ const hs={id:'protected-hs',case_id:'case',fact_key:'cargo.hs_code',value_text:'99999999999',source_type:'email_body',is_validated:validated,is_current:true};let refused=0,laterAssumptions=0;
  globalThis.fetch=async(input,init)=>{
   const options=init as {method?:string;body?:unknown;headers?:HeadersInit}|undefined;
   const url=new URL(input instanceof Request?input.url:String(input)),method=options?.method??'GET';assertEquals(url.hostname,'fixture.invalid');
@@ -102,6 +103,6 @@ Deno.test('fact preservation: real handler exposes HS resolution refusal instead
  };
  try{
   const response=await buildCasePuzzleHandler(new Request('https://fixture.invalid/build-case-puzzle',{method:'POST',headers:{Authorization:'Bearer synthetic-token','Content-Type':'application/json'},body:JSON.stringify({case_id:'case'})}));
-  const body=await response.json();assertEquals(refused,1);assertEquals(response.status,500);assert(String(body.details).includes('PROTECTED_FACT_REQUIRES_OPERATOR'));assertEquals(laterAssumptions,0);assertEquals(hs.is_validated,true);assertEquals(hs.value_text,'99999999999');
+  const body=await response.json();assertEquals(refused,validated?0:1);assertEquals(response.status,validated?200:500);if(!validated){assert(String(body.details).includes('PROTECTED_FACT_REQUIRES_OPERATOR'));assertEquals(laterAssumptions,0);}assertEquals(hs.is_validated,validated);assertEquals(hs.value_text,'99999999999');
  }finally{globalThis.fetch=oldFetch;keys.forEach((key,i)=>saved[i]===undefined?Deno.env.delete(key):Deno.env.set(key,saved[i]!));}
 });

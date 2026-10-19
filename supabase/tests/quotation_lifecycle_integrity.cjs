@@ -131,5 +131,6 @@ async function waitFor(name){for(let i=0;i<120;i++){const state=sql(`SELECT coun
   for(const sig of signatures)assert.equal(sql(`SELECT has_function_privilege('anon','public.${sig}','execute') OR has_function_privilege('authenticated','public.${sig}','execute') OR NOT has_function_privilege('service_role','public.${sig}','execute')`),'f');
   const before=sql(`SELECT md5(jsonb_agg(to_jsonb(f) ORDER BY id)::text) FROM quote_facts f WHERE case_id='${x.c}'`);refused(supersede(x,9,'ai_extraction'),/PROTECTED_FACT_REQUIRES_OPERATOR/);assert.equal(sql(`SELECT md5(jsonb_agg(to_jsonb(f) ORDER BY id)::text) FROM quote_facts f WHERE case_id='${x.c}'`),before);
  });
+ await require('./email_fact_revisions.cjs')({sql,session,waitFor,delay,id,actor,settings,q,j,results,repo});
  console.log(JSON.stringify({status:'PASS',nativePostgreSQL:true,isolation:'network none, tmpfs, no bind/ports',results},null,2));
  }catch(e){console.error(String(e));process.exitCode=1;}finally{if(container)docker(['stop',container]);}})();
