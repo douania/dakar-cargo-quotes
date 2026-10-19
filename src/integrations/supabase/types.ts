@@ -6181,6 +6181,82 @@ export type Database = {
           },
         ]
       }
+      quote_email_fact_revisions: {
+        Row: {
+          actor_user_id: string | null
+          batch_hash: string
+          case_id: string
+          command_key: string
+          created_at: string
+          fact_key: string
+          id: string
+          new_fact_id: string | null
+          old_fact: Json | null
+          reason: string
+          request: Json
+          resolves_revision_id: string | null
+          response: Json
+          source_evidence: Json
+          status: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          batch_hash: string
+          case_id: string
+          command_key: string
+          created_at?: string
+          fact_key: string
+          id?: string
+          new_fact_id?: string | null
+          old_fact?: Json | null
+          reason: string
+          request: Json
+          resolves_revision_id?: string | null
+          response: Json
+          source_evidence: Json
+          status: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          batch_hash?: string
+          case_id?: string
+          command_key?: string
+          created_at?: string
+          fact_key?: string
+          id?: string
+          new_fact_id?: string | null
+          old_fact?: Json | null
+          reason?: string
+          request?: Json
+          resolves_revision_id?: string | null
+          response?: Json
+          source_evidence?: Json
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_email_fact_revisions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_email_fact_revisions_new_fact_id_fkey"
+            columns: ["new_fact_id"]
+            isOneToOne: false
+            referencedRelation: "quote_facts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_email_fact_revisions_resolves_revision_id_fkey"
+            columns: ["resolves_revision_id"]
+            isOneToOne: false
+            referencedRelation: "quote_email_fact_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_fact_promotions: {
         Row: {
           actor_user_id: string
@@ -6293,6 +6369,7 @@ export type Database = {
           source_attachment_id: string | null
           source_email_id: string | null
           source_excerpt: string | null
+          source_revision_id: string | null
           source_type: string
           supersedes_fact_id: string | null
           updated_at: string | null
@@ -6315,6 +6392,7 @@ export type Database = {
           source_attachment_id?: string | null
           source_email_id?: string | null
           source_excerpt?: string | null
+          source_revision_id?: string | null
           source_type: string
           supersedes_fact_id?: string | null
           updated_at?: string | null
@@ -6337,6 +6415,7 @@ export type Database = {
           source_attachment_id?: string | null
           source_email_id?: string | null
           source_excerpt?: string | null
+          source_revision_id?: string | null
           source_type?: string
           supersedes_fact_id?: string | null
           updated_at?: string | null
@@ -6367,6 +6446,13 @@ export type Database = {
             columns: ["source_email_id"]
             isOneToOne: false
             referencedRelation: "emails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_facts_source_revision_id_fkey"
+            columns: ["source_revision_id"]
+            isOneToOne: false
+            referencedRelation: "quote_email_fact_revisions"
             referencedColumns: ["id"]
           },
           {
@@ -8700,6 +8786,20 @@ export type Database = {
         }
         Returns: string
       }
+      apply_case_email_fact_revisions: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_command: string
+          p_groups: Json
+          p_manifest: Json
+        }
+        Returns: Json
+      }
+      assert_case_source_revisions_resolved: {
+        Args: { p_case: string }
+        Returns: undefined
+      }
       assert_pad_weight_head: {
         Args: {
           p_case_id: string
@@ -8842,6 +8942,14 @@ export type Database = {
           p_id: string
           p_parent: string
         }
+        Returns: Json
+      }
+      email_revision_source_order: {
+        Args: { p_new: string; p_old: string; p_sources: Json }
+        Returns: number
+      }
+      email_revision_value_key: {
+        Args: { p_type: string; p_value: Json }
         Returns: Json
       }
       fee_line_code_is_reserved: { Args: { p_code: string }; Returns: boolean }
