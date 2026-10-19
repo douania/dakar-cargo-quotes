@@ -652,14 +652,15 @@ Deno.test('AIR full catalogue and ordinary storage reach run, immutable version 
   const response=await state.invoke('run-pricing',{case_id:'fixture-case',allow_provisional:true});assertEquals(response.status,200,JSON.stringify(response.body));
   const run=state.tables.pricing_runs.find(r=>r.status==='success')!,line=run.tariff_lines.find((l:Row)=>l.category==='AIR_HANDLING');
   assertEquals(line.amount,null);assertEquals(line.source.air_handling.schema_version,2);assertEquals(line.source.air_handling.components.at(-1).supplier_ht_xof,7600);
-  assertEquals(line.source.air_handling.supplier_known_ht_xof,42020);assertEquals(run.inputs_json.airHandling.catalogue.payload.entries.length,180);
+  // Fixed32500 + explicitly justified storage7600; collection/security bases stay unknown.
+  assertEquals(line.source.air_handling.supplier_known_ht_xof,40100);assertEquals(line.source.air_handling.supplier_complete_ht_xof,null);assertEquals(run.inputs_json.airHandling.catalogue.payload.entries.length,180);
   assert(state.calls.some(c=>c.includes('air_tariff_finish')));assertEquals(JSON.stringify(state.tables.quotation_versions),historical);
   const version=await state.invoke('generate-quotation-version',{case_id:'fixture-case',pricing_run_id:run.id});assertEquals(version.status,200,JSON.stringify(version.body));
   const snapshot=state.tables.quotation_versions[0].snapshot,pinned=snapshot.raw_lines.find((l:Row)=>l.category==='AIR_HANDLING').source.air_handling;
   assertEquals(pinned.catalogue.payload.entries.length,180);assertEquals(pinned.basis.ordinary_storage.billable_days,2);
   const before=JSON.stringify(snapshot);state.airState!.catalogue.payload.entries.find((e:Row)=>e.key==='storage_0').value=999;
   assertEquals(JSON.stringify(snapshot),before);const text=await pdfText(await generateDraftPdf(snapshot,'SYNTHETIC-FULL-AIR'));
-  assertStringIncludes(text,'confirmer');assert(!text.includes('42020'));assert(!text.includes('7600'));
+  assertStringIncludes(text,'confirmer');assert(!text.includes('40100'));assert(!text.includes('7600'));
 }));
 
 for(const rejectFinish of [false,true])Deno.test('customs opt-in actual pricing/version/PDF handlers: '+(rejectFinish?'atomic finish rejected, no false success':'proof pinned, no canonical promotion'),async()=>fixture(async state=>{

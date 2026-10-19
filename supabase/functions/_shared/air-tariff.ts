@@ -1,4 +1,4 @@
-import { resolveAirHandling, type AirState, type AirResolution, type AirRates } from './air-handling.ts';
+import { resolveAirHandling, type AirState, type AirResolution, type AirComponent } from './air-handling.ts';
 export const airUnits = ['XOF','XOF/kg','XOF/kg/jour','%','XOF/heure','XOF/heure commencée/agent','XOF/heure commencée','XOF/m²/mois','XOF/palette','XOF/jour','% achat facture','XOF/mètre','XOF/aller-retour','information'] as const;
 export type AirTariffEntry = {
   key: string; section: string; label: string; code: string | null; value: number | null; unit: typeof airUnits[number];
@@ -26,21 +26,43 @@ export function resolveAirTariff(state: AirTariffState, date: string): AirResolu
   const c = state.catalogue, b = state.basis, s = state.selection;
   if (!s || !b) throw new Error('AIR_TARIFF_BASIS_MISSING');
   const entries = c.payload.entries;
+  const brackets = ['Colonne initiale ; éligibilité moins de 1 tonne à attester', 'POIDS + D’UN TONNE ; limite haute et inclusion à confirmer',
+    'DE 1,5 T à 4,999 T ; bornes à confirmer', '+ DE 5 TONNES ; borne à confirmer'];
   const rate = (key: string, unit: string) => {
     const e = entries.find(e => e.key === key);
     return e && e.unit === unit && e.qualification === 'documented' && e.value !== null
-      && e.condition === e.source.calculation_condition
-      && ['minimum','weight_from_kg','weight_to_kg','day_from','day_to','free_hours','threshold'].every(k => e[k as keyof typeof e] === null) ? e.value : NaN;
+      && e.condition === brackets[0] && e.condition === e.source.calculation_condition
+      && ['minimum','weight_from_kg','weight_to_kg','day_from','day_to','free_hours','threshold'].every(k => e[k as keyof typeof e] === null) ? e.value : null;
   };
-  const rates: AirRates = { collection_per_kg: rate('collection_0','XOF/kg'), security_per_kg: rate('security_0','XOF/kg'),
-    documents: rate('doc_DME_0','XOF'), warehouse_passage: rate('dms_0','XOF'), it: rate('it_0','XOF') };
-  const profile = { id: c.id, revision: c.revision, supplier: c.payload.supplier, airport: c.payload.airport, direction: 'IMPORT', cargo_class: 'GENERAL_CARGO',
-    effective_from: c.effective_from, effective_to: c.effective_to, rates, source_reference: c.source_reference, evidence: { catalogue_id: c.id } };
   const valid = validAirCatalogue(c.payload) && b.general_cargo_confirmed === true;
-  const result = resolveAirHandling({ ...state, profile, selection: { ...s, profile_id: c.id, warehouse_bracket_confirmed: b.warehouse_bracket_confirmed },
-    request_type: valid ? state.request_type : 'INVALID' }, date)!;
-  result.components = result.components.map(e => e.code === 'warehouse_passage' ? { ...e, label: 'Taxe fixe magasin — DMS',
-    reason: e.reason?.replace(/passage magasin/g,'taxe fixe magasin') ?? null } : e);
+  const refusal = !valid ? 'Catalogue ou nature general cargo non confirmé'
+    : s.context_hash !== state.context_hash ? 'Données modifiées : catalogue et bases à reconfirmer'
+    : !/^AIR_IMPORT(?:_|$)/.test(state.request_type) || state.lot_count >= 2 ? 'Catalogue réservé à un import aérien mono-lot'
+    : !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < c.effective_from || (c.effective_to !== null && date > c.effective_to) ? 'Catalogue hors période de validité' : null;
+  // A source-invariant flat fee needs no weight column. A changed or conditional
+  // tariff still needs the independently attested initial-column eligibility.
+  const invariantFlatFee = (prefix: string, value: number) => [0,1,2,3].every(i => {
+    const e = entries.find(e => e.key === `${prefix}_${i}`);
+    return e && e.unit === 'XOF' && e.value === value && e.qualification !== 'missing'
+      && e.condition === brackets[i] && e.source.calculation_condition === brackets[i]
+      && ['minimum','weight_from_kg','weight_to_kg','day_from','day_to','free_hours','threshold'].every(k => e[k as keyof typeof e] === null)
+      && Array.isArray(e.source.raw_cells) && [5,7,9,11].every(col => e.source.raw_cells[col]?.trim() !== '' && Number(e.source.raw_cells[col]) === value);
+  });
+  const components: AirComponent[] = [
+    ['collection_per_kg','Collecte','collection_0','XOF/kg'], ['security_per_kg','Sécurité','security_0','XOF/kg'],
+    ['documents','Remise documentaire','doc_DME_0','XOF'], ['warehouse_passage','Taxe fixe magasin - DMS','dms_0','XOF'], ['it','Informatique','it_0','XOF'],
+  ].map(([code,label,key,unit]) => {
+    const value = rate(key,unit), weighted = unit === 'XOF/kg';
+    const reason = refusal ?? (value === null ? 'Tarif ou conditions de cette rubrique à confirmer'
+      : weighted ? 'Base de poids brut ou taxable non précisée par la grille pour cette rubrique'
+      : b.warehouse_bracket_confirmed || (code !== 'warehouse_passage' && invariantFlatFee(key.slice(0,-2),value)) ? null
+      : 'Éligibilité de la colonne initiale à attester séparément pour cette rubrique');
+    return {code,label,quantity:weighted?null:1,unit_rate:value,supplier_ht_xof:reason===null?value:null,reason};
+  });
+  // The complete catalogue is its own source. Do not turn it into a historical
+  // profile whose LTA rule would silently determine every weighted rubric.
+  const result: AirResolution = {schema_version:2,selection_id:s.id,context_hash:state.context_hash,profile:null,components,
+    supplier_known_ht_xof:null,supplier_complete_ht_xof:null,supplier_tax_xof:null,supplier_ttc_xof:null,selling_amount_xof:null,reserves:[],explanation:''};
   const storage = b.ordinary_storage, tariff = entries.find(e => e.key === storage.tariff_key && /^storage_[0-3]$/.test(e.key));
   const f = state.facts.filter(f => f.id === storage.weight_fact_id);
   const weight = f.length === 1 && ['cargo.weight_kg','cargo.weight_net_kg','cargo.chargeable_weight_kg'].includes(f[0].fact_key)

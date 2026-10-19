@@ -27,9 +27,10 @@ const storageAdd: CommercialAction = { type: 'add', line_id: 'operator:storage',
 const storageEstimate: CommercialAction = { type: 'storage', line_id: 'operator:storage', tariff_key: 'storage_0', weight_fact_id: 'fixture-taxable', billable_days: 2, reason };
 
 describe('Commercial preparation, isolated from canonical prices', () => {
-  it('exposes purchase34420 without making it a client charge or treating the customs sentinel0 as free', () => {
+  it('exposes known purchase32500 with weighted charges reserved, without making it a client charge or treating customs0 as free', () => {
     const { draft } = fixture();
-    expect(draft.lines[0].supplier?.amount_ht_xof).toBe(34420);
+    expect(draft.lines[0].supplier?.amount_ht_xof).toBe(32500);
+    expect(draft.lines[0].supplier?.evidence).toMatchObject({ supplier_complete_ht_xof: null, selling_amount_xof: null });
     expect(draft.lines[0].client_amount_xof).toBeNull();
     expect(draft.lines[1].client_amount_xof).toBe(200000);
     expect(draft.lines[2].client_amount_xof).toBeNull();
@@ -38,7 +39,7 @@ describe('Commercial preparation, isolated from canonical prices', () => {
   it('retains an independent estimated customer price and complete unchanged source snapshot/catalogue', () => {
     const { draft, snapshot, air } = fixture(), before = structuredClone({ draft, snapshot, air });
     const next = change(draft, { type: 'edit', line_id: 'source:0', amount: 40000, basis: 'before_sodatra_vat', reason });
-    expect(next.lines[0]).toMatchObject({ client_amount_xof: 40000, status: 'estimated', supplier: { amount_ht_xof: 34420 } });
+    expect(next.lines[0]).toMatchObject({ client_amount_xof: 40000, status: 'estimated', supplier: { amount_ht_xof: 32500 } });
     expect(next.source_snapshot).toEqual(snapshot);
     expect(next.events[0]).toMatchObject({ actor_id: 'fixture-operator', before: { client_amount_xof: null }, after: { client_amount_xof: 40000 }, action: { reason } });
     expect({ draft, snapshot, air }).toEqual(before);

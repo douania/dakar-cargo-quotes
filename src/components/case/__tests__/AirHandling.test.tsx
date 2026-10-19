@@ -5,6 +5,8 @@ import { MemoryRouter } from 'react-router-dom';
 import AirHandling from '@/pages/admin/AirHandling';
 import { AirHandlingPanel, AirHandlingResult } from '../AirHandlingPanel';
 import { resolveAirHandling, type AirProfile, type AirState } from '../../../../supabase/functions/_shared/air-handling';
+import { resolveAirTariff } from '../../../../supabase/functions/_shared/air-tariff';
+import { airTariffSeed } from '../../../../supabase/functions/_shared/air-tariff-seed';
 
 const mock = vi.hoisted(() => ({ rpc: vi.fn(), invoke: vi.fn(), canEdit: false, failRead: false, failWrite: false, writes: [] as string[] }));
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -118,5 +120,22 @@ describe('AIR_HANDLING controlled supplier configuration',()=>{
     const result=resolveAirHandling({...state,profile,selection:{id:'s',profile_id:profile.id,context_hash:'facts-1',source_reference:'Synthetic',warehouse_bracket_confirmed:false}},'2026-10-16')!;
     result.components[4].supplier_ht_xof=0;wrap(<AirHandlingResult result={result}/>);
     expect(screen.getAllByText('À confirmer HT fournisseur').length).toBeGreaterThan(0);expect(screen.getByText('0 FCFA HT fournisseur')).toBeInTheDocument();
+  });
+  it('shows catalogue fixed fees separately from unknown weight bases, full cost and selling price',()=>{
+    const result=resolveAirTariff({...state,request_type:'AIR_IMPORT',selection:{id:'s',profile_id:null,context_hash:'facts-1',source_reference:'Synthetic catalogue admission',warehouse_bracket_confirmed:false},
+      catalogue:{id:'catalogue',parent_id:null,revision:1,effective_from:'2026-10-16',effective_to:null,source_reference:'Synthetic source',payload:structuredClone(airTariffSeed)},
+      basis:{general_cargo_confirmed:true,warehouse_bracket_confirmed:false,ordinary_storage:{enabled:false,tariff_key:'storage_0',weight_fact_id:null,billable_days:null,days_status:'unknown',source_reference:''}}},'2026-10-19')!;
+    wrap(<AirHandlingResult result={result}/>);
+    expect(screen.getByText(/Sous-total achat HT connu : 26\s?500 FCFA/)).toBeInTheDocument();
+    expect(screen.getByText('HT des composants renseignés : À confirmer')).toBeInTheDocument();
+    expect(screen.getAllByText(/Base de poids brut ou taxable non précisée/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/TTC fournisseur et prix de vente SODATRA : à confirmer/)).toBeInTheDocument();
+    expect(screen.queryByText(/Profil historique :/)).not.toBeInTheDocument();
+  });
+  it('names the historical taxable convention and its provenance without changing the saved resolution',()=>{
+    const result=resolveAirHandling({...state,profile,selection:{id:'s',profile_id:profile.id,context_hash:'facts-1',source_reference:'Synthetic selection',warehouse_bracket_confirmed:true},facts:[{fact_key:'cargo.chargeable_weight_kg',value_number:64,source_type:'operator'}]},'2026-10-19')!;
+    const before=JSON.stringify(result);wrap(<AirHandlingResult result={result}/>);
+    expect(screen.getByText(/Profil historique : collecte et sécurité utilisent le poids taxable LTA/)).toHaveTextContent('Synthetic source reference');
+    expect(screen.getByText(/Sous-total achat HT connu : 34\s?420 FCFA/)).toBeInTheDocument();expect(JSON.stringify(result)).toBe(before);
   });
 });

@@ -20,7 +20,7 @@ Deno.test('AIR catalogue retains all five sheets, 180 records, 54 textual codes 
 });
 Deno.test('AIR ordinary storage uses pinned catalogue and explicitly chosen weight and days; supplier cost stays separate',()=>{
   const s=fullAirFixture(),before=JSON.stringify(s),r=resolveAirTariff(s,date)!;
-  assertEquals(r.schema_version,2);assertEquals(r.components.at(-1)!.supplier_ht_xof,2560);assertEquals(r.supplier_known_ht_xof,36980);
+  assertEquals(r.schema_version,2);assertEquals(r.components.at(-1)!.supplier_ht_xof,2560);assertEquals(r.supplier_known_ht_xof,35060);
   assertEquals(r.supplier_ttc_xof,null);assertEquals(r.selling_amount_xof,null);assertEquals(JSON.stringify(s),before);
   s.basis!.ordinary_storage.weight_fact_id='gross';assertEquals(resolveAirTariff(s,date)!.components.at(-1)!.supplier_ht_xof,1420.8000000000002);
   s.catalogue!.payload.entries.find(e=>e.key==='storage_1')!.value=37;s.basis!.ordinary_storage.tariff_key='storage_1';
@@ -28,7 +28,7 @@ Deno.test('AIR ordinary storage uses pinned catalogue and explicitly chosen weig
 });
 for(const status of ['assumed','unknown'] as const) Deno.test(`AIR ${status} days never enter known HT`,()=>{
   const s=fullAirFixture();s.basis!.ordinary_storage.days_status=status;const r=resolveAirTariff(s,date)!;
-  assertEquals(r.supplier_known_ht_xof,34420);assertEquals(r.components.at(-1)!.supplier_ht_xof,null);
+  assertEquals(r.supplier_known_ht_xof,32500);assertEquals(r.components.at(-1)!.supplier_ht_xof,null);
   assertEquals(r.supplier_estimated_ht_xof,status==='assumed'?2560:null);
 });
 for(const field of ['weight','days','source','rate','unit','minimum','context','validity','general','export','multi'] as const) Deno.test(`AIR missing/inapplicable ${field} never produces a fictitious storage zero`,()=>{

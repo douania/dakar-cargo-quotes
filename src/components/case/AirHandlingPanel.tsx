@@ -16,6 +16,7 @@ import { AirCatalogueSelection } from './AirCatalogueSelection';
 
 export function AirHandlingResult({ result }: { result: AirResolution }) {
   return <div className="space-y-3" aria-live="polite">
+    {result.schema_version === 1 && <p className="text-sm">Profil historique : collecte et sécurité utilisent le poids taxable LTA selon la preuve de ce profil. Cette base ne s'étend pas aux autres rubriques. Source : {result.profile?.source_reference}</p>}
     <dl className="grid gap-2 sm:grid-cols-2">{result.components.map(c => <div key={c.code} className="rounded-md border p-3">
       <dt className="text-sm text-muted-foreground">{c.code === 'warehouse_passage' ? 'Taxe fixe magasin — DMS' : c.label}</dt><dd className="font-medium">{airMoney(c.supplier_ht_xof)} HT fournisseur</dd>
       {c.reason && <dd className="text-sm text-muted-foreground">{c.reason}</dd>}

@@ -53,7 +53,7 @@ export function AirCatalogueSelection({caseId,isLocked}:{caseId:string;isLocked:
   }
   return <section aria-label="Catalogue complet et magasinage" className="space-y-4 rounded-md border p-4">
     <h3 className="font-semibold">Catalogue complet et magasinage ordinaire</h3>
-    <p className="text-sm">Le tarif provient du catalogue enregistré. Choisissez le poids et les jours facturables du dossier ; aucune franchise ni règle d’arrondi n’est présumée.</p>
+    <p className="text-sm">Les forfaits sont calculés seulement si leur nature et leurs conditions sont justifiées. La collecte et la sécurité restent à confirmer : la grille ne précise pas leur base de poids brut ou taxable. Pour le magasinage, choisissez séparément le poids et les jours justifiés ; aucune franchise ni règle d'arrondi n'est présumée.</p>
     {catalogs.isLoading && <p role="status">Chargement des catalogues.</p>}
     {state.isError && <Alert variant="destructive"><AlertDescription>Bases du dossier indisponibles. Actualisez catalogue et bases pour réessayer ; aucune association n’est possible avant une lecture confirmée.</AlertDescription></Alert>}
     {catalogs.isError && <Alert variant="destructive"><AlertDescription>Catalogue indisponible. <Button variant="outline" onClick={()=>void catalogs.refetch()}>Réessayer les catalogues</Button></AlertDescription></Alert>}
