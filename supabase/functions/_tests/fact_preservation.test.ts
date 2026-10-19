@@ -84,6 +84,7 @@ for(const validated of [false,true])Deno.test('fact preservation: real handler H
   const json=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json','Content-Range':'0-0/1'}});
   if(url.pathname.endsWith('/user'))return json({id:'operator',email:'operator@fixture.invalid'});
   if(url.pathname.endsWith('/has_workspace_access'))return json(true);
+  if(url.pathname.endsWith('/case_document_analysis_inspect'))return json({contract:1,scope:'manual_case_documents',context_hash:'a'.repeat(32),documents:[],readable_email_count:0,latest:null});
   if(url.pathname.endsWith('/supersede_fact')){
    const p=JSON.parse(String(options?.body));
    if(p.p_fact_key==='cargo.hs_code'&&p.p_source_type==='hs_resolution'){refused++;return json({code:'P0001',message:'PROTECTED_FACT_REQUIRES_OPERATOR'},400);}

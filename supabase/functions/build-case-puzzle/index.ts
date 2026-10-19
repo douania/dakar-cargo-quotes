@@ -1,4 +1,7 @@
 import { prepareRevisionGroups, writeEmailFactRevisions } from '../_shared/email-fact-revisions.ts';
+import { assertLoadedDocumentSources, beginDocumentAnalysis, documentAnalysisJob, documentAnalysisRequest, DocumentAnalysisError,
+  DOCUMENT_COVERAGE_GAP, failDocumentAnalysis, finishDocumentAnalysis, inspectDocumentAnalysis, readableCaseDocuments,
+  type DocumentAnalysisClient, type DocumentAnalysisRequest } from '../_shared/case-document-analysis.ts';
 import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { decodeEmailQuoteView, splitEmailQuoteContext } from "../_shared/email-quote-context.ts";
@@ -651,6 +654,8 @@ interface BuildPuzzleRequest {
   force_articles_detail?: boolean;
   mode?: "sync" | "start" | "poll" | "tick" | "cancel";
   job_id?: string;
+  document_analysis?: DocumentAnalysisRequest;
+  document_analysis_job_id?: string;
 }
 
 interface ExtractedFact {
@@ -4943,6 +4948,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let documentAttempt: {client:DocumentAnalysisClient;actor:string;caseId:string;id:string} | undefined;
   try {
     // 1. Validate JWT
     const authHeader = req.headers.get("Authorization");
@@ -4980,6 +4986,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // 2. Parse request
     const body = await req.json();
     const { case_id, force_refresh = false, force_articles_detail = false, mode = "sync", job_id }: BuildPuzzleRequest = body;
+    // STRUCTURAL_PATCH_ALLOWED: explicit, durable manual-document coverage; no pricing formula changes.
+    const documentAnalysis = documentAnalysisRequest(body.document_analysis);
 
     // ── Phase 15.8.2: Async job modes (poll/tick/cancel) — no case_id needed ──
     if (mode === "poll" && job_id) {
@@ -4993,16 +5001,30 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         return new Response(JSON.stringify({ error: "Job not found" }),
           { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+      const documentJob = await documentAnalysisJob(serviceClient,userId,job_id);
+      if (documentJob.managed && documentJob.result) {
+        return new Response(JSON.stringify({...jobData,status:'completed',final_result:documentJob.result,is_stale:false,can_resume:false}),
+          {headers:{...corsHeaders,'Content-Type':'application/json'}});
+      }
+      if (documentJob.managed && documentJob.outcome === 'failed') {
+        return new Response(JSON.stringify({...jobData,status:'failed',final_result:null,error_message:'Analyse documentaire non finalisée. Actualisez les sources puis relancez.',is_stale:false,can_resume:false}),
+          {headers:{...corsHeaders,'Content-Type':'application/json'}});
+      }
+      if (documentJob.managed && jobData.status === 'completed') {
+        throw new DocumentAnalysisError('Le résultat documentaire de cette analyse n’est pas confirmé.',409);
+      }
       const isStale = jobData.status === "running" &&
         (Date.now() - new Date(jobData.last_heartbeat).getTime() > 120_000);
       return new Response(JSON.stringify({
         ...jobData,
         is_stale: isStale,
-        can_resume: isStale && jobData.attempt < 3,
+        can_resume: isStale && jobData.attempt < 3 && !documentJob.managed,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (mode === "cancel" && job_id) {
+      const documentJob = await documentAnalysisJob(serviceClient,userId,job_id);
+      if (documentJob.managed) throw new DocumentAnalysisError('Cette analyse documentaire peut encore agir. Attendez son résultat confirmé avant une nouvelle analyse.',409);
       await serviceClient.from("case_puzzle_jobs")
         .update({ status: "cancelled", completed_at: new Date().toISOString() })
         .eq("id", job_id)
@@ -5018,6 +5040,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         return new Response(JSON.stringify({ error: "Job not found" }),
           { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+      const documentJob = await documentAnalysisJob(serviceClient,userId,job_id);
+      if (documentJob.managed) throw new DocumentAnalysisError('La reprise automatique ne peut pas confirmer l’arrêt de cette analyse documentaire. Actualisez son résultat.',409);
       const tickStale = tickJob.status === "running" &&
         (Date.now() - new Date(tickJob.last_heartbeat).getTime() > 120_000);
       if (!tickStale || tickJob.attempt >= 3) {
@@ -5056,6 +5080,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
               case_id: tickJob.case_id,
               force_refresh: params.force_refresh || false,
               force_articles_detail: params.force_articles_detail || false,
+              ...(params.document_analysis ? {document_analysis:documentAnalysisRequest(params.document_analysis),document_analysis_job_id:job_id} : {}),
             }),
             signal: controller.signal,
           });
@@ -5095,18 +5120,36 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       // Check existing active job
-      const { data: existingJob } = await serviceClient.from("case_puzzle_jobs")
-        .select("id, status")
+      const { data: foundJob } = await serviceClient.from("case_puzzle_jobs")
+        .select("id, status, request_params")
         .eq("created_by", userId)
         .eq("case_id", case_id)
         .in("status", ["pending", "running"])
         .maybeSingle();
+      let existingJob = foundJob;
       if (existingJob) {
+        const recorded = await documentAnalysisJob(serviceClient,userId,existingJob.id);
+        if (recorded.managed && recorded.outcome) {
+          const {error} = await serviceClient.from('case_puzzle_jobs').update({
+            status:recorded.outcome === 'failed' ? 'failed' : 'completed',final_result:recorded.result,
+            completed_at:new Date().toISOString(),
+          }).eq('id',existingJob.id).eq('created_by',userId);
+          if(error) throw new DocumentAnalysisError('Le résultat précédent est enregistré, mais son suivi doit être actualisé avant de relancer.',503);
+          existingJob = null;
+        }
+      }
+      if (existingJob) {
+        if ((documentAnalysis || existingJob.request_params?.document_analysis) &&
+            (JSON.stringify(documentAnalysis) !== JSON.stringify(documentAnalysisRequest(existingJob.request_params?.document_analysis)) ||
+             !!force_refresh !== !!existingJob.request_params?.force_refresh ||
+             !!force_articles_detail !== !!existingJob.request_params?.force_articles_detail)) {
+          throw new DocumentAnalysisError('Une autre analyse utilise déjà ce dossier avec un choix de sources différent.',409);
+        }
         return new Response(JSON.stringify({ job_id: existingJob.id, status: "already_running" }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       // Insert new job
-      const requestParams = { force_refresh, force_articles_detail };
+      const requestParams = { force_refresh, force_articles_detail, ...(documentAnalysis ? {document_analysis:documentAnalysis} : {}) };
       const { data: newJob, error: insertErr } = await serviceClient.from("case_puzzle_jobs")
         .insert({
           case_id, created_by: userId, status: "pending",
@@ -5150,7 +5193,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           const resp = await fetch(`${supabaseUrl}/functions/v1/build-case-puzzle`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": authHeader },
-            body: JSON.stringify({ case_id, force_refresh, force_articles_detail }),
+            body: JSON.stringify({ case_id, force_refresh, force_articles_detail,
+              ...(documentAnalysis ? {document_analysis:documentAnalysis,document_analysis_job_id:newJobId} : {}) }),
             signal: controller.signal,
           });
           if (!resp.ok) {
@@ -5223,6 +5267,11 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // Mono-tenant app: all authenticated users can access all cases
     // Ownership check removed — JWT auth is sufficient
 
+    if (!documentAnalysis) {
+      const inventory = await inspectDocumentAnalysis(serviceClient,userId,case_id);
+      if (inventory.latest) throw new DocumentAnalysisError('Ce dossier suit une couverture documentaire explicite. Actualisez les sources puis relancez leur analyse depuis le dossier.',409);
+    }
+
     // HS10-RANKING-CONTEXT-ENRICHMENT v2 : charger une seule fois client_company
     // et cargo.description depuis quote_facts pour enrichir le prompt IA de ranking HS10.
     // Aucun impact métier — utilisé uniquement par rankHsCandidatesWithAI.
@@ -5265,11 +5314,15 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       .eq("case_id", case_id);
 
     // 4c. Load case_documents with pre-extracted text (Intake flow)
-    const { data: caseDocuments } = await serviceClient
+    const { data: extractedCaseDocuments, error: documentReadError, count: loadedDocumentCount } = await serviceClient
       .from("case_documents")
-      .select("file_name, document_type, extracted_text")
+      .select("id, file_name, document_type, extracted_text",{count:'exact'})
       .eq("case_id", case_id)
       .not("extracted_text", "is", null);
+    const caseDocuments = documentAnalysis ? readableCaseDocuments(extractedCaseDocuments || []) : extractedCaseDocuments;
+    if (documentAnalysis && (documentReadError || loadedDocumentCount !== extractedCaseDocuments?.length)) {
+      throw new DocumentAnalysisError('Les documents n’ont pas pu être relus intégralement avant analyse.',503);
+    }
 
     // Guard: need either emails or case_documents
     if (caseData.thread_id && emails.length === 0) {
@@ -5283,6 +5336,15 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         JSON.stringify({ error: "No emails or documents found for this case" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+    if (documentAnalysis) {
+      if (caseData.thread_id && !imoGoodsEmailsComplete) throw new DocumentAnalysisError('Les courriels n’ont pas pu être lus intégralement.',503);
+      const attempt = await beginDocumentAnalysis(serviceClient,userId,case_id,documentAnalysis,body.document_analysis_job_id);
+      documentAttempt = {client:serviceClient,actor:userId,caseId:case_id,id:attempt.id};
+      await assertLoadedDocumentSources(attempt.sources,extractedCaseDocuments || [],emails);
+      if (!caseDocuments?.length && !emails.some(e => !isSodatraEmail(e.from_address) && ownFactEmailBody(e.body_text || '').trim())) {
+        throw new DocumentAnalysisError('Aucune source lisible utilisable après retrait des citations et du contenu technique. Ajoutez du texte ou réessayez l’extraction.',409);
+      }
     }
 
     // 5. Load attachments
@@ -7314,6 +7376,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       // Phase 15.6: ALWAYS protect policy gap keys from orphan closure
       // (2D/2E manage blocking vs non-blocking state)
       const policyKeysAll = new Set([
+        DOCUMENT_COVERAGE_GAP,
         "cargo.hs_code", "customs.regime_code",
         "cargo.freight_cost", "cargo.value",
         "pricing.pad_category", // Structural gap from run-pricing — must survive orphan cleanup
@@ -7685,6 +7748,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       let gapsSyncResolved = 0;
 
       for (const gap of (openGapsForSync || [])) {
+        if (gap["gap_key"] === DOCUMENT_COVERAGE_GAP) continue;
         const fact = factsMapForSync.get(gap["gap_key"]);
         if (!fact) continue;
 
@@ -8148,24 +8212,31 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     }
 
     // 11. Calculate completeness
-    const { count: currentFactsCount } = await serviceClient
+    const { count: currentFactsCount, error: currentFactsError } = await serviceClient
       .from("quote_facts")
       .select("*", { count: "exact", head: true })
       .eq("case_id", case_id)
       .eq("is_current", true);
 
-    const { count: openGapsCount } = await serviceClient
+    let openGapsQuery = serviceClient
       .from("quote_gaps")
       .select("*", { count: "exact", head: true })
       .eq("case_id", case_id)
       .eq("status", "open");
+    if (documentAnalysis?.mode === 'complete') openGapsQuery = openGapsQuery.neq('gap_key',DOCUMENT_COVERAGE_GAP);
+    const { count: openGapsCount, error: openGapsError } = await openGapsQuery;
 
-    const { count: blockingGapsCount } = await serviceClient
+    let blockingGapsQuery = serviceClient
       .from("quote_gaps")
       .select("*", { count: "exact", head: true })
       .eq("case_id", case_id)
       .eq("status", "open")
       .eq("is_blocking", true);
+    if (documentAnalysis?.mode === 'complete') blockingGapsQuery = blockingGapsQuery.neq('gap_key',DOCUMENT_COVERAGE_GAP);
+    const { count: blockingGapsCount, error: blockingGapsError } = await blockingGapsQuery;
+    if (documentAnalysis && (currentFactsError || openGapsError || blockingGapsError || currentFactsCount === null || openGapsCount === null || blockingGapsCount === null)) {
+      throw new DocumentAnalysisError('Les réserves du dossier n’ont pas pu être vérifiées.',503);
+    }
 
     const completeness = mandatoryFacts.length > 0
       ? Math.round((Math.max(0, mandatoryFacts.length - (openGapsCount || 0)) / mandatoryFacts.length) * 100)
@@ -8224,24 +8295,21 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     }
 
     // 13. Update case
-    const { error: updateError } = await serviceClient
+    const casePatch = {
+      status: newStatus,request_type: detectedType === "UNKNOWN" ? null : detectedType,
+      facts_count: currentFactsCount || 0,gaps_count: openGapsCount || 0,puzzle_completeness: completeness,
+      last_activity_at:new Date().toISOString(),updated_at:new Date().toISOString(),
+    };
+    const { error: updateError } = documentAttempt ? {error:null} : await serviceClient
       .from("quote_cases")
-      .update({
-        status: newStatus,
-        request_type: detectedType === "UNKNOWN" ? null : detectedType,
-        facts_count: currentFactsCount || 0,
-        gaps_count: openGapsCount || 0,
-        puzzle_completeness: completeness,
-        last_activity_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(casePatch)
       .eq("id", case_id);
 
     if (updateError) {
       console.error(`[BuildPuzzle] Failed to update case ${case_id}: ${updateError.message}`);
     }
 
-    if (newStatus !== caseData.status) {
+    if (!documentAttempt && newStatus !== caseData.status) {
       await serviceClient.from("case_timeline_events").insert({
         case_id,
         event_type: "status_changed",
@@ -8410,8 +8478,9 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // ── End P1 Auto-EQ ──
 
 
-    return new Response(
-      JSON.stringify({
+    const documentCoverageBlocked = documentAnalysis?.mode === 'readable' ||
+      (!documentAnalysis && (allOpenGaps || []).some(g => g.gap_key === DOCUMENT_COVERAGE_GAP));
+    let finalResult: Record<string,unknown> = {
         case_id,
         new_status: newStatus,
         request_type: detectedType,
@@ -8422,7 +8491,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         assumption_result: assumptionResult,
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
-        ready_to_price: newStatus === "DECISIONS_PENDING" || newStatus === "READY_TO_PRICE" || newStatus === "ACK_READY_FOR_PRICING",
+        ready_to_price: !documentCoverageBlocked && (newStatus === "DECISIONS_PENDING" || newStatus === "READY_TO_PRICE" || newStatus === "ACK_READY_FOR_PRICING"),
         quote_request_lines_detected: multiQuoteResult?.detected || false,
         quote_request_lines_stored: multiQuoteResult?.stored || 0,
         quote_request_lines_mode: multiQuoteResult?.mode || null,
@@ -8434,15 +8503,26 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           container_sources_conflict: emailContainersConflict,
           note: 'Own declarations are evidence candidates; quoted history is not a new instruction. No contradiction priority or goods-to-container equivalence is inferred.',
         },
-      }),
+      };
+    if (documentAttempt) {
+      finalResult = await finishDocumentAnalysis(documentAttempt.client,userId,case_id,documentAttempt.id,casePatch,finalResult);
+      documentAttempt = undefined;
+    }
+    return new Response(
+      JSON.stringify(finalResult),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Error in build-case-puzzle:", error);
     return new Response(
       JSON.stringify({ error: "Internal server error", details: String(error) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: error instanceof DocumentAnalysisError ? error.status : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+  } finally {
+    if (documentAttempt) {
+      try { await failDocumentAnalysis(documentAttempt.client,documentAttempt.actor,documentAttempt.caseId,documentAttempt.id); }
+      catch (error) { console.error('Document analysis outcome remains unconfirmed; reserve retained',String(error)); }
+    }
   }
 };
 if (Deno.env.get("BUILD_CASE_PUZZLE_DISABLE_SERVE") !== "1") Deno.serve(buildCasePuzzleHandler);

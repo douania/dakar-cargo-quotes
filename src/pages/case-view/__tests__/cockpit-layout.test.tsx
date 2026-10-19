@@ -52,6 +52,9 @@ vi.doMock('@tanstack/react-query',async()=>({
 const source = readFileSync(resolve('src/pages/CaseView.tsx'),'utf8');
 for (const match of source.matchAll(/import (.+) from "(@\/components\/(?:case|puzzle|layout)\/[^"]+)";/g)) {
   const [, imported, path] = match;
+  if(path.endsWith('/CaseDocumentAnalysisNotice')) {
+    vi.doMock(path,async()=>({...await vi.importActual<Record<string,unknown>>(path),CaseDocumentAnalysisNotice:()=>null}));continue;
+  }
   if (path.endsWith('/ScenarioEstimateResult') || path.endsWith('/PricingLaunchPanel') || path.endsWith('/CaseTodoCard')) continue;
   const names=imported.startsWith('{') ? imported.replace(/[{}]/g,'').split(',').map(s=>s.trim()).filter(s=>!s.startsWith('type ')) : ['default'];
   vi.doMock(path,()=>Object.fromEntries(names.map(name=>[name, path.endsWith('/MainLayout')
@@ -88,6 +91,34 @@ beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPar
   panelMounts={};client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{cleanup();client.clear();localStorage.clear();vi.useRealTimers();vi.restoreAllMocks();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
+it.each([false,true])('explicit readable source choice preserves exclusions for normal/forced UI, force=%s',async forced=>{
+  emptyAnalysisFixture();facts=[{id:'synthetic-articles',is_current:true,fact_key:'cargo.articles_detail',value_json:[]}];documentCount=2;
+  const hash='a'.repeat(32),documents=[{id:'bad',name:'photo-synthetique.png',readable:false,text_hash:'b'.repeat(64),source_hash:'c'.repeat(32)},{id:'good',name:'facture.txt',readable:true,text_hash:'d'.repeat(64),source_hash:'e'.repeat(32)}];
+  const offer={contract:1,scope:'manual_case_documents',context_hash:hash,documents,readable_email_count:0,latest:null};
+  const warning=vi.spyOn(toast,'warning'),success=vi.spyOn(toast,'success');
+  invoke.mockImplementation(async(name,options)=>{
+    if(name==='backfill-case-documents')return {data:{success:false,extraction_contract:1,extraction:{status:'error',code:'OCR_NOT_CONFIGURED',persisted:false,text_length:0},analysis_offer:offer},error:null};
+    if(name==='build-case-puzzle')return {data:{job_id:'document-job'},error:null};
+    throw Error('Unexpected '+name);
+  });
+  mount();await userEvent.click(screen.getByRole('button',{name:forced?'Admin - Forcer refresh articles':"Relancer l'analyse"}));
+  expect(invoke).toHaveBeenCalledTimes(1);const choice=screen.getByRole('button',{name:'Analyser les sources lisibles'});expect(choice).toBeEnabled();
+  expect(screen.getByText(/photo-synthetique.png.*texte non disponible/)).toBeInTheDocument();expect(success).not.toHaveBeenCalled();
+  vi.useFakeTimers();fireEvent.click(choice);await act(async()=>{});
+  const start=invoke.mock.calls.find(([name])=>name==='build-case-puzzle')!;
+  expect(start[1].body.document_analysis).toEqual({mode:'readable',context_hash:hash});expect(start[1].body.force_articles_detail).toBe(forced?true:undefined);
+  invoke.mockResolvedValue({data:{status:'completed',final_result:{case_id:'case-a',new_status:'NEED_INFO',ready_to_price:false,document_analysis:{mode:'readable',state:'partial',context_hash:hash}}},error:null});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
+  expect(warning).toHaveBeenCalledWith(expect.stringContaining('partielle'));expect(success).not.toHaveBeenCalled();
+  expect(invoke.mock.calls.filter(([name])=>name==='backfill-case-documents')).toHaveLength(1);
+});
+it('zero readable source leaves the explicit partial action disabled',async()=>{
+  emptyAnalysisFixture();documentCount=1;
+  invoke.mockResolvedValue({data:{success:false,extraction_contract:1,extraction:{status:'empty',code:'DOCUMENT_TEXT_EMPTY',persisted:false,text_length:0},
+    analysis_offer:{contract:1,scope:'manual_case_documents',context_hash:'a'.repeat(32),documents:[{id:'bad',name:'scan.png',readable:false,text_hash:'b'.repeat(64),source_hash:'c'.repeat(32)}],readable_email_count:0,latest:null}},error:null});
+  mount();await userEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));
+  expect(screen.getByRole('button',{name:'Analyser les sources lisibles'})).toBeDisabled();expect(invoke).toHaveBeenCalledTimes(1);
+});
 
 it.each(['INTAKE','NEW_THREAD','RFQ_DETECTED'].flatMap(fixtureStatus=>[false,true].map(guided=>({fixtureStatus,guided}))))('email-sourced empty analysis is available for $fixtureStatus guided=$guided',({fixtureStatus,guided})=>{
   status=fixtureStatus;facts=[];gaps=[];hasSelection=false;threadId='synthetic-source-thread';sourceEmailCount=3;documentCount=0;
@@ -148,7 +179,7 @@ it('stops at a document preparation error before starting analysis',async()=>{
   emptyAnalysisFixture();const failure=vi.spyOn(toast,'error');
   invoke.mockResolvedValue({data:null,error:new Error('Preparation denied')});mount();
   await userEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));
-  expect(invoke).toHaveBeenCalledTimes(1);expect(invoke).toHaveBeenCalledWith('backfill-case-documents',{body:{case_id:'case-a'}});
+  expect(invoke).toHaveBeenCalledTimes(1);expect(invoke).toHaveBeenCalledWith('backfill-case-documents',{body:{case_id:'case-a',analysis_contract:1}});
   expect(failure).toHaveBeenCalledWith(expect.stringContaining("Le fichier est conservé"));
   expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();
 });

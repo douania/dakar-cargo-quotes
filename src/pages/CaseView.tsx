@@ -10,7 +10,8 @@ import { LotConfirmationsPanel } from "@/components/case/LotConfirmationsPanel";
 import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
 import { PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
-import { prepareCaseDocuments } from '@/lib/documentExtraction';
+import { CaseDocumentPreparationError, confirmedDocumentAnalysis, prepareCaseDocuments } from '@/lib/documentExtraction';
+import { type DocumentAnalysisInventory, type DocumentAnalysisRequest } from '../../supabase/functions/_shared/case-document-analysis';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,6 +76,7 @@ import { PricingLaunchPanel } from "@/components/puzzle/PricingLaunchPanel";
 import { PricingResultPanel } from "@/components/puzzle/PricingResultPanel";
 import { QuotationVersionCard } from "@/components/puzzle/QuotationVersionCard";
 import { CaseSourceChangesNotice } from "@/components/case/CaseSourceChangesNotice";
+import { CaseDocumentAnalysisNotice, DocumentAnalysisChoice } from "@/components/case/CaseDocumentAnalysisNotice";
 import { SendQuotationPanel, type QuotationPreparationSummary } from "@/components/puzzle/SendQuotationPanel";
 import { MultiRequestLinesPanel } from "@/components/puzzle/MultiRequestLinesPanel";
 import { CaseUnderstandingPanel } from "@/components/case/CaseUnderstandingPanel";
@@ -337,7 +339,11 @@ export default function CaseView() {
   }, [caseId]);
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [analysisError, setAnalysisError] = useState('');
-  React.useEffect(() => { setAnalysisError(''); }, [caseId]);
+  const [analysisOffer, setAnalysisOffer] = useState<DocumentAnalysisInventory|null>(null);
+  const analysisBusy = React.useRef<{caseId:string;token:symbol}|null>(null);
+  const analysisCase = React.useRef(caseId);analysisCase.current=caseId;
+  const offerForceArticles = React.useRef(false);
+  React.useEffect(() => { setAnalysisError('');setAnalysisOffer(null);analysisBusy.current=null;setIsAnalyzing(false);setIsForceRefreshing(false); }, [caseId]);
   const [isServiceScopeAnalyzing, setIsServiceScopeAnalyzing] = React.useState(false);
   const [editingFactId, setEditingFactId] = React.useState<string | null>(null);
   const [editValue, setEditValue] = React.useState("");
@@ -591,6 +597,7 @@ export default function CaseView() {
     queryClient.invalidateQueries({ queryKey: ["case-documents-count", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-source-emails-count", caseId] });
     queryClient.invalidateQueries({ queryKey: ["case-source-changes", caseId] });
+    queryClient.invalidateQueries({ queryKey: ["case-document-analysis", caseId] });
     refetchCase();
     refetchFacts();
     refetchEvents();
@@ -720,7 +727,7 @@ export default function CaseView() {
   // ── Phase 15.8.2: Async helper for build-case-puzzle ──
   async function runBuildCasePuzzleAsync(
     targetCaseId: string,
-    opts?: { force_refresh?: boolean; force_articles_detail?: boolean }
+    opts?: { force_refresh?: boolean; force_articles_detail?: boolean; document_analysis?: DocumentAnalysisRequest }
   ): Promise<Record<string, unknown>> {
     const { data: startData, error: startErr } = await supabase.functions.invoke("build-case-puzzle", {
       body: { case_id: targetCaseId, ...opts, mode: "start" },
@@ -762,23 +769,30 @@ export default function CaseView() {
   }
 
   async function prepareDocumentsForAnalysis() {
-    setAnalysisError('');
-    try { await prepareCaseDocuments(supabase.functions.invoke.bind(supabase.functions), caseId!);return true; }
+    setAnalysisError('');setAnalysisOffer(null);
+    try { const request=await prepareCaseDocuments(supabase.functions.invoke.bind(supabase.functions), caseId!);return {request}; }
     catch (error) {
+      if (analysisCase.current !== caseId) return null;
       const message = (error as Error).message;
       setAnalysisError(message);
+      setAnalysisOffer(error instanceof CaseDocumentPreparationError ? error.offer || null : null);
       toast.error('Preparation des documents echouee : '+message);
-      return false;
+      return null;
     }
   }
-  async function handleLaunchAnalysis() {
-    if (!caseId || isAnalyzing || isForceRefreshing || !analysisCanLaunch) return;
+  async function handleLaunchAnalysis(selected?:DocumentAnalysisRequest) {
+    if (!caseId || analysisBusy.current?.caseId===caseId || isAnalyzing || isForceRefreshing || !analysisCanLaunch) return;
+    const token=Symbol();analysisBusy.current={caseId,token};offerForceArticles.current=false;
     setIsAnalyzing(true);
     try {
-      if (!await prepareDocumentsForAnalysis()) return;
+      const prepared=selected ? {request:selected} : await prepareDocumentsForAnalysis();
+      if (!prepared) return;
+      setAnalysisError('');
 
-
-      await runBuildCasePuzzleAsync(caseId);
+      const result=await runBuildCasePuzzleAsync(caseId,{document_analysis:prepared.request});
+      const partial=confirmedDocumentAnalysis(result,prepared.request);
+      if (analysisCase.current !== caseId) return;
+      setAnalysisOffer(null);
       // P0-E: sync gap-based client actions after puzzle refresh (best-effort)
       try {
         await supabase.functions.invoke("sync-gap-client-actions", {
@@ -838,13 +852,16 @@ export default function CaseView() {
         console.warn("[V2] analyze-case-coherence (non-blocking):", coherenceErr);
       }
 
-      toast.success("Analyse terminée avec succès");
+      if (partial) toast.warning("Analyse partielle enregistrée. Des documents manuels restent exclus.");
+      else toast.success("Analyse terminée avec succès");
       setPricingRefreshToken(t => t + 1);
       handleRefresh();
     } catch (err) {
+      if (analysisCase.current !== caseId) return;
+      setAnalysisError((err as Error).message);setAnalysisOffer(null);
       toast.error("Erreur lors de l'analyse : " + (err as Error).message);
     } finally {
-      setIsAnalyzing(false);
+      if (analysisBusy.current?.token===token) {analysisBusy.current=null;setIsAnalyzing(false);}
     }
   }
 
@@ -1065,12 +1082,18 @@ export default function CaseView() {
 
   const [isForceRefreshing, setIsForceRefreshing] = React.useState(false);
 
-  async function handleForceRefreshArticles() {
-    if (!caseId || isForceRefreshing || isAnalyzing || !analysisCanLaunch) return;
+  async function handleForceRefreshArticles(selected?:DocumentAnalysisRequest) {
+    if (!caseId || analysisBusy.current?.caseId===caseId || isForceRefreshing || isAnalyzing || !analysisCanLaunch) return;
+    const token=Symbol();analysisBusy.current={caseId,token};offerForceArticles.current=true;
     setIsForceRefreshing(true);
     try {
-      if (!await prepareDocumentsForAnalysis()) return;
-      await runBuildCasePuzzleAsync(caseId, { force_articles_detail: true });
+      const prepared=selected ? {request:selected} : await prepareDocumentsForAnalysis();
+      if (!prepared) return;
+      setAnalysisError('');
+      const result=await runBuildCasePuzzleAsync(caseId, { force_articles_detail: true,document_analysis:prepared.request });
+      const partial=confirmedDocumentAnalysis(result,prepared.request);
+      if (analysisCase.current !== caseId) return;
+      setAnalysisOffer(null);
       // P0-E: sync gap-based client actions after puzzle refresh (best-effort)
       try {
         await supabase.functions.invoke("sync-gap-client-actions", {
@@ -1079,17 +1102,20 @@ export default function CaseView() {
       } catch (syncErr) {
         console.warn("[P0-E] sync-gap-client-actions:", syncErr);
       }
-      toast.success("Refresh articles forcé avec succès");
+      if(partial) toast.warning("Analyse partielle enregistrée. Des documents manuels restent exclus.");
+      else toast.success("Refresh articles forcé avec succès");
       handleRefresh();
     } catch (err) {
+      if (analysisCase.current !== caseId) return;
       const msg = (err as Error).message;
+      setAnalysisError(msg);setAnalysisOffer(null);
       if (msg.includes("403") || msg.includes("Forbidden")) {
         toast.error("Accès admin requis (ADMIN_EMAIL_ALLOWLIST)");
       } else {
         toast.error("Erreur : " + msg);
       }
     } finally {
-      setIsForceRefreshing(false);
+      if (analysisBusy.current?.token===token) {analysisBusy.current=null;setIsForceRefreshing(false);}
     }
   }
 
@@ -1542,21 +1568,26 @@ export default function CaseView() {
         </section>}
 
         <CaseSourceChangesNotice caseId={caseId!} overview refreshToken={versionRefreshToken} onReview={() => openGuidedSection('documents')} />
+        <CaseDocumentAnalysisNotice caseId={caseId!} onReview={() => openGuidedSection('documents')} />
         {analysisStatusAllowed && (
           <Card className="mb-6 border-primary/30 bg-primary/5" aria-label="Analyse de la demande">
             <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <h2 className="font-semibold">Analyse de la demande</h2>
                 <p className="text-sm text-muted-foreground" role="status">{analysisSourceDescription}</p>
-                {analysisError && <p role="alert" className="mt-2 text-sm text-destructive">{analysisError} Aucun lancement d'analyse. Consultez les documents pour reprendre l'extraction.</p>}
+                {analysisError && <p role="alert" className="mt-2 text-sm text-destructive">{analysisError} Aucun résultat d’analyse confirmé pour cette tentative. Consultez les documents pour reprendre l’extraction.</p>}
+                {analysisOffer && <DocumentAnalysisChoice inventory={analysisOffer} busy={isAnalyzing || isForceRefreshing} onAnalyze={()=>{
+                  const request:DocumentAnalysisRequest={mode:'readable',context_hash:analysisOffer.context_hash};
+                  if(offerForceArticles.current) void handleForceRefreshArticles(request); else void handleLaunchAnalysis(request);
+                }}/>}
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={handleLaunchAnalysis} disabled={isAnalyzing || isForceRefreshing || !analysisCanLaunch}>
+                <Button onClick={()=>void handleLaunchAnalysis()} disabled={isAnalyzing || isForceRefreshing || !analysisCanLaunch}>
                   {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                   {isAnalyzing ? 'Analyse en cours…' : facts.length > 0 ? "Relancer l'analyse" : "Lancer l'analyse"}
                 </Button>
                 {hasArticlesDetail && (
-                  <Button variant="outline" onClick={handleForceRefreshArticles} disabled={isForceRefreshing || isAnalyzing || !analysisCanLaunch}>
+                  <Button variant="outline" onClick={()=>void handleForceRefreshArticles()} disabled={isForceRefreshing || isAnalyzing || !analysisCanLaunch}>
                     {isForceRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                     Admin - Forcer refresh articles
                   </Button>
@@ -2883,7 +2914,7 @@ export default function CaseView() {
                   </p>
                   {analysisStatusAllowed && (
                     <Button
-                      onClick={handleLaunchAnalysis}
+                      onClick={()=>void handleLaunchAnalysis()}
                       disabled={isAnalyzing || isForceRefreshing || !analysisCanLaunch}
                       size="sm"
                     >

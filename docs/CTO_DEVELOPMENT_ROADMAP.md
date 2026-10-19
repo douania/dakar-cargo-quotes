@@ -573,6 +573,22 @@ Règles non négociables :
 - HEAD2001f26 inchangé, aucun commit/push/migration distante/déploiement du lot. Suite à approuver : work+CI distante, migration sous préconditions Lovable, build-case-puzzle/run-pricing/frontend privés et recette connectée. Deno natif2.6/Cloud/IMAP/OCR/IA/Vault NOT_RUN.
 - Original/deux docs/.claude, guide antérieur et anti-veille35580 jusqu’au19/10 18UTC conservés. Retour local par inverse ciblé ; une fois adopté, correction en avant sans effacer faits/registres/versions/PDF ni retirer protections.
 
+### 2.37 Livraison des corrections et analyse documentaire explicite —19 octobre2026
+
+- GO humain « Oui vas y » : deux lots et livraison privée nommée autorisés ; sans publication publique ni envoi. Exception FROZEN limitée aux adaptateurs documentaires, aucune formule ni taux.
+- §2.36 livré :3b79c98 + types7156c06/fixture d4e0372, intégrés eb4a833 ; CI39226840076 SUCCESS, migration20261018190000 unique et SQL/ACL vérifiés, build-case-puzzle/run-pricing accusés déployés. Preuve task-3/automatic-fact-delivery-20261019/checkpoint.json ; aucun changement métier Cloud.
+- Nouveau mode case_documents : choix explicite et manifeste actuel, sources illisibles conservées/nommées, aucune source exploitable refusée ; erreurs de droits/transport/écriture n’accordent jamais de repli.
+- Migration20261019090000 : registre service-only/RLS deny-all append-only, réserve bloquante avant faits, finalisation courte atomique, sources et admission relues après attente ; pas de transaction globale du builder prétendue.
+- Réserve protégée contre fermeture, déplacement, renommage et homonyme non bloquant ; un OCR réussi prépare une réanalyse complète, sans lever seul la réserve. Versions nouvelles refusées sur preuve partielle/modifiée.
+- Jobs : résultat autoritaire indépendant du suivi éditable, reprise après accusé perdu, pas de redémarrage d’un worker à issue inconnue ; ancien appel sans ticket refusé sur dossier géré. Manuels/validés, versions/PDF et statuts gelés conservés.
+- UI réutilise primitives/tokens et onglet existants : action exacte « Analyser les sources lisibles », exclusions et couverture persistantes, état partiel distinct d’un succès complet, erreur/retry/reload/clavier.
+- PostgreSQL natif isolé55groupes PASS/17chevauchements ; recette navigateur CaseView+Documents sur Auth/REST/SQL/Storage localhost, OCR/IA simulés, même ID/fichier, réanalyse complète et zéro source PASS ;137tables/3322lignes antérieures et Auth/rôles préservés.
+- Contre-revue indépendante ciblée PASS ;14Deno et14Vitest contre-exécutés. Audit UI119/73/46 hérités sans nouveau constat ; types Deno49/5 et lint708/16 sous732/16, sans hausse.
+- Huit gates locaux PASS avec Vitest limité à2workers :949Vitest/2454Deno ; échecs standard5timeouts conservés FAIL. CI GitHub standard exacte exigée avant migration/déploiements. Consultation sûre sur ancien backend contre-testée403sans OCR ; attendre les anciens workers avant premier usage géré.
+- Preuves/diff/reprise : task-3/readable-sources-20261019/. Cloud authentifié du vrai dossier, OCR/IA/IMAP/Vault natifs NOT_RUN ; empreinte binaire UNKNOWN, cotation médicaments PARTIAL.
+- Original/deux docs/.claude, guide antérieur et anti-veille35580 jusqu’au19/10 18UTC préservés. Retour en avant, ne pas effacer histoire ni protections.
+
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

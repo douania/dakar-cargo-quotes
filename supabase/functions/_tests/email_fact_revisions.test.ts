@@ -38,6 +38,7 @@ for(const refused of [false,true])Deno.test('email revisions: actual analyser bi
   const json=(data:unknown,status=200,count=0)=>new Response(method==='HEAD'?null:JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Content-Range':`0-${Math.max(0,count-1)}/${count}`}});
   if(name==='user')return json({id:'operator',email:'operator@fixture.invalid'});
   if(name==='has_workspace_access')return json(true);
+  if(name==='case_document_analysis_inspect')return json({contract:1,scope:'manual_case_documents',context_hash:'a'.repeat(32),documents:[],readable_email_count:0,latest:null});
   if(name==='apply_case_email_fact_revisions'){
    proposals=JSON.parse(String(options?.body));if(refused)return json({code:'PT409',message:'Source collection changed'},409);
    const groups=proposals!.p_groups as Array<{key:string}>;

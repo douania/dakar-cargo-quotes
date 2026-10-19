@@ -1,5 +1,20 @@
 # Dakar Cargo Quotes — conduite et reprise
 
+## Reprise courante du 19 octobre 2026 — priorité sur les états historiques ci-dessous
+
+- GO humain « Oui vas y » : livraison privée des deux lots, commit/push work, migrations nécessaires via Lovable et déploiements ciblés ; aucune publication publique ni envoi. Exception FROZEN limitée aux adaptateurs documentaires, sans formule/taux.
+- Premier lot livré :3b79c98, puis types7156c06 et fixture d4e0372 intégrés par eb4a833. CI39226840076 SUCCESS ; migration20261018190000 enregistrée une fois et huit signatures/ACL comparées ; build-case-puzzle/run-pricing accusés déployés, OPTIONS200/POST sans JWT401.
+- Preuve du premier lot : ../automatic-fact-delivery-20261019/checkpoint.json. Douze collections préservées ; projet non publié. L’identité IMAP serveur contient0ligne : l’ordre de courriels réels peut donc rester indémontrable, ce qui conserve un conflit.
+- Second lot réalisé : choix explicite « Analyser les sources lisibles » pour case_documents mixtes. Pièces sans texte conservées/nominativement exclues, aucun démarrage sans source exploitable, inventaire/CAS, réserve bloquante et historique service-only append-only.
+- Finalisation courte atomique, issue inconnue conservée comme telle ; jobs relus sur le registre, succès/échec durable récupéré après accusé perdu, nouvelle analyse explicite après échec confirmé. Relance implicite sans ticket refusée sur dossier déjà géré. Consultation protégée sur ancien backend par sentinelle non UUID,403sans OCR contre-testé.
+- Après OCR réussi, seule une nouvelle analyse complète des sources inchangées lève la réserve. Faits manuels/validés et anciennes versions conservés ; nouvelles versions refusées sur couverture incomplète/modifiée. Aucun calcul métier remanié.
+- Preuves locales :55groupes PostgreSQL PASS dont17chevauchements réels ; navigateur CaseView/onglet Documents/Auth/REST/SQL/Storage réels, fournisseur OCR/IA simulé, reprise même fichier puis réanalyse complète ;137tables/3322lignes antérieures, identités/rôles et faits protégés préservés.
+- Contre-revue ciblée PASS,14Deno+14Vitest contre-exécutés ; huit contrôles locaux PASS avec Vitest limité à2workers (949Vitest/2454Deno), timeouts standard conservés comme FAIL, délais/config/baselines inchangés. Audit UI119/73/46 hérité, aucune nouvelle constatation.
+- Preuves et prochain contrôle : ../readable-sources-20261019/ ; livrer le diff revu puis exiger la CI GitHub standard exacte avant migration ; appliquer20261019090000 une fois, comparer SQL/ACL puis déployer build-case-puzzle/backfill-case-documents. Attendre la fin des anciens workers avant le premier usage géré.
+- Cloud authentifié du vrai dossier, OCR/IA/IMAP/Vault réels et empreinte du binaire déployé : NOT_RUN/UNKNOWN ; médicaments PARTIAL, aucune décision fiscale ou cotation ferme inventée.
+- Original/deux docs/.claude et delta préexistant du guide préservés. Anti-veille35580 jusqu’au19/10/2026 18UTC, sans prolongation. Retour en avant après adoption, conserver registres/faits/versions et protections.
+
+
 ## Reprise courante du 18 octobre 2026 — fait autorité sur la clôture historique ci-dessous
 
 - Terminal fonctionnel sur **DESKTOP-DJVBKU7**, même copie/branche `work`, HEAD **2001f26c531e631005659c45f4dd25c409e31dab** aligné GitHub lors du préflight. Le lot versions précédent est livré : CI GitHub39155644107 réussie, quatre fonctions accusées déployées en aperçu non publié. Preuve canonique : `../quotation-operational-audit-20261018/checkpoint.json`. Ne rejouer aucune migration de ce lot.

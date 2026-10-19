@@ -1,4 +1,6 @@
-import { extractionPayload, hasExtractedText, prepareCaseDocuments } from '@/lib/documentExtraction';
+import { caseDocumentAnalysisOffer, CaseDocumentPreparationError, confirmedDocumentAnalysis, extractionPayload, hasExtractedText, prepareCaseDocuments } from '@/lib/documentExtraction';
+import { DocumentAnalysisChoice } from './CaseDocumentAnalysisNotice';
+import { type DocumentAnalysisInventory, type DocumentAnalysisRequest } from '../../../supabase/functions/_shared/case-document-analysis';
 import React, { useState, useRef } from "react";
 import { AttachmentCargoEvidence } from "./AttachmentCargoEvidence";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -182,22 +184,31 @@ function CaseDocumentsWorkspace({ caseId }: CaseDocumentsTabProps) {
   const [retryingDocumentId, setRetryingDocumentId] = useState<string|null>(null);
   const [extractionErrors, setExtractionErrors] = useState<Record<string,string>>({});
   const [analysisNotice, setAnalysisNotice] = useState('');
+  const [analysisOffer, setAnalysisOffer] = useState<DocumentAnalysisInventory|null>(null);
+  const [isAnalyzingDocuments,setIsAnalyzingDocuments] = useState(false);
   async function extractStoredDocument(id: string, file?: File) {
     const form = new FormData();form.append('case_document_id',id);if(file)form.append('file',file);
     const result = await supabase.functions.invoke('parse-document',{body:form});
     return extractionPayload(result.data,result.error);
   }
-  async function analyzePreparedDocuments() {
+  async function analyzePreparedDocuments(selected?:DocumentAnalysisRequest) {
+    setIsAnalyzingDocuments(true);setAnalysisNotice('');
+    if(!selected)setAnalysisOffer(null);
     try {
-      await prepareCaseDocuments(supabase.functions.invoke.bind(supabase.functions),caseId);
-      const result = await supabase.functions.invoke('build-case-puzzle',{body:{case_id:caseId}});
+      const request=selected || await prepareCaseDocuments(supabase.functions.invoke.bind(supabase.functions),caseId);
+      const result = await supabase.functions.invoke('build-case-puzzle',{body:{case_id:caseId,...(request?{document_analysis:request}:{})}});
       if (result.error || result.data?.case_id !== caseId || typeof result.data?.new_status !== 'string') throw new Error("L'analyse du dossier n'a pas abouti. Utilisez Relancer l'analyse.");
-      await Promise.all(['case-view','case-facts','case-gaps','case-timeline','quote-request-lines','cockpit-state'].map(key=>queryClient.invalidateQueries({queryKey:[key,caseId]})));
-      setAnalysisNotice('');toast({title:'Analyse terminée',description:"Le dossier a été réanalysé. Vérifiez l'onglet Faits."});
+      const partial=confirmedDocumentAnalysis(result.data,request);
+      await Promise.all(['case-view','case-facts','case-gaps','case-timeline','quote-request-lines','cockpit-state','case-document-analysis','case-source-changes'].map(key=>queryClient.invalidateQueries({queryKey:[key,caseId]})));
+      setAnalysisOffer(null);
+      setAnalysisNotice(partial?'Analyse partielle enregistrée. Des documents manuels restent exclus.':'');
+      toast(partial?{title:'Analyse partielle enregistrée',description:'Les documents sans texte restent conservés et exclus de cette analyse.'}
+        :{title:'Analyse terminée',description:"Le dossier a été réanalysé. Vérifiez l'onglet Faits."});
     } catch (error) {
       setAnalysisNotice((error as Error).message);
+      setAnalysisOffer(error instanceof CaseDocumentPreparationError?error.offer||null:null);
       toast({title:'Analyse du dossier à reprendre',description:(error as Error).message,variant:'destructive'});
-    }
+    } finally {setIsAnalyzingDocuments(false);}
   }
   async function retryDocument(id: string) {
     if (extractionBusy.current) return;
@@ -209,6 +220,8 @@ function CaseDocumentsWorkspace({ caseId }: CaseDocumentsTabProps) {
       await analyzePreparedDocuments();
     } catch(error) {
       setExtractionErrors(old=>({...old,[id]:(error as Error).message}));
+      try {setAnalysisOffer(await caseDocumentAnalysisOffer(error,supabase.functions.invoke.bind(supabase.functions),caseId));}
+      catch {setAnalysisOffer(null);setAnalysisNotice('La couverture documentaire n’a pas pu être vérifiée. Actualisez les documents avant une analyse partielle.');}
       toast({title:'Extraction à reprendre',description:(error as Error).message,variant:'destructive'});
     } finally { extractionBusy.current=false;setRetryingDocumentId(null); }
   }
@@ -296,8 +309,8 @@ function CaseDocumentsWorkspace({ caseId }: CaseDocumentsTabProps) {
 
       try {
         await extractStoredDocument(docId,file);
-        return {id:docId,error:null};
-      } catch (error) { return {id:docId,error:(error as Error).message}; }
+        return {id:docId,error:null,extractionError:null};
+      } catch (error) { return {id:docId,error:(error as Error).message,extractionError:error}; }
     },
     onSuccess: async (result) => {
       await Promise.all([queryClient.invalidateQueries({queryKey:['case-documents',caseId]}),queryClient.invalidateQueries({queryKey:['case-documents-count',caseId]})]);
@@ -305,6 +318,8 @@ function CaseDocumentsWorkspace({ caseId }: CaseDocumentsTabProps) {
       if (result.error) {
         setExtractionErrors(old=>({...old,[result.id]:result.error!}));
         toast({title:'Document conservé, extraction à reprendre',description:result.error,variant:'destructive'});
+        try {setAnalysisOffer(await caseDocumentAnalysisOffer(result.extractionError,supabase.functions.invoke.bind(supabase.functions),caseId));}
+        catch {setAnalysisOffer(null);setAnalysisNotice('La couverture documentaire n’a pas pu être vérifiée. Actualisez les documents avant une analyse partielle.');}
         return;
       }
       toast({title:'Texte extrait et enregistré'});
@@ -508,6 +523,11 @@ function CaseDocumentsWorkspace({ caseId }: CaseDocumentsTabProps) {
         </CardHeader>
         <CardContent>
           {analysisNotice && <p role="alert" className="mb-3 text-sm text-destructive">{analysisNotice}</p>}
+          {analysisOffer && <DocumentAnalysisChoice inventory={analysisOffer} busy={isAnalyzingDocuments || !!retryingDocumentId || uploadMutation.isPending} onAnalyze={()=>{
+            if(extractionBusy.current)return;
+            extractionBusy.current=true;
+            void analyzePreparedDocuments({mode:'readable',context_hash:analysisOffer.context_hash}).finally(()=>{extractionBusy.current=false;});
+          }}/>}
           {allLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
