@@ -34,7 +34,7 @@ it.each([
 });
 
 const base = { case_id: "case-test", created_at: null, is_current: true, is_validated: false,
-  source_attachment_id: null, source_email_id: null, source_excerpt: null, supersedes_fact_id: null,
+  source_attachment_id: null, source_email_id: null, source_revision_id: null, source_excerpt: null, supersedes_fact_id: null,
   updated_at: null, validated_at: null, validated_by: null, value_date: null, value_number: null,
   value_text: null };
 
