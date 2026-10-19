@@ -7397,7 +7397,9 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       // P1: Protect clarification gap from orphan closure when ambiguity is active
       if (isAmbiguousLclFcl) mandatorySet.add("routing.shipment_mode_clarification");
 
-      const orphanGaps = allOpenGaps.filter(g => !mandatorySet.has(g.gap_key));
+      // Source-revision gaps belong to the explicit resolution protocol, not the request type.
+      const orphanGaps = allOpenGaps.filter(g =>
+        !g.gap_key.startsWith("source_revision.") && !mandatorySet.has(g.gap_key));
 
       for (const orphan of orphanGaps) {
         await serviceClient
@@ -7749,6 +7751,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
 
       for (const gap of (openGapsForSync || [])) {
         if (gap["gap_key"] === DOCUMENT_COVERAGE_GAP) continue;
+        // A fact's presence cannot replace an explicit source-conflict resolution receipt.
+        if (String(gap["gap_key"]).startsWith("source_revision.")) continue;
         const fact = factsMapForSync.get(gap["gap_key"]);
         if (!fact) continue;
 

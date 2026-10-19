@@ -11,6 +11,7 @@ import { CASE_PRESENTATION_KEY } from '../presentation';
 import userEvent from '@testing-library/user-event';
 import type { SelectedScenarioEstimate } from '@/components/case/ScenarioEstimateResult';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { sourceRevisionHistory, type CaseSourceChanges } from '@/lib/caseSourceChanges';
 
 // Exercise the actual CaseView composition + pricing/result components.
 // Unrelated panels and I/O are test doubles; no network or customer data.
@@ -28,7 +29,7 @@ const run: NonNullable<SelectedScenarioEstimate['run']> = { id:'r', scenario_id:
   reservations:['SCENARIO_DG_UNKNOWN'],blockers:[] };
 const initialGaps = [{id:'g',gap_key:'cargo.pad_category',status:'open',is_blocking:true,question_fr:'Catégorie PAD à préciser'}];
 let gaps = initialGaps;
-type FactFixture = {id:string;fact_key:string;value_text?:string;value_number?:number;value_json?:unknown;is_current:boolean};
+type FactFixture = {id:string;fact_key:string;value_text?:string;value_number?:number;value_json?:unknown;is_current:boolean;fact_category?:string;source_type?:string;confidence?:number;is_validated?:boolean};
 const initialFacts: FactFixture[] = [{id:'f',fact_key:'service.package',value_text:'DAP',is_current:true}];
 let facts = initialFacts, requestType = 'SEA_FCL_IMPORT';
 let lotCount: number | null = 0;
@@ -36,6 +37,8 @@ let readPending: string | null = null, readFailed: string | null = null;
 let threadId: string | null = null, sourceEmailCount: number | null = 0, documentCount: number | null = 0;
 type EventFixture = {event_type:string;created_at:string;actor_type:string;event_data:Record<string,unknown>};
 let timeline: EventFixture[] = [];
+let showSourceResolution = false;
+let sourceChanges: CaseSourceChanges = {sources:[],runs:[],revisions:[]};
 vi.doMock('react-router-dom',()=>({useParams:()=>({caseId}),useNavigate:()=>vi.fn()}));
 vi.doMock('@/integrations/supabase/client',()=>({supabase:{functions:{invoke},from}}));
 vi.doMock('@tanstack/react-query',async()=>({
@@ -43,6 +46,7 @@ vi.doMock('@tanstack/react-query',async()=>({
   useQuery:({queryKey}:{queryKey:string[]})=>({isLoading:queryKey[0]===readPending,error:queryKey[0]===readFailed?new Error('Read refused'):queryKey[0]==='cockpit-state'?cockpitError:null,isFetching:queryKey[0]===readPending||(queryKey[0]==='cockpit-state'&&cockpitFetching),refetch:vi.fn(),
     data: queryKey[0]==='case-view' ? {id:caseId,status,thread_id:threadId,request_type:requestType,puzzle_completeness:70}
       : queryKey[0]==='case-facts' ? facts : queryKey[0]==='case-gaps' ? gaps
+      : queryKey[0]==='case-source-changes' ? sourceChanges
       : queryKey[0]==='case-timeline' ? timeline : queryKey[0]==='quote-request-lines-count' ? lotCount
       : queryKey[0]==='case-source-emails-count' ? sourceEmailCount : queryKey[0]==='case-documents-count' ? documentCount
       : queryKey[0]==='cockpit-state' ? {status,totalPartnerRequests,closedPartnerRequests,blockingGapsCount:0,padReviewCount:0,...cockpitOverrides}
@@ -52,6 +56,14 @@ vi.doMock('@tanstack/react-query',async()=>({
 const source = readFileSync(resolve('src/pages/CaseView.tsx'),'utf8');
 for (const match of source.matchAll(/import (.+) from "(@\/components\/(?:case|puzzle|layout)\/[^"]+)";/g)) {
   const [, imported, path] = match;
+  if(path.endsWith('/CaseSourceChangesNotice')) {
+    vi.doMock(path,async()=>{const actual=await vi.importActual<typeof import('@/components/case/CaseSourceChangesNotice')>(path);
+      return {...actual,CaseSourceChangesNotice:(props:Parameters<typeof actual.CaseSourceChangesNotice>[0])=>showSourceResolution?<actual.CaseSourceChangesNotice {...props}/>:null};});continue;
+  }
+  if(path.endsWith('/CaseFactsTable')) {
+    vi.doMock(path,async()=>{const actual=await vi.importActual<typeof import('@/components/case/CaseFactsTable')>(path);
+      return {...actual,CaseFactsTable:(props:Parameters<typeof actual.CaseFactsTable>[0])=>showSourceResolution?<actual.CaseFactsTable {...props}/>:null};});continue;
+  }
   if(path.endsWith('/CaseDocumentAnalysisNotice')) {
     vi.doMock(path,async()=>({...await vi.importActual<Record<string,unknown>>(path),CaseDocumentAnalysisNotice:()=>null}));continue;
   }
@@ -88,6 +100,7 @@ beforeEach(()=>{caseId='case-a';status='PRICED_DRAFT';hasSelection=true;totalPar
   localStorage.setItem(CASE_PRESENTATION_KEY,'previous');cockpitOverrides={};cockpitError=null;cockpitFetching=false;versionMounts=0;preparationFixture=null;gaps=initialGaps;
   facts=initialFacts;requestType='SEA_FCL_IMPORT';lotCount=0;readPending=null;readFailed=null;timeline=[];
   threadId=null;sourceEmailCount=0;documentCount=0;from.mockReset();
+  showSourceResolution=false;sourceChanges={sources:[],runs:[],revisions:[]};
   panelMounts={};client=new QueryClient(); Element.prototype.scrollIntoView=vi.fn();});
 afterEach(()=>{cleanup();client.clear();localStorage.clear();vi.useRealTimers();vi.restoreAllMocks();});
 const mount=()=>render(<QueryClientProvider client={client}><CaseView /></QueryClientProvider>);
@@ -231,6 +244,58 @@ it('retains transport retries and runs post-analysis work only after completion'
 });
 
 const partialCta = 'Générer une offre partielle à destination';
+it.each(['sync-gap-client-actions','analyze-thread-event','analyze-case-coherence'])('characterizes busy after completed job while %s is pending',async pendingName=>{
+  emptyAnalysisFixture();vi.useFakeTimers();const success=vi.spyOn(toast,'success');
+  const read={select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),order:vi.fn().mockReturnThis(),limit:vi.fn().mockReturnThis(),maybeSingle:vi.fn().mockResolvedValue({data:{id:'email'},error:null})};
+  from.mockReturnValue(read);
+  let release:((value:{data:{ok:boolean};error:null})=>void)|undefined;
+  const pending=new Promise<{data:{ok:boolean};error:null}>(resolve=>{release=resolve;});
+  invoke.mockImplementation(async(name,options)=>{
+    if(name==='backfill-case-documents')return {data:{success:true,status:'ok',extraction_contract:1,remaining:0},error:null};
+    if(name==='build-case-puzzle')return options.body.mode==='start'?{data:{job_id:'completed-synthetic-job'},error:null}:{data:{status:'completed',final_result:{}},error:null};
+    if(name===pendingName)return pending;
+    return {data:{ok:true},error:null};
+  });
+  mount();fireEvent.click(screen.getByRole('button',{name:"Lancer l'analyse"}));await act(async()=>{});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
+  expect(invoke.mock.calls.filter(([name,options])=>name==='build-case-puzzle'&&options.body.mode==='poll')).toHaveLength(1);
+  expect(invoke.mock.calls.some(([name])=>name===pendingName)).toBe(true);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(600_000);});
+  expect(screen.getByRole('button',{name:'Analyse en cours…'})).toBeDisabled();expect(success).not.toHaveBeenCalled();
+  expect(invoke.mock.calls.filter(([name,options])=>name==='build-case-puzzle'&&options.body.mode==='start')).toHaveLength(1);
+  await act(async()=>{release!({data:{ok:true},error:null});});
+  expect(screen.getByRole('button',{name:"Lancer l'analyse"})).toBeEnabled();expect(success).toHaveBeenCalledWith('Analyse terminée avec succès');
+});
+
+it('operator sees a source conflict, confirms the actual fact and rereads linked resolution history',async()=>{
+  localStorage.removeItem(CASE_PRESENTATION_KEY);
+  status='NEED_INFO';hasSelection=false;showSourceResolution=true;gaps=[{id:'source-gap',gap_key:'source_revision.cargo.description',status:'open',is_blocking:true,question_fr:'Descriptions contradictoires : confirmer la désignation.'}];
+  facts=[{id:'description',fact_key:'cargo.description',fact_category:'cargo',value_text:'Marchandises générales',source_type:'email_body',confidence:.8,is_validated:false,is_current:true}];
+  const conflict={id:'conflict-event',created_at:'2026-10-19T10:00:00Z',event_data:{source:'email-fact-revision',revision_id:'revision',fact_key:'cargo.description',status:'conflict',reason:'current_source_not_orderable',old_fact:{value_text:'Marchandises générales'},source_evidence:{candidates:[{email_id:'email',value:'textiles',excerpt:'Textiles.'}]}}};
+  sourceChanges={sources:[],runs:[],revisions:sourceRevisionHistory([conflict])};
+  const invalidate=vi.spyOn(client,'invalidateQueries');
+  invoke.mockImplementation(async(name,options)=>{
+    expect(name).toBe('set-case-fact');expect(options.body).toEqual({case_id:'case-a',fact_key:'cargo.description',value_text:'Textiles confirmés',value_number:null});
+    facts=[{id:'manual-description',fact_key:'cargo.description',fact_category:'cargo',value_text:'Textiles confirmés',source_type:'manual_input',confidence:1,is_validated:true,is_current:true}];gaps=[];
+    sourceChanges={...sourceChanges,revisions:sourceRevisionHistory([conflict,{id:'resolution-event',created_at:'2026-10-19T10:01:00Z',event_data:{source:'email-fact-revision',revision_id:'revision',fact_key:'cargo.description',status:'resolved',reason:'explicit_manual_successor',old_fact:{value_text:'Marchandises générales'},new_value:'Textiles confirmés',source_evidence:{manual:{excerpt:'TEST ONLY confirmation opérateur'}}}}])};
+    return {data:{success:true},error:null};
+  });
+  mount();expect(screen.getByText(/1 correction\(s\) en conflit/)).toBeVisible();
+  const missing=screen.getByRole('region',{name:'Informations à compléter'});
+  await userEvent.click(within(missing).getByRole('button',{name:'Descriptions contradictoires : confirmer la désignation.'}));
+  expect(document.getElementById('gap-review-source-gap')).toBeVisible();
+  expect(within(document.getElementById('gap-review-source-gap')!).queryByRole('textbox')).toBeNull();
+  await userEvent.click(screen.getByRole('button',{name:'Présentation précédente'}));
+  await userEvent.click(screen.getByRole('tab',{name:'Données & audit'}));await userEvent.click(screen.getByText(/Sources, faits et historique/));
+  const edit=screen.getByRole('button',{name:/Modifier .*description|Modifier .*désignation/i});await userEvent.click(edit);
+  const input=screen.getByRole('textbox',{name:/description|désignation/i});await userEvent.clear(input);await userEvent.type(input,'Textiles confirmés{Enter}');
+  await waitFor(()=>expect(invoke).toHaveBeenCalledTimes(1));
+  expect(invalidate).toHaveBeenCalledWith({queryKey:['case-source-changes','case-a']});
+  expect(screen.queryByText(/1 correction\(s\) en conflit/)).toBeNull();
+  await userEvent.click(screen.getByText(/Historique des corrections de faits/));
+  expect(screen.getByText(/Résolu par décision manuelle/)).toBeVisible();expect(screen.getByText(/TEST ONLY confirmation opérateur/)).toBeVisible();
+});
+
 function destinationPartialFixture() {
   status='NEED_INFO';requestType='AIR_IMPORT';hasSelection=false;
   facts=[{id:'pkg',fact_key:'service.package',value_text:'AIR_IMPORT_DDP',is_current:true},
