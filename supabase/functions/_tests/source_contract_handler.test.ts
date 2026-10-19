@@ -44,6 +44,8 @@ for(const failure of [null,'evidence_read','gap_write','evidence_write'] as cons
   const rows=tables[name];if(rows){
    if(method==='POST'){
     const body=await req.json();
+    if(name==='quote_gaps'&&!(Array.isArray(body)?body:[body]).every((g:{gap_category?:string})=>['cargo','routing','timing','pricing','documents','contacts','other'].includes(g.gap_category||'')))
+     return new Response(JSON.stringify({message:'quote_gaps_gap_category_check',code:'23514'}),{status:400,headers:{'Content-Type':'application/json'}});
     if(failure==='gap_write'&&name==='quote_gaps'&&String(body.gap_key).startsWith('source_contract.'))return denied();
     if(failure==='evidence_write'&&name==='case_timeline_events'&&body.event_data?.kind==='source_contract_review')return denied();
     const added=(Array.isArray(body)?body:[body]).map((row,i)=>({id:'local-'+name+'-'+rows.length+'-'+i,created_at:new Date(Date.UTC(2026,9,19)+sequence++).toISOString(),...row}));

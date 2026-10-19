@@ -11,7 +11,7 @@ export interface ContractAssertion {
   scopeHeading?: string;
 }
 export interface ContractConflict {
-  key: string; category: 'service' | 'timing'; question: string; assertions: ContractAssertion[];
+  key: string; category: 'other' | 'timing'; question: string; assertions: ContractAssertion[];
 }
 export interface ContractEvidence {
   kind: 'source_contract_review'; version: 1; fingerprint: string;
@@ -78,7 +78,7 @@ export async function assessRequestSourceContract(sources: ContractSource[],coll
     const candidates=assertions.filter(a=>a.key===key);
     if(new Set(candidates.map(a=>a.value)).size<2)continue;
     const label=key==='export_customs'?'Dédouanement export : inclusion/exclusion contradictoire entre les sources.':'Échéance de soumission : plusieurs dates/heures documentaires incompatibles.';
-    conflicts.push({key:SOURCE_CONTRACT_PREFIX+key,category:key==='export_customs'?'service':'timing',
+    conflicts.push({key:SOURCE_CONTRACT_PREFIX+key,category:key==='export_customs'?'other':'timing',
       question:label+' Décision explicite requise ; aucune priorité automatique entre courriel et pièce jointe.',assertions:candidates});
   }
   return {kind:'source_contract_review',version:1,fingerprint:await contractHash(JSON.stringify({version:1,sources:inventory,collectionComplete})),sources:inventory,assertions,conflicts,collectionComplete};
