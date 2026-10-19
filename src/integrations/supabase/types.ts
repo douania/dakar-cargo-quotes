@@ -511,6 +511,86 @@ export type Database = {
         }
         Relationships: []
       }
+      case_document_analysis_results: {
+        Row: {
+          analysis_id: string
+          created_at: string
+          outcome: string
+          result: Json
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string
+          outcome: string
+          result: Json
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string
+          outcome?: string
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_document_analysis_results_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: true
+            referencedRelation: "case_document_analysis_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      case_document_analysis_runs: {
+        Row: {
+          actor_user_id: string
+          case_id: string
+          context: Json
+          context_hash: string
+          created_at: string
+          id: string
+          job_id: string | null
+          mode: string
+          sequence: number
+        }
+        Insert: {
+          actor_user_id: string
+          case_id: string
+          context: Json
+          context_hash: string
+          created_at?: string
+          id: string
+          job_id?: string | null
+          mode: string
+          sequence?: never
+        }
+        Update: {
+          actor_user_id?: string
+          case_id?: string
+          context?: Json
+          context_hash?: string
+          created_at?: string
+          id?: string
+          job_id?: string | null
+          mode?: string
+          sequence?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_document_analysis_runs_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "case_document_analysis_runs_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: true
+            referencedRelation: "case_puzzle_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       case_document_metadata: {
         Row: {
           amount_ht: number | null
@@ -8796,6 +8876,10 @@ export type Database = {
         }
         Returns: Json
       }
+      assert_case_document_analysis_complete: {
+        Args: { p_case: string }
+        Returns: undefined
+      }
       assert_case_source_revisions_resolved: {
         Args: { p_case: string }
         Returns: undefined
@@ -8814,6 +8898,39 @@ export type Database = {
       }
       assert_scenario_quotation_version_current: {
         Args: { p_version_id: string }
+        Returns: Json
+      }
+      case_document_analysis_begin: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_hash: string
+          p_id: string
+          p_job?: string
+          p_mode: string
+        }
+        Returns: Json
+      }
+      case_document_analysis_fail: {
+        Args: { p_actor: string; p_case: string; p_id: string }
+        Returns: undefined
+      }
+      case_document_analysis_finish: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_id: string
+          p_patch: Json
+          p_result: Json
+        }
+        Returns: Json
+      }
+      case_document_analysis_inspect: {
+        Args: { p_actor: string; p_case: string }
+        Returns: Json
+      }
+      case_document_analysis_job: {
+        Args: { p_actor: string; p_job: string }
         Returns: Json
       }
       check_quotation_ownership_status: {
@@ -8944,6 +9061,12 @@ export type Database = {
         }
         Returns: Json
       }
+      document_analysis_actor: {
+        Args: { p_actor: string; p_case: string }
+        Returns: undefined
+      }
+      document_analysis_context: { Args: { p_case: string }; Returns: Json }
+      document_analysis_has_text: { Args: { p_text: string }; Returns: boolean }
       email_revision_source_order: {
         Args: { p_new: string; p_old: string; p_sources: Json }
         Returns: number
