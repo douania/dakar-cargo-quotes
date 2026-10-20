@@ -1,29 +1,42 @@
 # Dakar Cargo Quotes — conduite et reprise
 
-## Reprise courante du 19 octobre 2026 — priorité sur les états historiques ci-dessous
+## Point courant — 20 octobre 2026, RÉCONCILIATION-1 locale
+
+- Point d’entrée après bascule : `C:/Users/DELL/Projects/dakar-cargo-quotes`, branche `work`, code `17fdeda00e19cc5ffc78c0f68c674cd6fd6ad1f3`. Référence applicative distincte des éventuels commits documentaires ultérieurs ; vérifier le HEAD et la publication par le préflight.
+- L’exécution Bunia est close ; aucun lot suivant lancé au passage vérifié. Le fait corrigé et l’historique sont attestés par le bilan de ce lot, sans nouvelle recette dans cette réconciliation. Le dossier reste NEED_INFO ; limites métier et empreinte binaire Edge inconnue conservées.
+- Deux copies task-3 conservées intactes comme sources de preuves, pas supprimées ni déplacées. Pour une future reprise, revérifier l’emplacement et les autorisations plutôt que réactiver un ancien prompt.
+- Preuve de clôture technique : `C:/Users/DELL/Documents/Codex/2026-10-07/task-3/bunia-extension-20261020/checkpoint.json` ; autres décisions et notes de clôture dans la roadmap. Ne rejouer aucune migration/déploiement.
+- Le GO RÉCONCILIATION-1 couvre sauvegardes et synchronisation locales, pas commit/push ni nouvelle action produit/Cloud. La dot suit les résultats et décisions ; un seul exécutant écrit.
+- Sauvegardes exactes des trois copies, guide local complet et propositions métier privées : `C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/sources/`. Ces pièces restent hors Git.
+- La variante locale du guide a été rapprochée : clôtures sources lisibles/handling reprises par les preuves et notes roadmap ; propositions métier non adoptées conservées hors dépôt, pas promues en faits.
+- Les sections datées ci-dessous sont historiques ; leurs chemins de copie, SHA, étapes « à livrer », accès et durées ne décrivent pas l’état courant et n’autorisent aucune action. Le présent point et le préflight réel priment.
+- Toute reprise doit traiter la queue CTO, vérifier et préserver les éventuelles modifications non commitées, puis demander seulement les décisions/actions hors GO existants.
+- Préparation de publication : diff et empreintes des trois documents dans `C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/publication-preparation/publication-manifest.json` ; ce bilan ne prouve une publication qu'après vérification Git et GO distinct.
+
+## Historique — Reprise courante du 19 octobre 2026
 
 - GO humain « Oui vas y » : livraison privée des deux lots, commit/push work, migrations nécessaires via Lovable et déploiements ciblés ; aucune publication publique ni envoi. Exception FROZEN limitée aux adaptateurs documentaires, sans formule/taux.
 - Premier lot livré :3b79c98, puis types7156c06 et fixture d4e0372 intégrés par eb4a833. CI39226840076 SUCCESS ; migration20261018190000 enregistrée une fois et huit signatures/ACL comparées ; build-case-puzzle/run-pricing accusés déployés, OPTIONS200/POST sans JWT401.
-- Preuve du premier lot : ../automatic-fact-delivery-20261019/checkpoint.json. Douze collections préservées ; projet non publié. L’identité IMAP serveur contient0ligne : l’ordre de courriels réels peut donc rester indémontrable, ce qui conserve un conflit.
+- Preuve du premier lot : C:/Users/DELL/Documents/Codex/2026-10-07/task-3/automatic-fact-delivery-20261019/checkpoint.json. Douze collections préservées ; projet non publié. L’identité IMAP serveur contient0ligne : l’ordre de courriels réels peut donc rester indémontrable, ce qui conserve un conflit.
 - Second lot réalisé : choix explicite « Analyser les sources lisibles » pour case_documents mixtes. Pièces sans texte conservées/nominativement exclues, aucun démarrage sans source exploitable, inventaire/CAS, réserve bloquante et historique service-only append-only.
 - Finalisation courte atomique, issue inconnue conservée comme telle ; jobs relus sur le registre, succès/échec durable récupéré après accusé perdu, nouvelle analyse explicite après échec confirmé. Relance implicite sans ticket refusée sur dossier déjà géré. Consultation protégée sur ancien backend par sentinelle non UUID,403sans OCR contre-testé.
 - Après OCR réussi, seule une nouvelle analyse complète des sources inchangées lève la réserve. Faits manuels/validés et anciennes versions conservés ; nouvelles versions refusées sur couverture incomplète/modifiée. Aucun calcul métier remanié.
 - Preuves locales :55groupes PostgreSQL PASS dont17chevauchements réels ; navigateur CaseView/onglet Documents/Auth/REST/SQL/Storage réels, fournisseur OCR/IA simulé, reprise même fichier puis réanalyse complète ;137tables/3322lignes antérieures, identités/rôles et faits protégés préservés.
 - Contre-revue ciblée PASS,14Deno+14Vitest contre-exécutés ; huit contrôles locaux PASS avec Vitest limité à2workers (949Vitest/2454Deno), timeouts standard conservés comme FAIL, délais/config/baselines inchangés. Audit UI119/73/46 hérité, aucune nouvelle constatation.
-- Preuves et prochain contrôle : ../readable-sources-20261019/ ; livrer le diff revu puis exiger la CI GitHub standard exacte avant migration ; appliquer20261019090000 une fois, comparer SQL/ACL puis déployer build-case-puzzle/backfill-case-documents. Attendre la fin des anciens workers avant le premier usage géré.
+- Preuves et prochain contrôle : C:/Users/DELL/Documents/Codex/2026-10-07/task-3/readable-sources-20261019 ; livrer le diff revu puis exiger la CI GitHub standard exacte avant migration ; appliquer20261019090000 une fois, comparer SQL/ACL puis déployer build-case-puzzle/backfill-case-documents. Attendre la fin des anciens workers avant le premier usage géré.
 - Cloud authentifié du vrai dossier, OCR/IA/IMAP/Vault réels et empreinte du binaire déployé : NOT_RUN/UNKNOWN ; médicaments PARTIAL, aucune décision fiscale ou cotation ferme inventée.
 - Original/deux docs/.claude et delta préexistant du guide préservés. Anti-veille35580 jusqu’au19/10/2026 18UTC, sans prolongation. Retour en avant après adoption, conserver registres/faits/versions et protections.
 
 
-## Reprise courante du 18 octobre 2026 — fait autorité sur la clôture historique ci-dessous
+## Historique — Reprise courante du 18 octobre 2026
 
-- Terminal fonctionnel sur **DESKTOP-DJVBKU7**, même copie/branche `work`, HEAD **2001f26c531e631005659c45f4dd25c409e31dab** aligné GitHub lors du préflight. Le lot versions précédent est livré : CI GitHub39155644107 réussie, quatre fonctions accusées déployées en aperçu non publié. Preuve canonique : `../quotation-operational-audit-20261018/checkpoint.json`. Ne rejouer aucune migration de ce lot.
+- Terminal fonctionnel sur **DESKTOP-DJVBKU7**, même copie/branche `work`, HEAD **2001f26c531e631005659c45f4dd25c409e31dab** aligné GitHub lors du préflight. Le lot versions précédent est livré : CI GitHub39155644107 réussie, quatre fonctions accusées déployées en aperçu non publié. Preuve canonique : `C:/Users/DELL/Documents/Codex/2026-10-07/task-3/quotation-operational-audit-20261018/checkpoint.json`. Ne rejouer aucune migration de ce lot.
 - L’accord tardif « Oui, réaliser ce lot local » concerne la proposition médicaments du17/10 : réalisation95bff0e déjà présente, migration20261017160000 et livraison privée déjà attestées par leurs reçus ultérieurs. Aucun nouveau taux, régime, valeur FOC ou choix fiscal n’est approuvé par cet accord ; dossier réel toujours PARTIAL.
 - **Décision métier conservée : “Actualisation automatique avec alerte et historique”.** À chaque analyse existante, actualiser les faits non validés sur nouvelle déclaration propre dont l’ordre est prouvé ; conserver manuels/validés, anciennes valeurs, sources/extraits/dates/motif et versions/PDF. Une citation seule n’est pas une correction ; ordre manquant/ambigu ou valeurs contradictoires restent conflits visibles. Aucun traitement périodique/IMAP automatique ajouté.
 - **Lot courant réalisé localement, sans commit ni push :** protocole transactionnel service-only, registre append-only/RLS deny-all, confirmation conservant le repère récent, rejeu immuable, protection contre les étapes anciennes, résolution manuelle tracée ; gardes build-case-puzzle/run-pricing limitées au contrôle/provenance, aucune formule ni taux modifié. Historique/alerte dans la notice existante, calcul/devis obsolète signalé sans réécriture.
 - CI complète finale exit0 : **938Vitest,2440Deno/0échec/6ignorés**, types/config/bundles/build PASS ; Deno49/5 et lint708/16 inchangés, seuil732/16. PostgreSQL isolé : concurrence distincte/deux ordres, ban/retrait rôle/manual pendant attente, rollback, ACL, registre malgré gap fermé PASS. Contre-revue indépendante et15tests notice PASS, audit UI119constats/73violations/46inconnus hérités.
 - Migration **20261018190000 locale seulement** ; recette Auth/REST/SQL/handlers localhost :200→300, rejeu sans doublon, nouvelle source400 non ordonnable conservant300, pricing409 avant calcul, ancienne version JSON inchangée. Navigateur Chrome headless à profil dédié :7contrôles, clavier/erreur/reprise/reload/390px ; résolution manuelle300→350 via endpoint existant et historique relu. Composition notice/version réelles, pas nouvelle recette CaseView complet ni tarif réel. Métadonnées d’identité IMAP fictives ; aucun appel mail/fournisseur.
-- Preuves et diff exact : **`../automatic-fact-corrections-20261018/checkpoint.json`**, `lot.patch`, logs et reçus voisins. Reprises du banc après erreurs de fixture documentées, sans rejouer les écritures acquises. Les lignes publiques antérieures, identités/rôles et original/deux docs/.claude restent préservés ; le présent ajout conserve le guide préexistant.
+- Preuves et diff exact : **`C:/Users/DELL/Documents/Codex/2026-10-07/task-3/automatic-fact-corrections-20261018/checkpoint.json`**, `lot.patch`, logs et reçus voisins. Reprises du banc après erreurs de fixture documentées, sans rejouer les écritures acquises. Les lignes publiques antérieures, identités/rôles et original/deux docs/.claude restent préservés ; le présent ajout conserve le guide préexistant.
 - **Prochaine approbation distincte** : commit/push du seul lot revu sur work, CI distante de ce nouveau commit, migration20261018190000 via Lovable Cloud avec préconditions/empreintes/transaction, déploiement coordonné build-case-puzzle/run-pricing et frontend privé, recette authentifiée bornée. Rien de cela n’a été exécuté pour ce lot. Pas de publication publique, envoi, nouveau secret/compte/rôle ni configuration distante. Native Deno2.6 et recette Cloud de ce delta NOT_RUN ; Vault/IMAP/OCR/IA réels restent NOT_RUN.
 - Anti-veille35580 conservé jusqu’au **19/10/2026 18:00UTC**, sans prolongation. Retour local : inverse du seul `lot.patch` après vérification ; après adoption de faits, correction en avant, conserver registres/faits/versions/PDF et protections SQL, aucun effacement d’histoire.
 
@@ -31,7 +44,7 @@ La clôture du17/10 qui suit est conservée comme preuve historique ; ses indica
 
 État du 17 octobre 2026. Guide opérationnel unique, complément de la [roadmap CTO](CTO_DEVELOPMENT_ROADMAP.md#218-conduite-et-reprise--17-octobre-2026) ; il ne remplace ni les GO ni les règles FROZEN. Sa création est explicitement demandée par l’utilisateur pour cette étape documentaire. Aucun commit/push, changement produit ou fiscal autorisé par cette seule mise en place.
 
-## Point de départ vérifié
+## Historique du 17 octobre — Point de départ vérifié
 
 - Même ordinateur : **DESKTOP-DJVBKU7**. Copie active : `C:/Users/DELL/Documents/Codex/2026-10-07/task-3/dcq-partial-ui-proposal-v1`, branche `work`.
 - HEAD technique livré : **`3f7a7da35479af796457d2f4e99e5d94f500d15a`**, aligné GitHub/Lovable. Ces nouvelles modifications documentaires restent locales. Dépôt original `C:/Users/DELL/Projects/dakar-cargo-quotes`, ses deux docs modifiés et `.claude/` à préserver.
@@ -57,7 +70,7 @@ Un objectif utile est défini avec critères, périmètre, exclusions, sources, 
 
 L’exécutant prépare les propositions et vérifie lui-même le résultat lorsque les outils le permettent. L’opérateur confirme les décisions métier groupées, pas une succession de clics techniques. La démonstration finale présente une cotation enregistrée, relue, versionnée et son PDF. Une recette manuelle nécessaire est annoncée comme telle ; elle ne devient pas une preuve d’automatisation.
 
-## Prochain objectif borné : cotation du dossier médicaments
+## Historique du 17 octobre — Prochain objectif borné : cotation du dossier médicaments
 
 **Dossier1d6202e8 uniquement, objectif préparé, réalisation fiscale non démarrée sous ce GO documentaire.** Réutiliser la demande et les pièces existantes, sans réimporter ou demander de ressaisir les informations déjà disponibles. Les données client détaillées restent dans l’application et les preuves privées hors Git.
 
@@ -77,7 +90,7 @@ Ne jamais choisir arbitrairement un HS, une valeur, une conversion, un régime o
 
 Avant réalisation, borner les fichiers et éventuelles exceptions FROZEN dans un GO groupé adapté. Le précédent GO commercial ne permet pas de modifier librement les formules fiscales. Les besoins de données/référentiel se préparent concrètement avant une demande de décision ; aucune écriture Cloud, migration ou activation non incluse.
 
-## Portes de contrôle et capacités réelles
+## Historique du 17 octobre — Portes de contrôle et capacités réelles
 
 | Capacité | État constaté ici | Vérification requise avant recette autonome |
 |---|---|---|
@@ -101,5 +114,5 @@ Pour le prochain lot, grouper : tests de promotion documentaire/FOC/HS incomplet
 ## Prompt de reprise à coller dans cette tâche
 
 ```text
-Reprends DCQ dans la même tâche sur DESKTOP-DJVBKU7, copie task-3/dcq-partial-ui-proposal-v1, branche work. Lis AGENTS, queue CTO, roadmap§1–2 et docs/CONDUITE_REPRISE_DCQ.md ; inspecte Git/processus/preuves sans repartir de zéro. Référence technique livrée3f7a7da ; recette manuelle fixture689000PASS, pas certification fiscale. Prépare le prochain objectif borné au dossier médicaments1d6202e8 : pièces existantes→bases sourcées proposées→décisions opérateur groupées→droits/taxes,handling,transport/honoraires→ajustements→version/PDF relus. Commence par un plan concret et l’état réel des capacités/GO ; ne modifie pas encore fiscalité ou FROZEN sans autorisation ciblée. Stop sur divergence inexpliquée, action hors GO, preuve/base métier absente ou refus d’outil ; aucun tarif/valeur/régime inventé, secret ou contournement. Préserve l’original, historiques et sécurité. Aucun envoi ni publication générale. Rapporte résultats/blocages, puis mène le périmètre autorisé jusqu’à sa preuve testée.
+Reprends DCQ dans C:/Users/DELL/Projects/dakar-cargo-quotes, branche work. Vérifie queue CTO puis Git et roadmap§1–2, ce guide et validation.json du lot RÉCONCILIATION-1. La référence applicative réconciliée est17fdeda0 ; le HEAD peut comprendre des commits documentaires ultérieurs. Vérifie l’état des trois documents et préserve les éventuelles modifications locales et les copies task-3. Ne rejoue pas les migrations ni les livraisons historiques. Aucun lot applicatif suivant, commit/push ou envoi n'est autorisé par le seul GO de réconciliation. Prépare uniquement la prochaine décision utile à partir des preuves et limites conservées.
 ```

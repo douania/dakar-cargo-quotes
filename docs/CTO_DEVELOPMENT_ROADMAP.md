@@ -48,6 +48,15 @@ Règles non négociables :
 - Lovable Cloud ne doit être interrogé ou modifié que dans le périmètre exact du GO CTO ;
 - les requêtes runtime de diagnostic doivent être en lecture seule sauf autorisation explicite contraire.
 
+### Point de reprise courant — RÉCONCILIATION-1, 20 octobre 2026
+
+- GO utilisateur : réalisation locale, sauvegardes et réconciliation de trois documents ; aucun commit/push, déploiement ni écriture Cloud.
+- Dossier principal de reprise après bascule locale : `C:/Users/DELL/Projects/dakar-cargo-quotes`, branche `work`, code de référence `17fdeda00e19cc5ffc78c0f68c674cd6fd6ad1f3`.
+- Ce SHA est la référence applicative ; le HEAD peut inclure ensuite les commits documentaires. Vérifier la publication par le préflight, sans supposer ces notes locales ou déjà publiées. Les deux copies sous `task-3` restent intactes comme sources de preuves ; aucune ne doit écrire concurremment sur ce lot.
+- Lot Bunia clos dans « Terminer validation accès DCQ » avant réconciliation ; aucune autorisation de lot applicatif suivant donnée ici. Limites runtime/métier et décisions manquantes conservées.
+- Les bilans récupérés sont des traces historiques, non de nouvelles preuves contre-exécutées. Les indications anciennes de copie active, HEAD, lot local absent ou « prochain déploiement » ci-dessous sont historiques à leur date. Ne pas les rejouer ; utiliser `docs/CONDUITE_REPRISE_DCQ.md` et le préflight réel.
+- Sauvegardes exactes, variantes et registre des rapprochements hors Git : `C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/`.
+
 ### 2.1 Organisation des lots et contre-revues — décision utilisateur du 14 septembre 2026
 
 - Règle durable approuvée par l'utilisateur : travailler par lot cohérent, pas par succession de micro-GO ; ne pas redemander l'approbation de cette méthode à chaque reprise.
@@ -383,7 +392,7 @@ Règles non négociables :
 - Réponse200 perdue après commit puis requête identique rejouée : une révision et une version, acteur/source épinglés, anciens snapshots conservés. Achat handling39100 interne distinct de vente40000, absent du PDF.
 - Recette technique bornée PASS, cotation fictive PARTIAL55420XOF : dédouanement, transport et agence inconnus. Extraction et poids taxable220kg présemés ; composition de composants avec verrou UI ouvert, pas CaseView complet/OCR/IMAP/IA ni validation fiscale réelle.
 - PDFs source/commercial2pages : texte/bornes/rendu et hash serveur/SQL/téléchargement contrôlés ; source conservée. Libellé ferme sous provisoire et franchise magasinage de la source restent non certifiés ; aucun changement de formule/tarif/FROZEN.
-- Contre-revue indépendante PASS sur migration/tests et preuve continue bornée. Preuves, première recettev6/v7, reproduction, empreintes finales et nettoyage dans task-3/workflow-http-continuous-20261017 ; commande node ../workflow-http-continuous-20261017/run.cjs.
+- Contre-revue indépendante PASS sur migration/tests et preuve continue bornée. Preuves, première recettev6/v7, reproduction, empreintes finales et nettoyage dans task-3/workflow-http-continuous-20261017 ; commande node C:/Users/DELL/Documents/Codex/2026-10-07/task-3/workflow-http-continuous-20261017/run.cjs.
 - Livraison privée CHECK sous GO weekend : ced372e aligné GitHub/Lovable, CI39057627670 SUCCESS ; migration183000 appliquée/stampée, CHECK validé42valeurs.2742événements/hash16820b2fcefc45a0f68d1cda2604f8e2 inchangés ; aucun dossier métier modifié ni publication générale. Preuves task-3/timeline-adoption-delivery-20261017.
 - Original/deux docs/.claude et anti-veille temporaire préservés. Retour : retirer ce patch local avant livraison ; après adoption, correction en avant et conservation des décisions/versions/PDF append-only.
 
@@ -588,6 +597,15 @@ Règles non négociables :
 - Preuves/diff/reprise : task-3/readable-sources-20261019/. Cloud authentifié du vrai dossier, OCR/IA/IMAP/Vault natifs NOT_RUN ; empreinte binaire UNKNOWN, cotation médicaments PARTIAL.
 - Original/deux docs/.claude, guide antérieur et anti-veille35580 jusqu’au19/10 18UTC préservés. Retour en avant, ne pas effacer histoire ni protections.
 
+
+
+### 2.38 Handling aérien : livraison privée ciblée —19 octobre2026
+
+- Bilan historique importé : livraison ciblée sur74f08de, CI39246433703 déclarée SUCCESS ; aucune nouvelle exécution dans cette réconciliation.
+- Forfaits justifiés conservés ; rubriques au poids réservées lorsque leur base manque. Aucun taux, choix fiscal, achat ou prix client repris dans cette note de publication.
+- Écart de procédure Lovable conservé : branche interne edit/... utilisée malgré work+STOP demandés ; conformité de source déclarée, sans lever cet écart. Diagnostics éditeur hors baseline non résolus par ce lot.
+- Disponibilité200/401 distincte d'une recette métier ; recettes authentifiées restant NOT_RUN, empreinte binaire UNKNOWN.
+- Preuves détaillées privées : C:/Users/DELL/Documents/Codex/2026-10-07/task-3/handling-basis-fix-20261019/delivery-checkpoint.json ; aucune donnée de dossier reproduite ici.
 
 ## 3. Travaux vérifiés comme terminés
 
@@ -3143,6 +3161,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Aucun impact prix/DB/Auth/RLS/runtime, aucun composant FROZEN touché, aucun commit/push/déploiement/envoi. Rollback : retirer composant/import/insertion et tests associés. Publication sous GO distinct.
 
 
+#### Orientation transport lourd — publication du 29 septembre 2026 — PASS_WITH_BASELINE
+
+- Clôture historique : f4e5d337 →864522dc, aperçu privé synchronisé ; aucune publication publique.
+- CI36556977145 : contrôles initiaux PASS, échec Vitest identique à la baseline ; étapes suivantes NOT_RUN. Recette de lecture seule et périmètre sans recalcul consignés dans la note source.
+- Données de dossier et résultats commerciaux conservés dans les sauvegardes privées de RÉCONCILIATION-1. Rollback historique : revert ciblé864522d puis reconstruction privée sous GO.
+
 #### Dossier guidé et retour à la présentation précédente — 29 septembre 2026 — PASS_WITH_BASELINE, aperçu privé recetté
 
 - GO utilisateur sur le plan corrigé puis réalisation UI avec rollback ; Codex seul écrivain, auto-revue ciblée (présentation seule).
@@ -3212,6 +3236,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Rollback cinq fichiers PASS : patch appliqué/inversé sur copie isolée de142bb58, empreintes initiales retrouvées. Patch merchandise-rollback.patch et capture bases-marchandise-local.png hors dépôt.
 - Aucun commit/push, DB/Auth/RLS/migration/runtime ni envoi modifié ; recette Cloud de ce lot et appréciation utilisateur NOT_RUN. Publication privée sous GO distinct §2.1 ; Figma non utilisé pour ce lot, comparaison visuelle possible ultérieurement.
 
+#### Bases de la marchandise — publication privée du 29 septembre 2026 — PASS_WITH_BASELINE
+
+- Clôture historique :142bb58 →0f6f6f2 ; aperçu privé synchronisé, aucune publication publique.
+- CI36607553938 : contrôles initiaux PASS, échec Vitest baseline ; étapes suivantes NOT_RUN en CI. Les57tests ciblés et contrôles locaux antérieurs restent des preuves historiques.
+- Recettes de lisibilité, réserve de classement et conservation des saisies consignées hors Git ; aucune écriture métier dans cette recette. Rollback historique : revert ciblé0f6f6f2 et reconstruction privée sous GO.
+
 #### Marchandise en trois étapes — 30 septembre 2026 — PASS_WITH_BASELINE local, non publié
 
 - GO utilisateur explicite confié à Codex : exécuter le plan Lovable de présentation seule, avec les précisions de revue. Codex seul écrivain, auto-revue et Frontend Design Premium ; aucun nouveau contrat Markdown (AGENTS), tokens et primitives existants conservés.
@@ -3225,6 +3255,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Rollback deux fichiers PASS : patch marchandise-steps-rollback.patch appliqué/inversé sur copie isolée82c29c4, empreintes initiales retrouvées. Publication prévue en un commit unique, réversible par revert ciblé ; bascule précédente disponible.
 - Aucun commit/push, Cloud, DB/Auth/RLS, migration, fonction serveur/FROZEN, calcul ou envoi modifié. Recette Cloud et appréciation utilisateur NOT_RUN ; prochaine action : publication privée (commit/push work, synchronisation Lovable, recette synthétique) sous GO distinct §2.1.
 - GO de publication reçu le 30 septembre : commit/push du lot seul sur work, synchronisation de l’aperçu privé et recette synthétique sans envoi client ; production générale hors périmètre.
+
+#### Marchandise en trois étapes — publication privée du 30 septembre 2026 — PASS_WITH_BASELINE
+
+- Clôture historique :82c29c4 →776013dd ; aperçu privé synchronisé, trois fichiers publiés.
+- CI36698520157 : configuration/bundles/types PASS ; Vitest FAIL sur ancien libellé, identique à la baseline. Journal complet alors inaccessible ; décompte non revendiqué, Deno/lint/build NOT_RUN en CI.
+- Recettes privées1280/375px et navigation consignées dans les notes sauvegardées ; aucune sauvegarde métier, calcul ou sortie créé. Rollback historique : revert ciblé776013d et reconstruction privée sous GO.
 
 #### Textes simples dans l’application — réalisation locale du 30 septembre 2026 — PASS_WITH_BASELINE
 
@@ -3241,6 +3277,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - GO de publication reçu le 30 septembre : commit/push du lot sur work, synchronisation de l’aperçu privé Lovable et recette synthétique, sans envoi client ni production générale.
 
 
+#### Textes simples — publication privée du 30 septembre 2026 — PASS_WITH_BASELINE
+
+- Clôture historique :776013dd →6aac42b ; aperçu privé synchronisé, libellés constatés après rechargement.
+- CI36705103540 : configuration/bundles/types PASS, échec Vitest identique à la baseline ; Deno/lint/build NOT_RUN en CI après arrêt, contrôles locaux conservés.
+- Recettes de références repliées et de rendu1280/375px consignées hors Git ; aucune écriture métier. Résidus de vocabulaire différés. Rollback historique : revert ciblé6aac42b puis reconstruction privée sous GO.
+
 #### Textes simples — correction des estimations du 30 septembre 2026 — PASS_WITH_BASELINE local
 
 - Retour utilisateur : aucun changement visible dans Lovable. Diagnostic vérifié : version6aac42b chargée, mais bases/notes/réserves des estimations contournaient le composant de présentation ; recette précédente trop limitée.
@@ -3254,6 +3296,9 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Complément de recette du même correctif : les réserves de version étaient également affichées brutes dans CaseTodoCard et QuotationVersionCard. Même présentation appliquée à ces deux vues, sans réécriture du snapshot ni du PDF/brouillon existant.
 - Contrôles affectés repris : cockpit41 + synchronisation des versions24 =65 PASS ; typecheck/build PASS, lint732/16 inchangé. Test synthétique du résumé : réserve visible, référence originale repliée puis accessible, snapshot/total inchangés, zéro appel métier.
 - Premier correctif publié4555bb9 et rendu Base vérifié dans Lovable ; CI36706644928 :637 PASS/1FAIL baseline connu. Complément publié séparément pour terminer le même lot ; retour arrière par les deux reverts ciblés en ordre inverse.
+- Clôture : base6aac42b → e73fcc1 (4555bb9 puis e73fcc1), six fichiers +82/-9 ; local/GitHub/Lovable alignés, aperçu ready et privé. CI36706982562 :638 PASS/1FAIL LocalTransportEstimateFields:35 identique à la baseline, journaux vérifiés ; contrôles backend suivants NOT_RUN en CI.
+- Recette du dossier concerné : zéro UUID/SHA visible par défaut dans le résumé et l’estimation ; cinq sources repliées dans le résumé ; références originales ouvertes à la demande, total/version/réserves non fermes conservés. Réserves de version lisibles ;1280/375px sans débordement global, capture ui-copy-correction-published.png hors dépôt. Aucune écriture métier ni rechargement de l’onglet utilisateur initial.
+- Limite explicite : longues explications métier et codes résiduels non entièrement simplifiés ; aucun PDF/brouillon existant réécrit. Preuves ui-copy-correction-proof.json et patch inverse combiné vérifié ; rollback e73fcc1 puis4555bb9. Clôture locale non commitée pour éviter un commit docs-only.
 
 #### Fiabilisation du dossier L1 — réalisation locale du 30 septembre 2026 — PASS_WITH_BASELINE
 
@@ -3271,6 +3316,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Aucun commit/push/déploiement, aucune écriture Cloud, génération de devis/PDF/brouillon ni envoi. Suite : GO de publication distinct §2.1, puis recette privée ciblée ; rollback futur par revert ciblé du seul lot.
 - GO publication reçu le 30 septembre : commit/push du seul lot L1 sur work, synchronisation de l’aperçu privé Lovable et recette ciblée sans envoi client ni publication générale.
 
+- Clôture publication privée du 30 septembre : e73fcc18 → 1baedfac5f25f12bc627520143db0c14dea2ccd1, work local/origin/Lovable alignés ; 14 fichiers +475/-105, dont 13 source/tests et la section L1 de roadmap ; aperçu ready, is_published=false.
+- CI GitHub36716370891 terminée en échec :654 PASS/1FAIL LocalTransportEstimateFields:35, identique à la baseline vérifiée ; config/bundles/typecheck PASS, Deno/lint/build NOT_RUN en CI après cet arrêt (contrôles locaux ci-dessus).
+- Recette privée PARTIAL : qualification du total visible ; absence de brouillon exploitable et limites de sources consignées dans la note privée sauvegardée. Aucune donnée de dossier reproduite pour publication.
+- Dialogues envoi/suppression/acceptation/refus et erreurs réseau Cloud NOT_RUN ; couverts par tests locaux simulés, aucune validation runtime exhaustive revendiquée. Aucun envoi, suppression, calcul, génération ni changement de statut effectué.
+- Capture l1-published.png et journal l1-ci-published.log conservés hors dépôt ; aucun changement DB/Auth/RLS/serveur. Rollback : revert ciblé1baedfa. Notes antérieures48 lignes et .claude/ préservées ; clôture locale non commitée (pas de commit docs-only).
+
 #### CI — libellé transport et portabilité CRLF — 30 septembre 2026 — PASS local / PASS_WITH_BASELINE
 
 - GO utilisateur sur deux tests et clôture roadmap ; Codex exécutant unique, auto-revue proportionnée (§2.1). Base/HEAD/origin/work : 1baedfac5f25f12bc627520143db0c14dea2ccd1.
@@ -3282,6 +3333,15 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Auto-revue du diff et diff-check PASS ; deux lignes de tests remplacées. Notes locales antérieures et .claude/ préservés ; aucune DB/Auth/RLS/migration/FROZEN/runtime modifiée.
 - Aucun commit/push/déploiement ; CI GitHub du correctif NOT_RUN. Preuve hors dépôt : visualizations/2026/09/30/01a0f26d-7d5c-72c3-8005-3cc9a0e715f6/ci-tests-fix-final.log.
 - GO publication reçu le 30 septembre : commit des deux tests et de cette seule section, push work et contrôle CI GitHub ; aucun déploiement. Rollback : revert ciblé du commit du lot.
+- Clôture publication du 30 septembre : 1baedfac → a12c89e45b23f03da8b47ce5139f18027557836b, work local/GitHub alignés ; trois fichiers +14/-2, seules les deux corrections et cette section publiées.
+- CI GitHub 36747237733 SUCCESS, journal complet vérifié : Vitest655 PASS, Deno1746 PASS/0FAIL/6ignored, configuration/bundles/typecheck/build PASS ; types Deno49/5 et lint727/16 sans aggravation. Deno live NOT_RUN.
+- Notes antérieures54 lignes et .claude/ préservés hors commit ; clôture ajoutée localement sans commit docs-only. Aucun déploiement ni changement DB/Auth/RLS/runtime. Rollback : revert ciblé a12c89e.
+
+#### Recette privée L1 — 30 septembre 2026 — PARTIAL (recette fichier terminée, réserves restantes)
+
+- Bilan historique PARTIAL : reprise du stockage prouvée, limites de recette et de nettoyage conservées ; aucune validation globale déduite.
+- Détails des fixtures, fichiers et traces dans les notes privées sauvegardées ; aucune identité ou donnée client réintroduite pour publication.
+- Les preuves ultérieures de publication et de nettoyage sont reprises dans les clôtures datées ci-dessous ; elles ne constituent pas de nouvelles exécutions de ce lot documentaire.
 
 ### 2026-09-30 — Clôture L1 : corrections locales et reprise stockage (GO CTO)
 - Base `a12c89e` sur `work`, alignée origin/work ; réalisation locale seulement, aucun commit/push/publication.
@@ -3296,6 +3356,18 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 
 - GO de publication reçu : commit/push work, synchronisation aperçu privé et recette ciblée PDF/statut autorisés ; résultat à consigner après vérification.
 
+### 2026-09-30 — Publication privée et recette des actualisations L1 — PASS
+
+- Clôture historique : correctif769aab6 publié et aperçu privé synchronisé ; résultats de CI et recette dans les notes sources sauvegardées.
+- Relecture après PDF et actualisation du statut contrôlées dans le périmètre consigné ; limites réseau et historique préservées, aucune nouvelle génération ici.
+- Identifiants, documents de recette et détails de dossier restent hors Git. Retour historique : revert ciblé du lot et synchronisation privée sous GO.
+
+### 2026-09-30 — Clôture L1 : recette PAD et nettoyage synthétique — PASS
+
+- Bilan historique : recette PAD et nettoyage synthétique clôturés, avec sauvegarde des lignes et assertions de conservation hors fixtures.
+- Limite conservée : les copies binaires des PDF supprimés n'avaient pas été sauvegardées ; leur restauration n'est pas prouvée. Ne rejouer ni suppression ni restauration depuis cette note.
+- Preuves privées : l1-cleanup-final-proof.json, sauvegarde de nettoyage et captures indiquées dans la note intégrale archivée. Aucun test applicatif ni accès Cloud relancé ici.
+
 ### 2026-09-30 — L3 local : parcours et bases de cotation visibles — PASS local, publication NOT_RUN
 - GO utilisateur : réalisation locale du parcours guidé, complétée par les bases retenues clairement affichées ; work, HEAD/origin 769aab6 → 769aab6, aucun commit/push.
 - Marchandise : demande/périmètre en tête ; variantes déplacées dans Devis près de l’estimation, mêmes instances et saisies conservées ; outils secondaires. À faire : retrait des boutons de navigation redondants.
@@ -3309,6 +3381,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Aucune DB/Auth/RLS, migration, fonction serveur, tarification, donnée client ou règle de recalcul/envoi modifiée ; questions sans liaison de lot fiable restent dans les contrôles du dossier.
 - Publication privée et recette intégrée à soumettre sous GO distinct §2.1. Rollback : retirer le seul diff L3 en conservant les notes antérieures ; aucun rollback runtime nécessaire.
 
+### 2026-09-30 — Publication privée L3 et recette intégrée — PASS ciblé
+
+- Clôture historique :769aab6 →3a25c077 ; CI36757734331 déclarée SUCCESS, aperçu privé synchronisé, aucune fonction ni migration déployée.
+- Parcours, bases propres aux snapshots, focus/navigation et affichage mobile contrôlés selon la recette source ; données historiques manquantes non reconstruites.
+- Limites conservées : sélection réelle, nouvelle estimation et écritures métier non rejouées ; aucune recette exhaustive revendiquée. Rollback historique : revert ciblé3a25c07 et synchronisation privée sous GO.
+
 ### 2026-10-01 — Lot Devis : ordre de l’onglet et bases repliées — PASS local, publication NOT_RUN
 - GO utilisateur « GO pour le lot Devis, fais-le ici » : Claude Code exécutant unique, auto-revue du diff (présentation seule, §2.1). Base work/HEAD/origin 3a25c07 inchangée ; notes antérieures de roadmap et .claude/ préservées hors lot.
 - Constat de départ (aperçu privé, dossier synthétique 450cb321…) : onglet Devis ≈ 11 300 px, estimation « NE PAS ENVOYER » en tête, version v4 client et envoi en bas, « Bases retenues » répété 5 fois avec faits ouverts, codes bruts, colonne Base coupée lettre par lettre.
@@ -3321,6 +3399,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Recette navigateur NOT_RUN : CaseView exige une session Cloud ; à faire dans l’aperçu privé après publication. Rollback : patch inverse vérifié (git apply -R --check PASS) ; futur revert ciblé du commit du lot.
 - Aucune DB/Auth/RLS/migration/fonction serveur/FROZEN ni envoi. Publication (commit/push work, synchronisation Lovable, recette synthétique) sous GO distinct §2.1.
 
+### 2026-10-01 — Publication privée du lot Devis — PASS ciblé
+
+- Clôture historique :3a25c07 →e46c749 ; CI36865635004 déclarée SUCCESS, aperçu privé synchronisé après rechargement.
+- Ordre et repli des bases contrôlés selon la recette source, sans saisie ni génération de sortie ; mesure de hauteur avant/après non strictement comparable.
+- Résidus : références internes, réserves historiques et unités inconnues ; contrôle mobile375px NOT_RUN. Rollback historique : revert ciblée46c749 puis synchronisation privée sous GO.
+
 ### 2026-10-01 — Lot de finition : textes longs lisibles dans toute l’application — PASS local, publication NOT_RUN
 - GO utilisateur « go pour le lot de finition » puis extension explicite « toutes les fenêtres et l’application dans son ensemble » ; déclencheur : carte « Ce que le client recevra » GoTrans (≈ 40 puces, codes bruts, doublons, paragraphes de plusieurs centaines de mots). Claude Code exécutant unique, auto-revue (présentation seule).
 - SourceText (composant commun) : codes exacts connus traduits (points ouverts, « (TO_CONFIRM) » retiré, « lot lot-1 » → « lot 1 », suffixe « à confirmer » non répété) ; texte > 180 caractères ouvert sur sa première phrase avec « Lire la suite » ; texte exact toujours dans « Détails techniques ». Option unfolded pour lecture intégrale ; valeur vide/nulle sans plantage.
@@ -3331,6 +3415,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - npm run ci exit 0 : Vitest 676/676, Deno 1746 PASS/6 ignorés, types Deno 49/5 baseline, lint 725/16 sans aggravation, typecheck/build PASS. Patch inverse vérifié (git apply -R --check PASS).
 - Recette navigateur NOT_RUN (session Cloud requise) : à faire après publication sur GoTrans et 450cb321. Publication (commit/push work, synchronisation Lovable, recette) sous GO distinct §2.1.
 
+### 2026-10-01 — Publication privée du lot de finition (textes longs) — PASS ciblé
+
+- Clôture historique :e46c749 →816985e ; CI36870536254 déclarée SUCCESS, aperçu privé synchronisé.
+- Textes longs, réserves et références repliées contrôlés selon la recette source ; aucune modification métier. Résidus de portée répétée, unités et ordre des réserves conservés.
+- Mobile375px NOT_RUN à cette clôture ; correctifs ultérieurs distincts. Rollback historique : revert ciblé816985e et synchronisation privée sous GO.
+
 ### 2026-10-01 — Petit lot des restes (lisibilité et mobile) — PASS local, publication NOT_RUN
 - GO utilisateur « go pour le petit lot des restes » ; Claude Code exécutant unique, auto-revue (présentation seule). Base work/HEAD/origin 816985e.
 - Portée non répétée (« Lot 1 : Lot 1 : » → « Lot 1 : ») ; lots écrits « lot 2 » partout ; bases d’unité traduites (per_unit → par unité, per_container, per_day, per_ton…) ; clé unit_ref nommée « Lot » dans le résumé des bases.
@@ -3338,6 +3428,12 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Contrôle mobile sur aperçu 816985e (cadre 371 px, même session, lecture seule) : accueil GoTrans sans débordement ; onglet Devis débordait (boutons/badges). Corrigé : en-têtes Scénarios et Résultat du calcul en retour à la ligne, boutons longs PAD/estimation à libellé multiligne.
 - Diff : 11 fichiers code/tests +83/-23 ; 4 tests ajoutés. npm run ci exit 0 : Vitest 679/679, Deno 1746 PASS/6 ignorés, types Deno 49/5, lint 725/16, build PASS. Patch inverse vérifié.
 - Recette mobile de l’onglet Devis après correctif NOT_RUN tant que non publié. Aucune donnée, PDF, message, calcul ni appel serveur modifié. Publication sous GO distinct §2.1.
+
+### 2026-10-01 — Publication privée du petit lot des restes — PASS ciblé
+
+- Clôture historique :816985e →237bbcd, complémentsb2d8e3b/a72d924 ; CI36882942957/36885203521/36887049100 déclarées SUCCESS, aperçu privé.
+- Libellés, réserves et rendu mobile sans débordement contrôlés dans la recette source ; aucune écriture métier ou sortie créée.
+- Rollback historique : reverts ciblésa72d924,b2d8e3b,237bbcd puis synchronisation privée sous GO ; aucun rollback exécuté ici.
 
 ### 2026-10-02 — Présentation client écran/PDF/e-mail — réalisation locale — PASS local, GO publication Codex, publication NOT_RUN
 - GO utilisateur : réaliser localement la présentation client (écran/PDF/e-mail) avec les corrections Codex ; FROZEN, montants, snapshots et artefacts préservés ; pas de commit/push/déploiement avant verdict. Base work/HEAD/origin a72d924. Claude Code exécutant unique.
@@ -3348,3 +3444,41 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Contre-revues Codex (file CTO 2026-10-02 13:17 et 14:29) : 3 blocages puis 2 reliquats corrigés ; verdict final GO publication, aucun blocage résiduel. Tests anciens operator_quotation_basis et lot-service-label adaptés avec assertions sémantiques indépendantes.
 - npm run ci exit 0 : Vitest 680/680, Deno 1764 PASS/0 FAIL/6 ignorés, types Deno 49/5 baseline, lint 725/16, build PASS. Aucun fichier FROZEN ni migration modifié. Rendus synthétiques PDF/e-mail hors dépôt.
 - Publication (commit/push work, déploiement export-quotation-version-pdf et create-quotation-email-draft, synchronisation Lovable, recette) sous GO utilisateur distinct §2.1. Rollback : revert du commit et redéploiement des deux fonctions depuis a72d924.
+
+### 2026-10-02 — Présentation client — publication — PASS (recette serveur PDF/e-mail NOT_RUN)
+
+- Clôture historique :ad98bba publié, CI37031854196 déclarée SUCCESS ; deux fonctions de sortie déployées via Lovable, sondes200/401 consignées.
+- Écran contrôlé ; artefacts existants réutilisés par idempotence, nouveau rendu serveur NOT_RUN. Rendu local distinct d'une recette serveur ; aucun envoi.
+- Rollback historique : revertad98bba puis redéploiement ciblé depuisa72d924 sous GO.
+
+### 2026-10-02 — Présentation client — finitions — PASS (publié c5365c5)
+
+- Clôture historique :c5365c5 publié ; libellés, lieux dédoublonnés et descriptions PDF repliées, CI locale/distante déclarée PASS.
+- Recette serveur synthétique PDF/brouillon consignée, aucun envoi ; deux résidus de présentation restaient ouverts à cette date, traités dans la clôture suivante.
+- Identifiants et montants restent dans les preuves privées. Rollback historique : revertc5365c5 puis redéploiement ciblé depuisad98bba sous GO.
+
+### 2026-10-06 — Présentation client — retour vide et bases multi-lot — PASS (publié d371e02)
+
+- Clôture historique :d371e02 publié, CI37495326267 déclarée SUCCESS ; retour vide expliqué et bases anciennes restituées par lot.
+- Écran contrôlé ; PDF/brouillon existants réutilisés, nouveau rendu serveur NOT_RUN. Aucun nouvel état Cloud certifié par cette note documentaire.
+- Rollback historique : revertd371e02 puis redéploiement ciblé depuisc5365c5 sous GO.
+
+### 2026-10-20 — Désignations conteneurs et historique — PASS technique, métier PARTIAL
+
+- Clôture technique historique :b09cdd5 →17fdeda0,28fichiers +1436/-178 ; contre-revue favorable et CI39419194723 déclarée SUCCESS.
+- Normalisation des désignations et champs optionnels, correction versionnée du parseur, sources et historique conservés ; aucun taux ou calcul modifié.
+- Quatre migrations consignées une fois chacune ; SQL/droits/propriétaires vérifiés selon les reçus. Empreinte binaire Edge installée UNKNOWN, aucun redéploiement demandé ici.
+- Corrections techniques abouties ;74lignes historiques contrôlées inchangées selon la recette. Blocages métier conservés, état NEED_INFO ; aucun calcul, version, PDF, brouillon ou envoi créé.
+- Tests historiques :956Vitest/2671Deno, complément PostgreSQL34PASS ; premier essai local standard avec timeouts conservé FAIL. Aucun de ces tests réexécuté dans ce lot documentaire.
+- Preuves privées : C:/Users/DELL/Documents/Codex/2026-10-07/task-3/bunia-extension-20261020/checkpoint.json ; identifiants, contenu des sources et détails de dossier exclus de cette publication.
+- Point de passage confirmé avant RÉCONCILIATION-1 ; copies secondaires conservées. Après adoption, correction en avant et conservation de l'histoire ; aucun rollback runtime effectué ici.
+
+### 2026-10-20 — RÉCONCILIATION-1 — réalisation locale, publication NOT_RUN
+- GO utilisateur : sauvegardes, préparation des documents, attente de clôture puis bascule locale ; aucun commit ni push.
+- Source originale work/d371e02 ; référence GitHub retenue17fdeda0 après clôture Bunia et point de passage explicite. Copie principale : C:/Users/DELL/Projects/dakar-cargo-quotes.
+- Notes locales récupérées des trois copies : publications29/09–06/10, handling19/10 et clôture Bunia20/10 ; faits historiques conservés avec leur portée, aucune nouvelle preuve Cloud produite.
+- Seuls roadmap, queue CTO et guide de reprise édités ; code repris à l'identique du commit publié, copies secondaires et .claude préservés.
+- Contrôles : sauvegardes/empreintes, rapprochement des deltas, absence de conflit, diff-check, égalité du code hors trois docs et réversibilité documentaire locale ; détails dans validation.json hors Git.
+- Tests applicatifs et recette Cloud NOT_RUN. Aucun changement DB/Auth/RLS/migration/runtime, automatisation, compte ou envoi ; aucune copie supprimée.
+- Retour arrière : sauvegarde originale, HEAD de départ et rollback.json hors Git ; vérifier absence de nouvelles écritures avant toute restauration. Publication en attente de GO distinct : deux commits documentaires proposés, queue seule puis guide+roadmap, exception ponctuelle à la règle AGENTS docs-only à autoriser ; aucune doctrine durable modifiée.
+- Préparation de publication du20/10 : bilans récupérés résumés sans données de dossier, traces intégrales conservées hors Git ; diff final et contrôles dans C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/publication-preparation/publication-manifest.json. Aucun commit/push effectué à cette étape.
