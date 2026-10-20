@@ -1,9 +1,42 @@
 import {assert,assertEquals,assertRejects} from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {createClient} from 'jsr:@supabase/supabase-js@2';
-import {assessLocationClaim,validateLineLocations,pricingLocationPreflight,type LocationSource} from './request-location-evidence.ts';
+import {assessLocationClaim,validateLineLocations,pricingLocationPreflight,replaceRequestLinesWithEvidence,type LocationSource} from './request-location-evidence.ts';
 Deno.env.set('RUN_PRICING_DISABLE_SERVE','1');
 const {mergeFactsForLot}=await import('../run-pricing/index.ts');
 type Row=Record<string,unknown>;
+Deno.test('line history: clear and replacement retain exact previous rows and rejected proposals before RPC',async()=>{
+ for(const mode of ['ai_no_lines','ai_extraction']){
+  const calls:string[]=[],old={id:'old',extracted_facts_json:[{key:'routing.destination_port',value:'inland city'}]},proposed=[{raw:'rejected'}];let saved:Record<string,unknown>={};
+  const client=createClient('https://line-history.fixture.invalid','synthetic-service',{auth:{persistSession:false},global:{fetch:async(input,init)=>{
+   const r=new Request(input,init),name=new URL(r.url).pathname.split('/').pop()!;calls.push(r.method+' '+name);
+   if(r.method==='GET')return Response.json([old],{headers:{'Content-Range':'0-0/1'}});
+   const body=await r.json();if(name==='case_timeline_events'){saved=body.event_data;return new Response(null,{status:201});}
+   assertEquals(saved.previous_lines,[old]);assertEquals(saved.proposed_lines,proposed);assertEquals(body.p_lines,mode==='ai_no_lines'?[]:proposed);return Response.json(0);
+  }}});
+  assertEquals((await replaceRequestLinesWithEvidence(client,{caseId:'case',actorId:'actor',lines:mode==='ai_no_lines'?[]:proposed,proposedLines:proposed,mode})).error,null);
+  assertEquals(calls,['GET quote_request_lines','POST case_timeline_events','POST replace_quote_request_lines']);
+ }
+});
+Deno.test('line history: failed read or append prevents every replacement RPC',async()=>{
+ for(const failure of ['read','append']){
+  const calls:string[]=[];
+  const client=createClient('https://line-history.fixture.invalid','synthetic-service',{auth:{persistSession:false},global:{fetch:async(input,init)=>{
+   const r=new Request(input,init),name=new URL(r.url).pathname.split('/').pop()!;calls.push(name);
+   return r.method==='GET'&&failure==='append'?Response.json([],{headers:{'Content-Range':'*/0'}}):Response.json({message:'synthetic failure'},{status:400});
+  }}});
+  await assertRejects(()=>replaceRequestLinesWithEvidence(client,{caseId:'case',actorId:'actor',lines:[],proposedLines:[],mode:'ai_no_lines'}),Error,failure==='read'?'Previous line':'could not be retained');
+  assert(!calls.includes('replace_quote_request_lines'));
+ }
+});
+Deno.test('line history: null or truncated source inventory prevents archive and clearing',async()=>{
+ for(const data of [null,[{id:'only-returned'}]]){
+  const calls:string[]=[];
+  const client=createClient('https://line-history.fixture.invalid','synthetic-service',{auth:{persistSession:false},global:{fetch:async(input,init)=>{
+   const r=new Request(input,init);calls.push(r.method);return Response.json(data,{headers:{'Content-Range':'0-0/2'}});
+  }}});
+  await assertRejects(()=>replaceRequestLinesWithEvidence(client,{caseId:'case',actorId:'actor',lines:[],proposedLines:[],mode:'ai_no_lines'}),Error,'incomplete');assertEquals(calls,['GET']);
+ }
+});
 function db(tables:Record<string,Row[]>={},failure?:string,incomplete=false){
  const calls:string[]=[];
  const client=createClient('https://location.fixture.invalid','synthetic-service',{auth:{persistSession:false},global:{fetch:async(input,init)=>{

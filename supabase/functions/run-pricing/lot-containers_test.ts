@@ -22,8 +22,8 @@ const { buildPricingInputs, mergeFactsForLot } = await import("./index.ts") as {
 const dossier = [{ fact_key: "cargo.containers", value_json: [{ type: "20DV", quantity: 1, coc_soc: null }], value_text: null, value_number: null }];
 const lot = (value: unknown, valueType = "text") => [{ key: "cargo.containers", value, valueType, confidence: 0.95 }];
 
-Deno.test("LOT CONTAINERS/run-pricing: the legacy merged read loses a text value (the defect the reader replaces)", () => {
-  assertEquals(buildPricingInputs(mergeFactsForLot(dossier, lot("2x40HC"))).containers, []);
+Deno.test("LOT CONTAINERS/run-pricing: the common documentary adapter recognizes the effective text value", () => {
+  assertEquals(buildPricingInputs(mergeFactsForLot(dossier, lot("2x40HC"))).containers, [{type:'40HC',quantity:2}]);
 });
 
 Deno.test("LOT CONTAINERS/run-pricing: the lot's own text or JSON gives the same containers, never the dossier's", () => {
@@ -38,7 +38,7 @@ Deno.test("LOT CONTAINERS/run-pricing: unreadable or absent never falls back to 
   assertEquals(LOT_CONTAINERS_UNREADABLE, "LOT_CONTAINERS_UNREADABLE");
   // The legacy merged read would hand the dossier's containers (another lot's) to a lot without its own…
   const noOwn = [{ key: "cargo.weight_kg", value: "36000", valueType: "number" }];
-  assertEquals(buildPricingInputs(mergeFactsForLot(dossier, noOwn)).containers, [{ type: "20DV", quantity: 1, coc_soc: null }]);
+  assertEquals(buildPricingInputs(mergeFactsForLot(dossier, noOwn)).containers, [{ type: "20GP", quantity: 1, coc_soc: null }]);
   // …the loop replaces it: none for an explicitly non-containerised lot, a blocker otherwise.
   assertEquals(lotPricingContainers(readLotContainers(noOwn), "AIR_IMPORT", "AIR_IMPORT_DAP"), { containers: [] });
   assertEquals(lotPricingContainers(readLotContainers(noOwn), "SEA_FCL_IMPORT", "DAP_PROJECT_IMPORT"), { blocker: "LOT_CONTAINERS_REQUIRED" });

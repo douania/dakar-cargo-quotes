@@ -1,6 +1,19 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { decodeEmailQuoteView, splitEmailQuoteContext } from './email-quote-context.ts';
 import { sourceSha256 } from './email-fact-revisions.ts';
+import {normalizeContainerInventory,inspectContainerText} from './container-designation.ts';
+
+/** Both replacement and clearing retain the exact old rows before the existing RPC. */
+export async function replaceRequestLinesWithEvidence(client:SupabaseClient,args:{
+ caseId:string;actorId:string;lines:unknown[];proposedLines:unknown[];mode:string;
+}) {
+ const previous=await client.from('quote_request_lines').select('*',{count:'exact'}).eq('case_id',args.caseId);
+ if(previous.error || !Array.isArray(previous.data) || previous.count!==previous.data.length)throw new Error('Previous line evidence unavailable or incomplete');
+ const retained=await client.from('case_timeline_events').insert({case_id:args.caseId,event_type:'case_reasoning_v1',actor_type:'system',actor_user_id:args.actorId,
+  event_data:{kind:'quote_line_location_review',version:1,mode:args.mode,previous_lines:previous.data || [],proposed_lines:args.proposedLines}});
+ if(retained.error)throw new Error('Request line evidence could not be retained');
+ return await client.rpc('replace_quote_request_lines',{p_case_id:args.caseId,p_lines:args.lines});
+}
 
 export interface LocationSource {id:string;kind:'email'|'attachment'|'document';text:string;sourceHash?:string;emailId?:string|null;}
 export interface LocationClaim {
@@ -90,7 +103,7 @@ export async function pricingLocationPreflight(client:SupabaseClient,caseId:stri
  const lines=lineRead.data as Record<string,unknown>[];
  if(/AIR/.test(requestType)&&!(lines.length>=2&&lines.some(l=>/SEA/.test(String(l.request_type_hint || '')))))return [];
  const factRead=await client.from('quote_facts').select('*',{count:'exact'}).eq('case_id',caseId).eq('is_current',true)
-  .in('fact_key',['routing.origin_port','routing.destination_port','routing.origin_airport','routing.destination_airport','routing.destination_city','routing.final_destination']);
+  .in('fact_key',['routing.origin_port','routing.destination_port','routing.origin_airport','routing.destination_airport','routing.destination_city','routing.final_destination','cargo.containers']);
  if(factRead.error||!Array.isArray(factRead.data)||factRead.count!==factRead.data.length)throw new Error('Pricing route collection unavailable or incomplete');
  const globals=factRead.data as Record<string,unknown>[];
  const problems:string[]=[];
@@ -118,6 +131,13 @@ export async function pricingLocationPreflight(client:SupabaseClient,caseId:stri
   const effective=line?merge(globals,own):globals;
   for(const fact of effective){
    const key=String(fact.fact_key || '');
+   if(key==='cargo.containers'){
+    let value=fact.value_json??fact.value_text;
+    if(typeof value==='string'){const text=value;try{value=JSON.parse(text);}catch{const parsed=inspectContainerText(text,true);value=parsed.issues.length?null:parsed.containers;}}
+    const inventory=normalizeContainerInventory(value);
+    if(inventory.status!=='valid')problems.push((line?'LOT_'+line.line_index+':':'')+key+':'+inventory.reason);
+    continue;
+   }
    if(!/_(port|airport)$/.test(key))continue;
    const override=own.find(f=>f.key===key);
    const saved=override?.location_evidence as LocationProof|undefined;

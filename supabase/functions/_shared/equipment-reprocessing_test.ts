@@ -1,8 +1,24 @@
 import {assertEquals,assertRejects,assert} from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {createClient} from 'jsr:@supabase/supabase-js@2';
-import {reprocessEquipment,writeEmailFactRevisions,type RevisionGroup} from './email-fact-revisions.ts';
+import {prepareRevisionGroups,reprocessEquipment,writeEmailFactRevisions,type RevisionGroup} from './email-fact-revisions.ts';
 const group:RevisionGroup={key:'cargo.containers',category:'cargo',candidates:[{email_id:'email',body_sha256:'a'.repeat(64),excerpt:'1x40’HC',value_type:'json',value:[{quantity:1,type:'40HC'}],source_type:'email_body',confidence:.9,evidence_error:null}]};
 const args={caseId:'case',actorId:'actor',groups:[group],allEmails:[{id:'email',body_text:'1x40’HC',from_address:'client@fixture.invalid'}],collectionComplete:true};
+Deno.test('equipment notation: AI feet marks match the own parser; raw proposal and real differences survive',async()=>{
+ for(const type of ["40'HC",'40’HC','40′HC','40HQ','40GP','45HC','40HC extra']){
+  const groups=await prepareRevisionGroups({emails:args.allEmails,ownBody:s=>s,basic:()=>[],eligible:()=>true,
+   facts:[{key:'cargo.containers',category:'cargo',valueType:'json',value:[{quantity:2,type}],sourceType:'ai_extraction',sourceEmailId:'email',sourceExcerpt:'1x40’HC',confidence:.9}]});
+  const candidate=groups[0].candidates[0],lexical=["40'HC",'40’HC','40′HC','40HQ'].includes(type);
+  assertEquals(candidate.value,[{quantity:2,type:lexical?'40HC':type}]);
+  assertEquals(candidate.original_value,lexical?[{quantity:2,type}]:undefined);
+  assertEquals(candidate.original_value_rule,lexical?'container-designation/1':undefined);
+ }
+ const groups=await prepareRevisionGroups({emails:args.allEmails,ownBody:s=>s,eligible:()=>true,
+  basic:()=>[{key:'cargo.containers',category:'cargo',valueType:'json',value:[{quantity:1,type:'40HC'}],sourceType:'email_body',sourceEmailId:'email',sourceExcerpt:'1x40’HC',confidence:.8}],
+  facts:[{key:'cargo.containers',category:'cargo',valueType:'json',value:[{quantity:1,type:"40'HC"}],sourceType:'ai_extraction',sourceEmailId:'email',sourceExcerpt:'1x40’HC',confidence:.9}]});
+ const f=fixture({key:group.key,status:'applied',reason:'parser_correction',fact_id:'successor',changed:true,replay:false});
+ assertEquals((await reprocessEquipment(f.client,{...args,groups}))?.fact_id,'successor');
+ assertEquals((f.calls[0].body.p_groups as RevisionGroup[])[0].candidates.find(c=>c.source_type==='ai_extraction')?.original_value,[{quantity:1,type:"40'HC"}]);
+});
 function fixture(result:unknown,error=false,currentOverrides:Record<string,unknown>={}){
  const calls:Array<{name:string;body:Record<string,unknown>}> = [];
  const client=createClient('https://equipment.fixture.invalid','synthetic-service',{auth:{persistSession:false},global:{fetch:async(input,init)=>{

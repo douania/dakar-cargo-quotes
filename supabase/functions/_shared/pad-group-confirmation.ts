@@ -3,7 +3,7 @@
  * to a global category for a missing/stale group. No DB or AI dependency.
  */
 import { isApplicableScenarioPadTariff } from "./scenario-pad-tariff.ts";
-import { normalizeDthcContainerType } from "./dpw-dthc-tariff.ts";
+import {normalizeContainerDesignation} from './container-designation.ts';
 import { validWeightBasis, type WeightBasisDecision } from "./quotation-weight-basis.ts";
 
 export type PadGroup = {
@@ -61,7 +61,7 @@ const text = (v: unknown): v is string => typeof v === "string" && v.trim().leng
 
 /** A scenario's grouping is not automatically the confirmed dossier's allocation. */
 export function padGroupAllocationIssue(groups: PadGroup[], facts: readonly Record<string, unknown>[]): string | null {
-  const equipment = (v: unknown) => normalizeDthcContainerType(v).replace(/^(20|40)HQ$/, "$1HC");
+  const equipment = (v: unknown) => {const d=normalizeContainerDesignation(v);return d.status==='supported'?d.type:'';};
   const containerFacts = facts.filter(f => f.key === "cargo.containers");
   if (containerFacts.length !== 1) return "PAD_GROUP_ALLOCATION_REQUIRED";
   let raw = containerFacts[0].json ?? containerFacts[0].text;
@@ -69,7 +69,9 @@ export function padGroupAllocationIssue(groups: PadGroup[], facts: readonly Reco
   if (!Array.isArray(raw) || raw.length !== groups.length) return "PAD_GROUP_ALLOCATION_REQUIRED";
   const used = new Set<number>();
   for (const g of groups) {
+    if(!equipment(g.equipment_code))return 'PAD_GROUP_ALLOCATION_REQUIRED';
     const matches = raw.map((c, i) => ({ c, i })).filter(({ c }) => c &&
+      !!equipment(c.type) &&
       equipment(c.type) === equipment(g.equipment_code) &&
       c.quantity === g.quantity && String(c.coc_soc ?? c.cocSoc ?? "").toUpperCase() === g.ownership);
     if (matches.length !== 1 || used.has(matches[0].i)) return "PAD_GROUP_ALLOCATION_REQUIRED";

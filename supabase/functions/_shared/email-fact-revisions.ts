@@ -1,5 +1,6 @@
 // Own-message proposals. The database decides order and writes their history atomically.
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import {CONTAINER_DESIGNATION_RULE,inspectContainerText,normalizeContainerInventory} from './container-designation.ts';
 export interface RevisionEmail { id: string; body_text?: string | null; from_address?: string | null; sent_at?: string | null; }
 export interface RevisionFact {
   key: string; category: string; value: unknown; valueType: 'text' | 'number' | 'json' | 'date';
@@ -10,6 +11,8 @@ export interface RevisionCandidate {
   email_id: string | null; body_sha256: string | null; excerpt: string | null;
   value_type: RevisionFact['valueType']; value: unknown; source_type: string; confidence: number;
   evidence_error: string | null;
+  original_value?: unknown;
+  original_value_rule?: string;
 }
 export interface RevisionGroup { key: string; category: string; candidates: RevisionCandidate[]; }
 const normalized = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -30,7 +33,14 @@ export async function prepareRevisionGroups(args: {
 }): Promise<RevisionGroup[]> {
   const emails = new Map(args.emails.map(e => [e.id, e]));
   const hashes = new Map(await Promise.all(args.emails.map(async e => [e.id, await sourceSha256(e.body_text || '')] as const)));
-  const basic = args.emails.flatMap(e => args.basic(e));
+  const basic = args.emails.flatMap(e => {
+    const facts=args.basic(e),issues=inspectContainerText(args.ownBody(e.body_text || ''),true).issues;
+    if(!issues.length)return facts;
+    // Keep an explicit unresolved proposal so an old/default GP cannot hide uncertainty.
+    return [...facts.filter(f=>f.key!=='cargo.containers'),{key:'cargo.containers',category:'cargo',
+      value:issues,valueType:'json' as const,sourceType:'email_body',sourceEmailId:e.id,
+      sourceExcerpt:args.ownBody(e.body_text || ''),confidence:.8}];
+  });
   const basicSet = new Set(basic);
   const grouped = new Map<string, RevisionGroup>();
   for (const fact of [...basic, ...args.facts]) {
@@ -45,11 +55,20 @@ export async function prepareRevisionGroups(args: {
     const error = !email ? 'SOURCE_EMAIL_MISSING' : !own.trim() ? 'OWN_TEXT_MISSING'
       : !excerpt || !normalized(own).includes(normalized(excerpt)) ? 'OWN_EXCERPT_NOT_PROVEN' : null;
     if (fact.valueType === 'number' && (typeof fact.value !== 'number' || !Number.isFinite(fact.value))) continue;
+    // Lexical feet marks do not change equipment class. Preserve the raw AI value.
+    const originalValue = stable(fact.value);
+    const inventory=fact.key==='cargo.containers'?normalizeContainerInventory(originalValue):null;
+    const value=inventory?.status==='valid'?inventory.value:originalValue;
     const candidate: RevisionCandidate = {
       email_id: email?.id || null, body_sha256: email ? hashes.get(email.id)! : null,
-      excerpt: error ? null : excerpt.slice(0, 2000), value_type: fact.valueType, value: stable(fact.value),
-      source_type: fact.sourceType, confidence: Number.isFinite(fact.confidence) ? Math.min(.99, Math.max(0, fact.confidence)) : 0, evidence_error: error,
+      excerpt: error ? null : excerpt.slice(0, 2000), value_type: fact.valueType, value,
+      source_type: fact.sourceType, confidence: Number.isFinite(fact.confidence) ? Math.min(.99, Math.max(0, fact.confidence)) : 0,
+      evidence_error: error || (inventory?.status==='invalid'?inventory.reason:null),
     };
+    if (JSON.stringify(originalValue) !== JSON.stringify(value)) {
+      candidate.original_value = originalValue;
+      candidate.original_value_rule = CONTAINER_DESIGNATION_RULE;
+    }
     const group = grouped.get(fact.key) || { key: fact.key, category: fact.category, candidates: [] };
     if (!group.candidates.some(c => JSON.stringify(c) === JSON.stringify(candidate))) group.candidates.push(candidate);
     grouped.set(fact.key, group);

@@ -1,5 +1,6 @@
+import {inspectContainerText,normalizeContainerDesignation,normalizeContainerInventory} from '../_shared/container-designation.ts';
 import { prepareRevisionGroups, reprocessEquipment, writeEmailFactRevisions } from '../_shared/email-fact-revisions.ts';
-import { assessLocationClaim, isLocationKey, validateLineLocations, type LocationSource, type LocationProof } from '../_shared/request-location-evidence.ts';
+import { assessLocationClaim, isLocationKey, validateLineLocations, replaceRequestLinesWithEvidence, type LocationSource, type LocationProof } from '../_shared/request-location-evidence.ts';
 import { assertLoadedDocumentSources, beginDocumentAnalysis, documentAnalysisJob, documentAnalysisRequest, DocumentAnalysisError,
   DOCUMENT_COVERAGE_GAP, failDocumentAnalysis, finishDocumentAnalysis, inspectDocumentAnalysis, readableCaseDocuments,
   type DocumentAnalysisClient, type DocumentAnalysisRequest } from '../_shared/case-document-analysis.ts';
@@ -2399,72 +2400,14 @@ Rules:
   }
 }
 
-// --- P0 Fix: Parse container text into structured JSON ---
-/**
- * Normalize a raw container-type suffix token into a canonical type code.
- * Preserves existing behavior for GP/HC/HQ/DV/STD and adds special equipment:
- * FR/FLAT RACK/FLATRACK -> FR, OT/OPEN TOP -> OT, RF/REEFER -> RF.
- * Never collapses a special type (FR/OT/RF) into GP.
- */
-function normalizeContainerSuffix(suffixRaw: string): string {
-  const x = (suffixRaw || "").toUpperCase().replace(/[\s.'-]+/g, "");
-  if (!x) return "GP";
-  if (x === "FR" || x === "FLATRACK") return "FR";
-  if (x === "OT" || x === "OPENTOP") return "OT";
-  if (x === "RF" || x === "REEFER" || x === "RH") return "RF";
-  if (x === "HC" || x === "HQ") return x; // preserved as-is (legacy behavior)
-  if (x === "DV" || x === "STD" || x === "GP") return "GP";
-  return "GP";
-}
-
-export function parseContainersFromText(raw: string, mergeSameTypes = true, explicitQuantityOnly = false): Array<{ type: string; quantity: number }> {
-  const s = stripQuotedEmailHistory(raw || "").toUpperCase();
-  const cleaned = s
-    .replace(/\s+/g, " ")
-    .replace(/[\u2018\u2019\u2032\u02bc\uff07]/g, "'")
-    .replace(/CONT(?:A)?INER(S)?/g, "")
-    .replace(/CNTR(S)?/g, "")
-    .trim();
-
-  // quantity x size [unit] [type]. Multi-word special types come first in the
-  // alternation so "FLAT RACK"/"OPEN TOP" win over the bare FR/OT tokens.
-  // STRUCTURAL_PATCH_ALLOWED: numeric references are not equipment evidence.
-  const re =
-    /(?<![A-Z0-9])(\d+)\s*(?:X|\*|PCS|PC)?\s*(20|40|45)(?!\d)\s*(?:'|FT\.?|FEET|FOOT)?\s*[-]?\s*(FLAT\s*RACK|FLATRACK|OPEN\s*TOP|REEFER|HC|HQ|DV|GP|STD|FR|OT|RF)?(?![A-Z0-9])/g;
-  const out: Array<{ type: string; quantity: number }> = [];
-  let m: RegExpExecArray | null;
-
-  while ((m = re.exec(cleaned)) !== null) {
-    const qty = Number(m[1]);
-    const size = m[2];
-    if (!Number.isFinite(qty) || qty <= 0) continue;
-    if (!m[3] && !/(?:X|\*|PCS?|['’′]|(?:FT\.?|FEET|FOOT)\b)/.test(m[0])) continue;
-    if (/^(?:[X*]\s*\d|(?:CM|MM|M|METRES?|METERS?)\b)/.test(cleaned.slice(re.lastIndex).trimStart())) continue;
-    out.push({ type: `${size}${normalizeContainerSuffix(m[3] || "")}`, quantity: qty });
-  }
-
-  // Fallback: a size mentioned without an explicit quantity (e.g. "40'FR",
-  // "40HC", "40 flat rack", "20"). The type may be directly attached to the
-  // size, so the pattern is anchored on the size rather than relying on a word
-  // boundary before the type - this keeps "40'FR" from degrading to "40GP".
-  if (out.length === 0 && !explicitQuantityOnly) {
-    const adjacent = cleaned.match(
-      /\b(20|40|45)\s*(?:'|FT\.?|FEET|FOOT)?\s*[-]?\s*(FLAT\s*RACK|FLATRACK|OPEN\s*TOP|REEFER|HC|HQ|DV|GP|STD|FR|OT|RF)\b/,
-    );
-    if (adjacent) {
-      out.push({ type: `${adjacent[1]}${normalizeContainerSuffix(adjacent[2])}`, quantity: 1 });
-    } else {
-      const unitOnly = cleaned.match(/\b(20|40|45)(?!\d)\s*(?:'|FT\.?\b|FEET\b|FOOT\b)/);
-      if (unitOnly) out.push({ type: `${unitOnly[1]}GP`, quantity: 1 });
-      else if (/^(20|40|45)$/.test(cleaned)) out.push({ type: `${cleaned}GP`, quantity: 1 });
-    }
-  }
-
-  // Merge same types
-  if (!mergeSameTypes) return out;
-  const merged = new Map<string, number>();
-  for (const c of out) merged.set(c.type, (merged.get(c.type) || 0) + c.quantity);
-  return Array.from(merged.entries()).map(([type, quantity]) => ({ type, quantity }));
+// STRUCTURAL_PATCH_ALLOWED: common documentary recognition; no default equipment class.
+export function parseContainersFromText(raw:string,mergeSameTypes=true,explicitQuantityOnly=false):Array<{type:string;quantity:number;coc_soc?:string}> {
+ const parsed=inspectContainerText(stripQuotedEmailHistory(raw || ''),explicitQuantityOnly);
+ if(parsed.issues.length)return [];
+ if(!mergeSameTypes)return parsed.containers;
+ const merged=new Map<string,{type:string;quantity:number;coc_soc?:string}>();
+ for(const c of parsed.containers){const key=JSON.stringify([c.type,c.coc_soc || null]),old=merged.get(key);merged.set(key,{...c,quantity:(old?.quantity || 0)+c.quantity});}
+ return [...merged.values()];
 }
 
 interface PerContainerWeightParse {
@@ -4677,6 +4620,7 @@ export async function injectAttachmentFacts(
             valueText = asText;
           }
         }
+        if(valueJson){const inventory=normalizeContainerInventory(valueJson);if(inventory.status==='valid')valueJson=inventory.value;}
       } else {
         // Legacy behavior for all other facts
         const scalar = Array.isArray(resolvedValue) ? resolvedValue.join(", ") : resolvedValue;
@@ -6700,12 +6644,10 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     try {
       console.log("[M3.5 multi-quote] using active latest inbound context");
       const activeMultiQuoteContext = buildActiveMultiQuoteContext(emails, fullAttachmentContext);
-      const clearQuoteRequestLines = async (mode: string) => {
+      const clearQuoteRequestLines = async (mode: string, proposedLines:unknown[] = []) => {
         console.log("[M3.5 multi-quote] no defensible active multi-quote lines, clearing quote_request_lines");
-        const { data: clearedCount, error: clearErr } = await serviceClient.rpc(
-          "replace_quote_request_lines",
-          { p_case_id: case_id, p_lines: [] }
-        );
+        const { data: clearedCount, error: clearErr } = await replaceRequestLinesWithEvidence(serviceClient,
+          {caseId:case_id,actorId:userId,lines:[],proposedLines,mode});
         if (clearErr) {
           console.warn("[M3.5 multi-quote] Clear RPC error (non-blocking):", clearErr.message);
           multiQuoteResult = { detected: false, stored: 0, mode: "clear_error" };
@@ -6745,13 +6687,6 @@ export const buildCasePuzzleHandler = async (req: Request) => {
               raw_extracted_facts:line.extracted_facts,routing_validation:checked.proofs},
           });}));
 
-          // Retain the old line and rejected proposals before the established replacement RPC.
-          const previous=await serviceClient.from('quote_request_lines').select('*').eq('case_id',case_id);
-          if(previous.error)throw new Error('Previous line evidence unavailable');
-          const retained=await serviceClient.from('case_timeline_events').insert({case_id,event_type:'case_reasoning_v1',actor_type:'system',actor_user_id:userId,
-            event_data:{kind:'quote_line_location_review',version:1,previous_lines:previous.data || [],proposed_lines:linesPayload}});
-          if(retained.error)throw new Error('Request line evidence could not be retained');
-
           const minFactLinesPayload = linesPayload.filter(
             (l) => Array.isArray(l.extracted_facts_json) && l.extracted_facts_json.length >= 2
           );
@@ -6769,10 +6704,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
           });
 
           if (validLinesPayload.length > 0) {
-            const { data: storedCount, error: rpcErr } = await serviceClient.rpc(
-              "replace_quote_request_lines",
-              { p_case_id: case_id, p_lines: validLinesPayload }
-            );
+            const { data: storedCount, error: rpcErr } = await replaceRequestLinesWithEvidence(serviceClient,
+              {caseId:case_id,actorId:userId,lines:validLinesPayload,proposedLines:linesPayload,mode:'ai_extraction'});
 
             if (rpcErr) {
               console.warn("[M3.5 multi-quote] RPC error (non-blocking):", rpcErr.message);
@@ -6783,10 +6716,10 @@ export const buildCasePuzzleHandler = async (req: Request) => {
             }
           } else if (minFactLinesPayload.length > 0) {
             console.log("[M3.5 multi-quote] All candidate lines rejected as subject-only or lacking active body/attachment evidence");
-            await clearQuoteRequestLines("subject_only_ignored");
+            await clearQuoteRequestLines("subject_only_ignored",linesPayload);
           } else {
             console.log("[M3.5 multi-quote] No valid lines after validation (min 2 facts required)");
-            await clearQuoteRequestLines("no_defensible_active_lines");
+            await clearQuoteRequestLines("no_defensible_active_lines",linesPayload);
           }
         } else {
           await clearQuoteRequestLines("ai_no_lines");
@@ -8658,9 +8591,10 @@ function containerInventoryKey(value: unknown): string | null {
   for (const item of value) {
     if (!item || typeof item !== 'object') return null;
     const c = item as { type?: unknown; quantity?: unknown };
-    const type = typeof c.type === 'string' ? c.type.toUpperCase().replace(/[\s'’′-]/g, '').replace(/(?:DV|STD)$/, 'GP') : '';
+    const designation=normalizeContainerDesignation(c.type);
+    const type=designation.status==='supported'?designation.type:'';
     const quantity = Number(c.quantity);
-    if (!/^(20|40|45)(GP|HC|HQ|FR|OT|RF)$/.test(type) || !Number.isSafeInteger(quantity) || quantity <= 0) return null;
+    if (!type || !Number.isSafeInteger(quantity) || quantity <= 0) return null;
     counts.set(type, (counts.get(type) || 0) + quantity);
   }
   return JSON.stringify([...counts].sort(([a], [b]) => a.localeCompare(b)));
@@ -8934,33 +8868,10 @@ export function extractFactsBasic(emails: any[], attachments: any[]): ExtractedF
       }
     }
 
-    // STRUCTURAL_PATCH_ALLOWED: keep this path's separate declarations while
-    // rejecting phone/reference digits and physical dimensions as containers.
-    const containerPattern = /(?<![a-z0-9])(\d+)\s*x?\s*(20|40)(?!\d)\s*(?:'|ft\.?|feet|foot)?\s*(hc|hq|dv|rf|gp|ot|fr)?(?![a-z0-9])/gi;
-    // STRUCTURAL_PATCH_ALLOWED: keep the original source excerpt; normalize equipment punctuation only.
-    const containerBody = body.replace(/[\u2018\u2019\u2032\u02bc\uff07]/g, "'");
-    const containerMatch = Array.from(containerBody.matchAll(containerPattern)).filter(m =>
-      (Boolean(m[3]) || /(?:[x']|(?:ft\.?|feet|foot)\b)/i.test(m[0])) &&
-      !/^(?:[x*]\s*\d|(?:cm|mm|m|metres?|meters?)\b)/i.test(containerBody.slice((m.index ?? 0) + m[0].length).trimStart())
-    );
-    if (containerMatch.length > 0) {
-      const containers = containerMatch.map(parts => {
-        return {
-          quantity: parseInt(parts[1]),
-          type: `${parts[2]}${(parts[3] || "GP").toUpperCase()}`.replace("DV", "GP"),
-        };
-      });
-      facts.push({
-        key: "cargo.containers",
-        category: "cargo",
-        value: containers,
-        valueType: "json",
-        sourceType: "email_body",
-        sourceEmailId: firstEmail.id,
-        sourceExcerpt: body,
-        confidence: 0.8,
-      });
-    }
+    // STRUCTURAL_PATCH_ALLOWED: same type recognition as source binding and revisions.
+    const containers=inspectContainerText(body,true).containers;
+    if(containers.length)facts.push({key:'cargo.containers',category:'cargo',value:containers,valueType:'json',
+      sourceType:'email_body',sourceEmailId:firstEmail.id,sourceExcerpt:body,confidence:.8});
 
     if (cargoEvidence.weightKg !== null) facts.push({ key: 'cargo.weight_kg', category: 'cargo', value: cargoEvidence.weightKg,
       valueType: 'number', sourceType: 'email_body', sourceEmailId: firstEmail.id, sourceExcerpt: cargoEvidence.weightExcerpt || undefined, confidence: 0.85 });

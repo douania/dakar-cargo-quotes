@@ -1,5 +1,6 @@
 import { loadCustomsBasis, applyCustomsPricingFacts, type CustomsBasisSnapshot } from '../_shared/customs-basis.ts';
 import { pricingLocationPreflight } from '../_shared/request-location-evidence.ts';
+import {normalizeContainerInventory,inspectContainerText} from '../_shared/container-designation.ts';
 import { knownHsTaxProfile, equivalentHsTaxation, type HsTaxEquivalence } from "../_shared/hs-tax-profile.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
@@ -5237,9 +5238,12 @@ export function buildPricingInputs(facts: any[]): PricingInputs {
         // V4.1.5: Defensive parse for double-encoded JSON strings
         let parsedContainers = value;
         if (typeof parsedContainers === "string") {
-          try { parsedContainers = JSON.parse(parsedContainers); } catch { parsedContainers = []; }
+          const text=parsedContainers;
+          try { parsedContainers = JSON.parse(text); } catch {const parsed=inspectContainerText(text,true);parsedContainers=parsed.issues.length?[]:parsed.containers;}
         }
-        inputs.containers = Array.isArray(parsedContainers) ? parsedContainers : [];
+        // STRUCTURAL_PATCH_ALLOWED: documentary spelling adapter only; tariff/formula unchanged.
+        const inventory=normalizeContainerInventory(parsedContainers);
+        inputs.containers = inventory.status==='valid' ? inventory.value : [];
         break;
       }
       case "cargo.weight_kg":

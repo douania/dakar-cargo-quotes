@@ -12,7 +12,8 @@
  * - The dossier-level terminal fact never satisfies a per-lot requirement.
  */
 import { normalizeTerminalOperationMode, TERMINAL_OPERATION_MODE_FACT_KEY, type TerminalOperationMode } from "./terminal-operation-mode.ts";
-import { normalizeDpwDthcFamily, normalizeDthcContainerType } from "./dpw-dthc-tariff.ts";
+import { normalizeDpwDthcFamily } from "./dpw-dthc-tariff.ts";
+import {normalizeContainerDesignation,normalizeContainerInventory} from './container-designation.ts';
 import type { ConfirmedPadLine, PadGroup, PadGroupDecision } from "./pad-group-confirmation.ts";
 
 export type LotDecisionKind = "line_binding" | "terminal_mode";
@@ -232,15 +233,15 @@ function lineFacts(line: LotLine): Array<{ key: string; value: unknown }> {
     ? line.extracted_facts.filter(isObject).filter(f => typeof f.key === "string").map(f => ({ key: f.key as string, value: f.value }))
     : [];
 }
-const equipment = (v: unknown) => normalizeDthcContainerType(v).replace(/^(20|40)HQ$/, "$1HC");
+const equipment = (v: unknown) => {const d=normalizeContainerDesignation(v);return d.status==='supported'?d.type:'';};
 /** Strict single-group text written by the real extraction ("2x40HC", "1x20DV"): a positive
  * integer, one "x", one known size and type code. Several groups, extra words or any other
  * form are refused; the equipment then goes through the same normalization as the JSON form. */
-const SINGLE_GROUP_TEXT = /^([1-9]\d{0,2})[ \t]*[x×][ \t]*((?:20|40|45)[ \t]*'?[ \t]*(?:DV|GP|HC|HQ|RF|OT|FR))$/i;
+const SINGLE_GROUP_TEXT = /^([1-9]\d{0,2})[ \t]*[x×*][ \t]*(\S[^\r\n]{0,79})$/i;
 function singleGroupFromText(value: string): Record<string, unknown> | null {
   const m = SINGLE_GROUP_TEXT.exec(value.trim());
   // Same shape as the extraction's JSON entry; the text states no ownership.
-  return m ? { type: equipment(m[2]), quantity: Number(m[1]), coc_soc: null } : null;
+  return m && equipment(m[2]) ? { type: equipment(m[2]), quantity: Number(m[1]), coc_soc: null } : null;
 }
 
 /** Blocker raised by run-pricing when a lot's own `cargo.containers` is present but unreadable. */
@@ -269,7 +270,8 @@ export function readLotContainers(facts: readonly unknown[]): LotContainersReadi
   if (!Array.isArray(raw) || raw.length === 0 || !raw.every(c => isObject(c) && typeof c.type === "string" && equipment(c.type) !== "" &&
     (typeof c.quantity === "number" || (typeof c.quantity === "string" && /^\d+$/.test(c.quantity))) &&
     Number.isSafeInteger(Number(c.quantity)) && Number(c.quantity) > 0)) return { status: "invalid" };
-  return { status: "valid", containers: raw as Record<string, unknown>[] };
+  const inventory=normalizeContainerInventory(raw.map(c=>({...c,quantity:Number(c.quantity)})));
+  return inventory.status==='valid'?{status:'valid',containers:inventory.value}:{status:'invalid'};
 }
 
 /** Blocker raised by run-pricing when a containerised (or undetermined) lot has no own containers. */

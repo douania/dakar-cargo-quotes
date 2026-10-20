@@ -80,16 +80,13 @@ Deno.test("parseContainersFromText: never collapses a special type into 40GP", (
   assert(!parseContainersFromText("40 open top").some((c) => c.type === "40GP"));
 });
 
-Deno.test("parseContainersFromText: legacy FCL behavior preserved", () => {
-  assertEquals(parseContainersFromText("1x20 + 1x40"), [
-    { type: "20GP", quantity: 1 },
-    { type: "40GP", quantity: 1 },
-  ]);
+Deno.test("parseContainersFromText: explicit FCL retained; bare dimensions require equipment under general GO", () => {
+  assertEquals(parseContainersFromText("1x20 + 1x40"), []);
   assertEquals(parseContainersFromText("40HC"), [{ type: "40HC", quantity: 1 }]);
   assertEquals(parseContainersFromText("40GP"), [{ type: "40GP", quantity: 1 }]);
   assertEquals(parseContainersFromText("20GP"), [{ type: "20GP", quantity: 1 }]);
   assertEquals(parseContainersFromText("2x40HC"), [{ type: "40HC", quantity: 2 }]);
-  assertEquals(parseContainersFromText("3 x 20'"), [{ type: "20GP", quantity: 3 }]);
+  assertEquals(parseContainersFromText("3 x 20'"), []);
 });
 
 // =====================================================================

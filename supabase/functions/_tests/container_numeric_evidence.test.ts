@@ -25,34 +25,34 @@ for (const text of [
 Deno.test('container evidence: explicit legacy quantities and equipment remain recognized', () => {
   for (const [text, expected] of [
     ['2x40HC', requested],
-    ["3 x 20'", [{ type: '20GP', quantity: 3 }]],
+    ["3 x 20'", []],
     ['2 40HC', requested],
     ['15 x 40 flat rack', [{ type: '40FR', quantity: 15 }]],
     ['1x40 reefer', [{ type: '40RF', quantity: 1 }]],
-    ['2 PCS 45HQ', [{ type: '45HQ', quantity: 2 }]],
-    ['1x20 + 1x40', [{ type: '20GP', quantity: 1 }, { type: '40GP', quantity: 1 }]],
-    ['39 20HQ', [{ type: '20HQ', quantity: 39 }]],
-    ['2 40FT', requested.map(c => ({ ...c, type: '40GP' }))],
+    ['2 PCS 45HQ', [{ type: '45HC', quantity: 2 }]],
+    ['1x20 + 1x40', []],
+    ['39 20HQ', [{ type: '20HC', quantity: 39 }]],
+    ['2 40FT', []],
     ['2 * 40GP', requested.map(c => ({ ...c, type: '40GP' }))],
-    ["Container 40'", [{ type: '40GP', quantity: 1 }]],
-    ['Container 20FT', [{ type: '20GP', quantity: 1 }]],
+    ["Container 40'", []],
+    ['Container 20FT', []],
     ['Equipment 40 OPEN TOP', [{ type: '40OT', quantity: 1 }]],
   ] as const) assertEquals(parseContainersFromText(text), expected, text);
   assertEquals(basic('2x40HC and 3x20GP'), [{ quantity: 2, type: '40HC' }, { quantity: 3, type: '20GP' }]);
-  assertEquals(basic('1x20 + 1x40'), [{ quantity: 1, type: '20GP' }, { quantity: 1, type: '40GP' }]);
+  assertEquals(basic('1x20 + 1x40'), []);
   for (const text of ['2 40FT', '2 40 FT', '2x40FT', '2 40 feet', '2 40 foot']) {
-    assertEquals(parseContainersFromText(text), [{ quantity: 2, type: '40GP' }], text);
-    assertEquals(basic(text), [{ quantity: 2, type: '40GP' }], text);
+    assertEquals(parseContainersFromText(text), [], text);
+    assertEquals(basic(text), [], text);
   }
   assertEquals(parseContainersFromText('2x40HC and 3x40HC'), [{ quantity: 5, type: '40HC' }]);
   assertEquals(basic('2x40HC and 3x40HC'), [{ quantity: 2, type: '40HC' }, { quantity: 3, type: '40HC' }]);
 });
-Deno.test('container evidence: bare standalone container size retains its existing typed-field meaning', () => {
-  for (const size of ['20', '40', '45']) assertEquals(parseContainersFromText(size), [{ type: size + 'GP', quantity: 1 }]);
+Deno.test('container evidence: bare size is ambiguous under the general designation GO, never default GP', () => {
+  for (const size of ['20', '40', '45']) assertEquals(parseContainersFromText(size), []);
 });
 Deno.test('container evidence: explicit HQ declarations remain separate and are never truncated to GP', () => {
   const text='39 x 20HQ SOC; 13 x 20HQ SOC; 3 x 40HQ COC';
-  assertEquals(basic(text), [{quantity:39,type:'20HQ'},{quantity:13,type:'20HQ'},{quantity:3,type:'40HQ'}]);
+  assertEquals(basic(text), [{quantity:39,type:'20HC',coc_soc:'SOC'},{quantity:13,type:'20HC',coc_soc:'SOC'},{quantity:3,type:'40HC',coc_soc:'COC'}]);
   assertEquals(parseContainersFromText('3x40HQsuffix'), []);
   assertEquals(basic('3x40HQsuffix'), []);
 });

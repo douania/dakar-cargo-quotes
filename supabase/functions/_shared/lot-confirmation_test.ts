@@ -134,7 +134,7 @@ Deno.test("LOT PAD: the strict single-group text written by the real extraction 
   assertEquals(lotPadAllocationIssue(group(), facts("3x40HC")), "LOT_PAD_ALLOCATION_MISMATCH");
   assertEquals(lotPadAllocationIssue(group(), facts("2x20DV")), "LOT_PAD_ALLOCATION_MISMATCH");
   assertEquals(lotPadAllocationIssue(group(), facts("2x40DV")), "LOT_PAD_ALLOCATION_MISMATCH");
-  assertEquals(lotPadAllocationIssue(dv, facts("1x20GP")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(dv, facts("1x20GP")), null);
   assertEquals(lotPadAllocationIssue(group(), facts("2x40HC", "30000")), "LOT_PAD_WEIGHT_MISMATCH");
   // Invalid quantities, unknown equipment, several groups, extra or ambiguous text: refused.
   for (const bad of ["0x40HC", "02x40HC", "-2x40HC", "2.5x40HC", "1000x40HC", "x40HC", "40HC", "2", "2x40", "2x40XX", "2x30HC",
@@ -145,9 +145,9 @@ Deno.test("LOT PAD: the strict single-group text written by the real extraction 
   // Order: strict text first, otherwise the unchanged JSON path ("2" is not a list; a JSON string still works).
   assertEquals(lotPadAllocationIssue(group(), facts("2")), "LOT_PAD_ALLOCATION_MISMATCH");
   assertEquals(lotPadAllocationIssue(group(), facts(JSON.stringify([{ type: "40HC", quantity: 2 }]))), null);
-  // Line breaks inside the value are not accepted; 45HQ is not an alias of 45HC (same as the JSON form).
+  // Line breaks remain refused; the approved common dry HQ/HC convention also covers45feet.
   for (const bad of ["2\nx40HC", "2x\n40HC", "2x40\nHC"]) assertEquals(lotPadAllocationIssue(group(), facts(bad)), "LOT_PAD_ALLOCATION_MISMATCH", bad);
-  assertEquals(lotPadAllocationIssue(group({ equipment_code: "45hc" }), facts("2x45HQ")), "LOT_PAD_ALLOCATION_MISMATCH");
+  assertEquals(lotPadAllocationIssue(group({ equipment_code: "45hc" }), facts("2x45HQ")), null);
   assertEquals(lotPadAllocationIssue(group({ equipment_code: "45hc" }), facts("2x45HC")), null);
   // The text form states no ownership: accepted as for a JSON entry without coc_soc (the group keeps its own).
   // Two container facts on the same line stay refused whatever their form.
@@ -161,12 +161,14 @@ Deno.test("LOT CONTAINERS: one reader for PAD allocation and pricing; unreadable
   assertEquals(readLotContainers([{ key: "cargo.weight_kg", value: "1" }]), { status: "absent" });
   // Existing JSON forms are kept as they are (list or JSON string, several entries allowed for pricing).
   const json = [{ type: "40HC", quantity: 2, coc_soc: "SOC" }, { type: "20DV", quantity: 1 }];
-  assertEquals(read(json), { status: "valid", containers: json });
-  assertEquals(read(JSON.stringify(json)), { status: "valid", containers: json });
-  assertEquals(read([{ type: "40HC", quantity: "2" }]), { status: "valid", containers: [{ type: "40HC", quantity: "2" }] });
+  const canonical=[json[0],{...json[1],type:'20GP'}];
+  assertEquals(read(json), { status: "valid", containers: canonical });
+  assertEquals(read(JSON.stringify(json)), { status: "valid", containers: canonical });
+  assertEquals(json[1].type,'20DV');
+  assertEquals(read([{ type: "40HC", quantity: "2" }]), { status: "valid", containers: [{ type: "40HC", quantity: 2 }] });
   // Strict text: same shape and values as the extraction's JSON entry for the same lot.
   assertEquals(read("2x40HC"), { status: "valid", containers: [{ type: "40HC", quantity: 2, coc_soc: null }] });
-  assertEquals(read("1x20DV"), { status: "valid", containers: [{ type: "20DV", quantity: 1, coc_soc: null }] });
+  assertEquals(read("1x20DV"), { status: "valid", containers: [{ type: "20GP", quantity: 1, coc_soc: null }] });
   assertEquals(read("2 × 40' HQ"), { status: "valid", containers: [{ type: "40HC", quantity: 2, coc_soc: null }] });
   // Present but unreadable → invalid (pricing blocks the lot with LOT_CONTAINERS_UNREADABLE).
   for (const bad of ["deux conteneurs 40HC", "2x40HC + 1x20DV", "2x40HC SOC", "0x40HC", "", "2", "{}", JSON.stringify({ type: "40HC", quantity: 2 }),

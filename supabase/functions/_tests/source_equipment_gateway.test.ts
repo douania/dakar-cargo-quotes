@@ -6,7 +6,7 @@ const {prepareRevisionGroups}=await import('../_shared/email-fact-revisions.ts')
 const mail=(body_text:string)=>({id:'original',from_address:'client@fixture.invalid',body_text,subject:'Sea freight request'});
 const basic=(text:string)=>extractFactsBasic([mail(text)],[]).find(f=>f.key==='cargo.containers')?.value;
 for(const mark of ["'",'\u2018','\u2019','\u2032','\u02bc','\uff07'])for(const suffix of ['HC','HQ'])Deno.test('equipment: '+mark+suffix+' remains explicit through both parsers and revision preparation',async()=>{
- const text=`No. of containers: 1 x 40${mark}${suffix}'`,e=mail(text),wanted=[{quantity:1,type:'40'+suffix}];
+ const text=`No. of containers: 1 x 40${mark}${suffix}'`,e=mail(text),wanted=[{quantity:1,type:'40HC'}];
  assertEquals(parseContainersFromText(text),wanted);assertEquals(basic(text),wanted);
  const groups=await prepareRevisionGroups({emails:[e],facts:[],ownBody:x=>x,basic:x=>bindExtractedFactSources(extractFactsBasic([x],[]),[x],[]),eligible:()=>true});
  assertEquals(groups.find(g=>g.key==='cargo.containers')?.candidates.map(c=>c.value),[wanted]);
