@@ -27,6 +27,76 @@ module.exports=async function({sql,session,waitFor,delay,id,actor,settings,q,j,r
  assert(linesStart>=0);sql("ALTER TABLE quote_request_lines ALTER COLUMN id SET DEFAULT gen_random_uuid();ALTER TABLE quote_request_lines ADD COLUMN line_index integer,ADD COLUMN line_label text,ADD COLUMN request_type_hint text,ADD COLUMN confidence numeric,ADD COLUMN source_email_id uuid,ADD COLUMN source_excerpt text,ADD COLUMN segment_text text,ADD COLUMN extracted_facts_json jsonb,ADD COLUMN meta_json jsonb;");
  sql(legacyLines.slice(linesStart,legacyLines.indexOf('$$;',linesStart)+3));sql('REVOKE ALL ON FUNCTION replace_quote_request_lines(uuid,jsonb) FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION replace_quote_request_lines(uuid,jsonb) TO service_role');
  const notationSql=fs.readFileSync(path.join(repo,'supabase/migrations/20261020104000_equipment_notation_receipts.sql'),'utf8');sql(notationSql);
+ const optionalFields=['coc_soc','cocSoc','notes'],unknownShapes=Array.from({length:8},(_,mask)=>Object.fromEntries(optionalFields.filter((_,i)=>mask&(1<<i)).map(k=>[k,null])));
+ const nullableOwnership=seed("No. of containers: 1 x 40\u2019HC'"),nullableVariants=unknownShapes.flatMap(extra=>['40HC',"40'HC",'40\u2019 HC','40_HQ','40 ft HC'].map(type=>({...groups(nullableOwnership)[0].candidates[0],source_type:'ai_extraction',value:[{quantity:1,type,...extra}]})));
+ apply(nullableOwnership,'40HC','prior-alias-conflict',[{...groups(nullableOwnership,"40'HC")[0].candidates[0],source_type:'ai_extraction'}]);
+ apply(nullableOwnership,'40HC','real-null-ownership',nullableVariants);
+ const nullableArgs=args(nullableOwnership,'real-null-ownership-repair');nullableArgs.p_groups[0].candidates.push(...nullableVariants);
+ const nullableBefore=snapshot(nullableOwnership);
+ const nullableReceipts=sql("SELECT md5(jsonb_agg(to_jsonb(r) ORDER BY id)::text) FROM quote_email_fact_revisions r WHERE case_id="+q(nullableOwnership.c));
+ check('real nullable unknown ownership blocks old comparison without changing state',()=>{
+  assert.equal(unresolved(nullableOwnership),'3');assert.equal(repair(nullableArgs).reason,'not_unique_same_source');assert.equal(snapshot(nullableOwnership),nullableBefore);
+ });
+ sql(fs.readFileSync(path.join(repo,'supabase/migrations/20261020115000_unknown_container_fields_comparison.sql'),'utf8'));
+ check('known optional nulls equal absence only; explicit values and identity or unknown fields remain distinct',()=>{
+  const plain=[{type:'40HC',quantity:1}],key=value=>JSON.parse(sql('SELECT equipment_notation_inventory('+j(value)+')'));
+  for(const extra of unknownShapes)assert.deepEqual(key([{...plain[0],...extra}]),plain);
+  for(const field of optionalFields)for(const value of ['COC','SOC','UNKNOWN','',false,0,{},[]]){
+   const row=[{...plain[0],[field]:value}];assert.deepEqual(key(row),row);assert.notDeepEqual(key(row),plain);
+  }
+  const extra=[{...plain[0],unrecognized_property:null,unit_ref:'lot-a'}];assert.deepEqual(key(extra),extra);assert.notDeepEqual(key(extra),plain);
+  for(const extra of [{unit_ref:null},{weight_kg:null},{metadata:{coc_soc:null,notes:null}}]){
+   const value=[{...plain[0],...extra}];assert.deepEqual(key(value),value);assert.notDeepEqual(key(value),plain);
+  }
+  assert.deepEqual(key([{type:'20DV',quantity:2,notes:null,unit_ref:'a'},{type:'40_HQ',quantity:3,cocSoc:null,unit_ref:'b'}]),[{type:'20GP',quantity:2,unit_ref:'a'},{type:'40HC',quantity:3,unit_ref:'b'}]);
+ });
+ check('all40 optional serialization forms supersede the real GP defect and retain every original receipt',()=>{
+  const z=nullableOwnership,old=current(z);assert.equal(repair(nullableArgs).status,'applied');
+  const f=current(z);assert.deepEqual(f.value_json,[{quantity:1,type:'40HC'}]);assert.equal(f.supersedes_fact_id,old.id);assert.equal(unresolved(z),'0');
+  assert.equal(sql("SELECT md5(jsonb_agg(to_jsonb(r) ORDER BY id)::text) FROM quote_email_fact_revisions r WHERE case_id="+q(z.c)+" AND reason<>'parser_correction'"),nullableReceipts);
+  const receipt=JSON.parse(sql("SELECT source_evidence FROM quote_email_fact_revisions WHERE case_id="+q(z.c)+" AND status='applied' AND reason='parser_correction'"));
+  assert.deepEqual(receipt.candidates,nullableArgs.p_groups[0].candidates);
+  const before=snapshot(z);assert.equal(repair(nullableArgs).replay,true);assert.equal(snapshot(z),before);
+  assert.equal(apply(z,'40HC','equivalent-after-repair',nullableVariants).status,'unchanged');assert.deepEqual(current(z),f);assert.equal(unresolved(z),'0');
+ });
+ check('ownership, notes, lot identity and other metadata cannot be silently dropped during technical repair',()=>{
+  for(const extra of [{coc_soc:'COC'},{coc_soc:'SOC'},{coc_soc:'UNKNOWN'},{coc_soc:''},{cocSoc:'COC'},{cocSoc:'SOC'},{notes:'Reefer at -18C'},{notes:''},{unrecognized_property:null},{unit_ref:'lot-a'},{unit_ref:null},{weight_kg:null},{metadata:{notes:null}}]){
+   const z=seed(),ai={...groups(z)[0].candidates[0],source_type:'ai_extraction',value:[{quantity:1,type:'40HC',...extra}]};
+   apply(z,'40HC','explicit-owner-'+JSON.stringify(extra),[ai]);const p=args(z,'explicit-owner');p.p_groups[0].candidates.push(ai);const before=snapshot(z);
+   assert.equal(repair(p).status,'not_eligible');assert.equal(snapshot(z),before);assert.notEqual(unresolved(z),'0');
+  }
+ });
+ check('nullable unknown ownership cannot change manual or validated facts',()=>{
+  for(const protectedBy of ['manual','validated']){
+   const z=seed();sql("SELECT supersede_fact("+q(z.c)+",'cargo.containers','cargo',p_value_json:='[{\"quantity\":1,\"type\":\"40HC\"}]',p_source_type:='manual_input')");
+   if(protectedBy==='validated')sql("UPDATE quote_facts SET source_type='email_body',is_validated=true WHERE id="+q(current(z).id));
+   const before=current(z),variants=nullableVariants.map(c=>({...groups(z)[0].candidates[0],source_type:'ai_extraction',value:c.value}));
+   assert.equal(apply(z,'40HC','protected-unknown-'+protectedBy,variants).reason,'protected_value_unchanged');assert.deepEqual(current(z),before);
+   for(const owner of ['COC','SOC']){
+    sql("SELECT supersede_fact("+q(z.c)+",'cargo.containers','cargo',p_value_json:="+j([{quantity:1,type:'40HC',coc_soc:owner}])+",p_source_type:='manual_input')");
+    if(protectedBy==='validated')sql("UPDATE quote_facts SET source_type='email_body',is_validated=true WHERE id="+q(current(z).id));
+    const owned=current(z);assert.equal(apply(z,'40HC','protected-owned-'+protectedBy+'-'+owner,variants).status,'protected');assert.deepEqual(current(z),owned);
+   }
+  }
+ });
+ check('ordinary two-row supersession compares unknown optional fields without losing order, identities or nested metadata',()=>{
+  const n=serial;serial+=10;const z={c:id(n),thread:id(n+1),e:id(n+2),body:'No. of containers: 2 x 20DV and 3 x 40HC'};
+  sql("INSERT INTO quote_cases(id,created_by,status,thread_id) VALUES("+q(z.c)+","+q(actor)+",'NEED_INFO',"+q(z.thread)+");INSERT INTO emails(id,thread_ref,body_text,from_address,sent_at) VALUES("+q(z.e)+","+q(z.thread)+","+q(z.body)+",'client@fixture.invalid','2026-10-16T05:07:35Z')");
+  const base=[{type:'20GP',quantity:2,unit_ref:'a',metadata:{notes:null}},{type:'40HC',quantity:3,unit_ref:'b',metadata:{notes:null}}];
+  const candidate=value=>({...groups(z)[0].candidates[0],value});
+  const write=(values,label)=>JSON.parse(sql(settings+"SELECT apply_case_email_fact_revisions("+q(z.c)+","+q(actor)+","+q(label)+","+j([{key:'cargo.containers',category:'cargo',candidates:values.map(candidate)}])+","+j(manifest(z))+")")).decisions[0];
+  assert.equal(write([base],'multi-initial').status,'applied');const before=current(z);
+  const variants=unknownShapes.map((extra,i)=>[{...base[0],type:'20DV',...extra},{...base[1],type:'40_HQ',...unknownShapes[i^7]}]);
+  assert.equal(write([base,...variants],'multi-equivalent').status,'unchanged');assert.deepEqual(current(z),before);
+  assert.equal(write([base,...variants],'multi-equivalent').replay,true);assert.deepEqual(current(z),before);
+  const receipt=JSON.parse(sql("SELECT source_evidence FROM quote_email_fact_revisions WHERE case_id="+q(z.c)+" AND command_key='multi-equivalent'"));
+  assert.deepEqual(receipt.candidates.map(c=>c.value),[base,...variants]);assert.deepEqual(receipt.candidates[1].value[0].metadata,{notes:null});
+  const repairArgs=args(z,'multi-not-defect');repairArgs.p_groups[0].candidates=[candidate(base)];const immutable=snapshot(z);
+  assert.equal(repair(repairArgs).status,'not_eligible');assert.equal(snapshot(z),immutable);
+  const key=value=>sql('SELECT container_revision_value_key(\'cargo.containers\',\'json\','+j(value)+')');
+  for(const changed of [[...base].reverse(),[base[0]], [...base,base[0]], [{...base[0],quantity:3},base[1]], [{...base[0],unit_ref:'different'},base[1]], [{...base[0],metadata:{notes:'explicit'}},base[1]]])assert.notEqual(key(changed),key(base));
+  assert.equal(write([[{...base[0],quantity:4},base[1]]],'multi-real-difference').status,'conflict');assert.deepEqual(current(z).value_json,base);
+ });
  check('closed SQL type matrix agrees with all46declared aliases and preserves subtypes',()=>{
   const aliases=JSON.parse(/aliases jsonb:='([^']+)'/.exec(notationSql)[1]);assert.equal(Object.keys(aliases).length,46);
   for(const [raw,type] of Object.entries(aliases))for(const variant of [raw,raw.toLowerCase(),raw.slice(0,2)+'\u2032 '+raw.slice(2),raw.slice(0,2)+' ft '+raw.slice(2),raw.slice(0,2)+' pieds '+raw.slice(2)])assert.equal(sql('SELECT container_designation_type('+q(variant)+')'),type,variant);
