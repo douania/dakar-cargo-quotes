@@ -12,6 +12,15 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 <!-- Nouvelle entrée : copier le bloc ci-dessous, remplir, ajouter en haut de la liste. -->
 
+## [2026-10-20 12:22 UTC] TRAITÉ — RÉCONCILIATION-1, préparation et bascule locales autorisées
+**GO utilisateur** : « GO RÉCONCILIATION-1 pour la réalisation locale selon le plan. Prépare les sauvegardes et les documents, puis attends la clôture du lot en cours avant la bascule, sans commit ni push. »
+**Point de passage** : chat « Terminer validation accès DCQ » terminé, lot technique clos sur17fdeda0 et aucun lot suivant lancé ; copies secondaires préservées.
+**Périmètre** : sauvegardes hors Git, remise à jour locale du dossier Projects depuis le code publié, trois documents réconciliés ; aucune modification applicative nouvelle, Cloud, DB/Auth/RLS ou automatisation.
+**Rapprochements** : deux décisions anciennes reclassées TRAITÉ ; cinq entrées INFO_MANQUANTE avec limites explicites. Aucune approbation métier nouvelle ni avis d’IA transformé en GO.
+**Preuves et retour arrière** : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/ ; fichiers originaux et patches conservés, vérifications dans validation.json. Aucun commit/push autorisé par ce lot.
+
+---
+
 ## [2026-10-07 17:57 UTC] TRAITÉ — Sécurité V1 interne : contre-revue locale clôturée, activation non autorisée
 **Origine** : GO local utilisateur ; Codex exécutant unique, session indépendante security_counter_review en lecture seule, même PC DESKTOP-DJVBKU7.
 **Question bornée** : copie `C:/Users/DELL/Documents/Codex/2026-10-07/task/security-access-v1`, work/d371e02 ; vérifier admission, FROZEN, mail/Vault, RLS/ACL et signed attachments ; reprendre seulement les blocages et parties affectées.
@@ -31,6 +40,54 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 **Risques** :
 **Recommandation de Claude Code** :
 **Référence** (branche / commit local / lien) :
+
+---
+
+## [2026-10-06 16:35 UTC] TRAITÉ — Présentation client : retour vide et bases multi-lot — clôture historique
+**Origine** : trace locale récupérée pendant RÉCONCILIATION-1 ; bilan historique, aucune nouvelle exécution ni validation runtime.
+**Référence code** : d371e02.
+**Résultat et limites** : CI37495326267 déclarée SUCCESS ; écran contrôlé ; artefacts existants réutilisés, nouveau rendu serveur NOT_RUN. Deux fonctions ciblées livrées selon la trace ; aucun envoi. Rollback historique : revert ciblé et redéploiement depuisc5365c5 sous GO.
+**Archive privée intégrale** : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/sources/original/files/docs/CTO_GO_QUEUE.md ; identifiants, noms et montants de dossiers exclus de cette publication.
+
+---
+
+## [2026-10-02 16:50 UTC] TRAITÉ — Présentation client : finitions — clôture historique
+**Origine** : trace locale récupérée pendant RÉCONCILIATION-1 ; bilan historique, aucune nouvelle exécution ni validation runtime.
+**Référence code** : c5365c5.
+**Résultat et limites** : CI37034629217 déclarée SUCCESS ; recette serveur synthétique PDF/brouillon consignée. Deux résidus de présentation alors ouverts, repris dans le lot suivant. Aucun envoi. Rollback historique : revert ciblé et redéploiement depuisad98bba sous GO.
+**Archive privée intégrale** : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/sources/original/files/docs/CTO_GO_QUEUE.md ; identifiants, noms et montants de dossiers exclus de cette publication.
+
+---
+
+## [2026-10-02 16:25 UTC] TRAITÉ — Présentation client : livraison privée — clôture historique
+**Origine** : trace locale récupérée pendant RÉCONCILIATION-1 ; bilan historique, aucune nouvelle exécution ni validation runtime.
+**Référence code** : ad98bba.
+**Résultat et limites** : CI37031854196 déclarée SUCCESS ; arrêt initial sur source Lovable ancienne, puis synchronisation et déploiement ciblé consignés. Nouveau rendu serveur NOT_RUN par réutilisation idempotente ; rendu local distinct. Aucun envoi.
+**Archive privée intégrale** : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/sources/original/files/docs/CTO_GO_QUEUE.md ; identifiants, noms et montants de dossiers exclus de cette publication.
+
+---
+
+## [2026-10-02 14:29 UTC] TRAITÉ — Présentation client : contre-revues ciblées clôturées
+**Origine** : trace locale récupérée pendant RÉCONCILIATION-1 ; bilan historique, aucune nouvelle exécution ni validation runtime.
+**Référence code** : a72d924, diff local avantad98bba.
+**Résultat et limites** : Reprises limitées aux blocages : association des lignes, restitution des réserves et statut des coûts corrigés. Avis de revue favorable ; CI déclarée, non contre-exécutée. L’avis ne remplace pas le GO humain de publication.
+**Archive privée intégrale** : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/sources/original/files/docs/CTO_GO_QUEUE.md ; identifiants, noms et montants de dossiers exclus de cette publication.
+
+---
+
+## [2026-10-02 13:17 UTC] TRAITÉ — Présentation client : contre-revue avec corrections
+**Origine** : trace locale récupérée pendant RÉCONCILIATION-1 ; bilan historique, aucune nouvelle exécution ni validation runtime.
+**Référence code** : a72d924, diff local.
+**Résultat et limites** : Trois blocages : correspondance multi-lot après sérialisation JSON, conservation des durées/franchises/exclusions et retrait d’une réserve seulement si une restitution équivalente existe. Publication bloquée à cette date ; suites consignées dans l’entrée suivante.
+**Archive privée intégrale** : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/sources/original/files/docs/CTO_GO_QUEUE.md ; identifiants, noms et montants de dossiers exclus de cette publication.
+
+---
+
+## [2026-10-01 15:37 UTC] TRAITÉ — Catalogue de réserves client : contre-revue
+**Origine** : trace locale récupérée pendant RÉCONCILIATION-1 ; bilan historique, aucune nouvelle exécution ni validation runtime.
+**Référence code** : a72d924.
+**Résultat et limites** : Catalogue accepté comme projection de présentation, sans décision d’inclusion fondée sur le seul code. Conserver qualification estimée/non ferme, signification du zéro, conditions de séjour, portée par lot et repli historique ; aucune qualification juridique ni réalisation autorisée par cet avis.
+**Archive privée intégrale** : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/sources/original/files/docs/CTO_GO_QUEUE.md ; identifiants, noms et montants de dossiers exclus de cette publication.
 
 ---
 
@@ -204,7 +261,8 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 ---
 
-## [2026-09-24 11:30 UTC] PENDING — Défaut UI : un dossier sans fait ni document ne peut pas être réanalysé
+## [2026-09-24 11:30 UTC] INFO_MANQUANTE — Défaut UI : un dossier sans fait ni document ne peut pas être réanalysé
+**Rapprochement documentaire du20/10/2026** : Le code17fdeda0 admet RFQ_DETECTED et une source courriel sans fait/document dans CaseView ; ancien constat code dépassé. Recette du cas historique non réexécutée ici : pas de nouveau correctif ni de PASS runtime déduit.
 **Origine** : recette IMO-EVENT-TYPE-1 (24/09), constat sur le sandbox 8a06251d-7027-4d3a-b336-d6f2ae3530cf avant sa relance hors UI.
 **Type** : défaut produit découvert, hors lot (UI CaseView / tableau de bord), non corrigé.
 **Constat vérifié** : dans `src/pages/CaseView.tsx`, le bouton d'analyse est désactivé quand `documentsCount === 0` et aucun fait, et son bloc n'est affiché que pour INTAKE/FACTS_PARTIAL/NEED_INFO/READY_TO_PRICE/DECISIONS_*/ACK_READY_FOR_PRICING ; « Rafraîchir » ne fait que recharger. Le tableau de bord ne liste plus un e-mail dont le fil a un dossier actif. Un dossier resté en RFQ_DETECTED à 0 fait (cas des analyses interrompues par l'ancienne contrainte IMO) n'a donc aucune relance par l'UI. Aucun dossier client dans cet état constaté au 24/09.
@@ -440,7 +498,8 @@ transit, mais la facture 3384292 prouve que DP World le facture à l'import.
 
 ---
 
-## [2026-09-11 11:20 UTC] PENDING — L'arrêté en vigueur est identifié : n° 035532 du 28 novembre 2023
+## [2026-09-11 11:20 UTC] TRAITÉ — L'arrêté en vigueur est identifié : n° 035532 du 28 novembre 2023
+**Rapprochement documentaire du20/10/2026** : Arbitrage historique déjà consigné sur GO avec correctif référencé c48f0119 ; statut documentaire seulement, objet Git ancien et runtime actuel non revalidés ici. Aucun nouveau GO ni déploiement ; les questions distinctes de cumul restent dans leur entrée.
 
 **Origine** : session interactive
 **Type** : demande de GO avant travail (correction de provenance)
@@ -531,7 +590,8 @@ suggère qu'elles ont été supprimées — mais le dépliant reçu est la page 
 
 ---
 
-## [2026-09-10 17:09 UTC] PENDING — DTHC-4 : cumul « conteneur spécial × marchandise dangereuse »
+## [2026-09-10 17:09 UTC] INFO_MANQUANTE — DTHC-4 : cumul « conteneur spécial × marchandise dangereuse »
+**Rapprochement documentaire du20/10/2026** : Décision de taux déjà consignée, mais statut actuel de chaque sous-question/provenance à rapprocher des preuves du lot DTHC avant tout nouvel arbitrage. Aucun nouveau taux ni nouvelle portée autorisés.
 
 **Origine** : session interactive
 **Type** : décision CTO rendue, GO d'implémentation en attente
@@ -657,7 +717,8 @@ Constats nouveaux issus de cette facture :
 
 ---
 
-## [2026-09-11 12:10 UTC] PENDING — Écart de mandat de l'agent Lovable sur `_shared/runtime.ts`
+## [2026-09-11 12:10 UTC] TRAITÉ — Écart de mandat de l'agent Lovable sur `_shared/runtime.ts`
+**Rapprochement documentaire du20/10/2026** : Décision CTO du11/09 « CONSERVER » déjà consignée pour86d32ef4/631464cc/7c251cb9/c480cbc6/9275c799. Ne pas redemander ce choix ; présence des anciens objets et état runtime actuel non certifiés par ce rapprochement documentaire.
 
 **Origine** : session interactive
 **Type** : décision CTO requise — conserver ou révoquer des modifications non autorisées
@@ -709,7 +770,8 @@ aucun fichier » seule n'a pas suffi.
 
 ---
 
-## [2026-09-11 13:05 UTC] PENDING — Les photos GoTrans étaient en base, analysées, et perdues
+## [2026-09-11 13:05 UTC] INFO_MANQUANTE — Remontée des faits extraits des pièces jointes — constat historique
+**Rapprochement documentaire du20/10/2026** : Entrée historique : les raccords documentaires livrés depuis ne prouvent pas l’adoption des faits de ce dossier. Vérification visuelle et état métier actuel requis avant toute écriture ; aucune adoption autorisée ici.
 
 **Origine** : session interactive
 **Type** : constat produit + faits à écrire sur le dossier `5e9cd222`
@@ -769,7 +831,8 @@ dimensions ni numéro, `cargo.imo_class` et `cargo.un_number` sont toujours vide
 
 ---
 
-## [2026-09-11 12:40 UTC] PENDING — Garde de cohérence poids / type de conteneur : source du seuil
+## [2026-09-11 12:40 UTC] INFO_MANQUANTE — Garde de cohérence poids / type de conteneur : source du seuil
+**Rapprochement documentaire du20/10/2026** : Source documentaire du seuil et décision métier non établies par ce lot. Aucun seuil, référentiel ou mécanisme tarifaire créé ou confirmé ici.
 
 **Origine** : session interactive, issue du sous-lot C
 **Type** : demande d'arbitrage sur un référentiel
@@ -822,7 +885,8 @@ au franc près avec le dépliant DP World « Nouveaux tarifs de manutention de c
 
 ---
 
-## [2026-09-10 16:49 UTC] PENDING — Contradiction pont-bascule / dépliant officiel sur les limites d'essieux T12S4
+## [2026-09-10 16:49 UTC] INFO_MANQUANTE — Contradiction pont-bascule / dépliant officiel sur les limites d'essieux T12S4
+**Rapprochement documentaire du20/10/2026** : Réponse externe contradictoire attendue selon l’entrée ; aucune réponse nouvelle vérifiée ici. ROAD-LOAD-1 reste sans autorisation d’implémentation dans ce lot.
 
 **Origine** : session interactive
 **Type** : demande de GO avant travail (lot `ROAD-LOAD-1`), suspendue en attente d'une réponse externe
