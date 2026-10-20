@@ -1,6 +1,6 @@
 # Dakar Cargo Quotes — conduite et reprise
 
-## Point courant — 20 octobre 2026, RÉCONCILIATION-1 locale
+## Point courant — 20 octobre 2026, reprise et acceptation V1 interne
 
 - Point d’entrée après bascule : `C:/Users/DELL/Projects/dakar-cargo-quotes`, branche `work`, code `17fdeda00e19cc5ffc78c0f68c674cd6fd6ad1f3`. Référence applicative distincte des éventuels commits documentaires ultérieurs ; vérifier le HEAD et la publication par le préflight.
 - L’exécution Bunia est close ; aucun lot suivant lancé au passage vérifié. Le fait corrigé et l’historique sont attestés par le bilan de ce lot, sans nouvelle recette dans cette réconciliation. Le dossier reste NEED_INFO ; limites métier et empreinte binaire Edge inconnue conservées.
@@ -12,6 +12,16 @@
 - Les sections datées ci-dessous sont historiques ; leurs chemins de copie, SHA, étapes « à livrer », accès et durées ne décrivent pas l’état courant et n’autorisent aucune action. Le présent point et le préflight réel priment.
 - Toute reprise doit traiter la queue CTO, vérifier et préserver les éventuelles modifications non commitées, puis demander seulement les décisions/actions hors GO existants.
 - Préparation de publication : diff et empreintes des trois documents dans `C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/publication-preparation/publication-manifest.json` ; ce bilan ne prouve une publication qu'après vérification Git et GO distinct.
+
+## Cible validée — V1 interne, tous les flux
+
+- Contrat canonique validé par l'utilisateur le20/10 : [roadmap §2.39](CTO_DEVELOPMENT_ROADMAP.md#239-contrat-dacceptation-v1-interne--tous-les-flux--décision-du-20-octobre-2026). Référence de cadrage : `work/8e38088` ; vérifier la publication documentaire et le HEAD courant par le préflight, sans retour forcé à ce SHA. La validation du contrat ne prononce pas la réception de la V1.
+- Couvrir tous les flux existants au cadrage : six types de demande, treize packages incluant export/transit, trois modes terminal, variantes déterminantes et outils/administrations actifs. Aucune réduction pour obtenir un PASS ; aucun ajout de fonctionnalité ou d'intégration implicite.
+- La dot suit une matrice par critère/type/package/mode : attendu, observé, version, environnement, preuve datée, statut et action restante. Rattacher d'abord les preuves acquises, distinguer local/connecté/métier et identifier seulement les écarts bloquant la réception.
+- Chaque flux requis doit réussir une recette complète jusqu'au PDF et une recette de refus/résolution/reprise. Dossier réellement incomplet et flux non opérationnel restent distincts ; un refus sûr permanent ne rend pas le flux complet.
+- Les treize critères V1-01 à V1-13 sont obligatoires ; une baseline technique ou un test simulé ne remplace pas une recette réelle requise. Si l'accès outil manque, annoncer UNKNOWN et préparer une preuve humaine documentée, sans inventer une vérification.
+- Réception seulement après couverture complète, absence de défaut critique, usage par l'opérateur, acceptation explicite des écarts non bloquants et GO humain de mise en service interne. Aucun correctif, recette Cloud, commit/push ou nouvelle livraison n'est autorisé par la seule validation du contrat.
+- Le blocage RoRo/ConRo sur la source tarifaire reste un écart à résoudre sous GO ; les arbitrages métier ouverts restent dans la queue. Les copies secondaires, preuves et historiques sont préservés.
 
 ## Historique — Reprise courante du 19 octobre 2026
 
@@ -114,5 +124,5 @@ Pour le prochain lot, grouper : tests de promotion documentaire/FOC/HS incomplet
 ## Prompt de reprise à coller dans cette tâche
 
 ```text
-Reprends DCQ dans C:/Users/DELL/Projects/dakar-cargo-quotes, branche work. Vérifie queue CTO puis Git et roadmap§1–2, ce guide et validation.json du lot RÉCONCILIATION-1. La référence applicative réconciliée est17fdeda0 ; le HEAD peut comprendre des commits documentaires ultérieurs. Vérifie l’état des trois documents et préserve les éventuelles modifications locales et les copies task-3. Ne rejoue pas les migrations ni les livraisons historiques. Aucun lot applicatif suivant, commit/push ou envoi n'est autorisé par le seul GO de réconciliation. Prépare uniquement la prochaine décision utile à partir des preuves et limites conservées.
+Reprends DCQ dans C:/Users/DELL/Projects/dakar-cargo-quotes, branche work ; référence de cadrage8e38088 à revérifier contre GitHub, sans retour forcé à un ancien SHA. Lis la queue CTO, le préflight, roadmap§1–2 et le contrat V1 tous les flux§2.39, puis ce guide. Vérifie l'état de publication des critères validés ; préserve les éventuelles modifications non commitées et les copies task-3. Construis la matrice de couverture, rattache les preuves existantes en distinguant local/connecté/métier, puis présente seulement les écarts bloquant la réception et les lots/décisions nécessaires. Ne réduis pas le périmètre et ne relance pas un audit général des points acceptés. Si un accès manque, annonce UNKNOWN. Ne rejoue aucune migration/livraison ; aucun nouveau correctif, recette Cloud, envoi ou commit/push n'est autorisé par ce seul contrat. Applique les GO déjà valables dans leur périmètre et soumets les actions hors GO.
 ```

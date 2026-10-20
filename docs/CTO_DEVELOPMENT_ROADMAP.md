@@ -12,6 +12,8 @@ Il sert à :
 - définir les tests, risques, conditions d'arrêt et autorisations nécessaires ;
 - permettre à une nouvelle session de reprendre sans dépendre de l'historique d'une conversation.
 
+Décision utilisateur du 20 octobre 2026 : **contrat d'acceptation V1 interne « tous les flux » validé, canonique en §2.39**. Cette validation définit les conditions de réception ; elle ne prononce pas l'acceptation de la V1 et n'autorise aucun nouveau lot applicatif, recette Cloud, commit ou push. Les états datés ci-dessous restent historiques.
+
 Statut produit au 29 août 2026 : **PASS du P0 technique, de la recette LoLo privée et de P1-A1 à P1-A5 Git + Lovable runtime avec nettoyage ; NO-GO maintenu pour une production générale**.
 
 Mise à jour du 1er septembre 2026 : **PASS P1-B Git + recette privée Lovable et nettoyage.** Le défaut de synchronisation sélection/brouillon est corrigé dans le commit `f54951f081e426bf204c7c87f84385e890f4fdc1`, aligné GitHub/Lovable, CI `33337511099` réussie. Nouvelle recette : sélection v1/v2 sans rechargement, brouillon absent ou historique correctement isolé, éditions non sauvegardées non réutilisées, aucun envoi ; concurrence RPC sur deux transactions réellement chevauchantes, une seule décision créée puis même ID en rejeu, conflits refusés. Les 23 lignes fictives créées ont été supprimées ; baselines 64 dossiers/162 runs/9 versions/45 brouillons/5 users/0 décision et 35 empreintes retrouvées, six catalogues et migration inchangés. Les preuves précédentes de calcul/PAD/PDF complètent cette recette ciblée, qui utilise des snapshots synthétiques et ne constitue pas une nouvelle preuve de génération ou d'envoi. **P1-C1, P1-C2-A et P1-C2-B, y compris la saisie humaine typée des assertions, sont terminés et testés localement.** P1-C2-B ajoute l'orchestration Edge authentifiée, la consolidation manuelle sourcée et la revue opérateur, toujours sans pricing. L'extraction automatique reste volontairement hors périmètre ; l'activation Git/runtime et P1-C3 (projection contrôlée) restent à livrer. Aucun runtime P1-C, commit ou push n'a été effectué ; cette mise à jour reste locale.
@@ -56,6 +58,7 @@ Règles non négociables :
 - Lot Bunia clos dans « Terminer validation accès DCQ » avant réconciliation ; aucune autorisation de lot applicatif suivant donnée ici. Limites runtime/métier et décisions manquantes conservées.
 - Les bilans récupérés sont des traces historiques, non de nouvelles preuves contre-exécutées. Les indications anciennes de copie active, HEAD, lot local absent ou « prochain déploiement » ci-dessous sont historiques à leur date. Ne pas les rejouer ; utiliser `docs/CONDUITE_REPRISE_DCQ.md` et le préflight réel.
 - Sauvegardes exactes, variantes et registre des rapprochements hors Git : `C:/Users/DELL/Documents/Codex/2026-10-20/dcq-reconciliation-1/`.
+- Cible de réception validée le20/10 : §2.39, tous les flux existants ; première étape de suivi = matrice de couverture et rapprochement des preuves, sans nouvelle exécution métier implicite.
 
 ### 2.1 Organisation des lots et contre-revues — décision utilisateur du 14 septembre 2026
 
@@ -606,6 +609,83 @@ Règles non négociables :
 - Écart de procédure Lovable conservé : branche interne edit/... utilisée malgré work+STOP demandés ; conformité de source déclarée, sans lever cet écart. Diagnostics éditeur hors baseline non résolus par ce lot.
 - Disponibilité200/401 distincte d'une recette métier ; recettes authentifiées restant NOT_RUN, empreinte binaire UNKNOWN.
 - Preuves détaillées privées : C:/Users/DELL/Documents/Codex/2026-10-07/task-3/handling-basis-fix-20261019/delivery-checkpoint.json ; aucune donnée de dossier reproduite ici.
+
+### 2.39 Contrat d'acceptation V1 interne — tous les flux — décision du 20 octobre 2026
+
+**Autorité et état.** L'utilisateur a retenu « Tous les flux de l'application », puis validé les critères proposés et leur intégration aux documents CTO existants, sans commit ni push. Codex confirme l'adéquation du cadre à cet objectif. Ce contrat est une décision structurante ; il complète §2.1 et devient la cible canonique de réception, sans modifier les formules, permissions, composants FROZEN ni autorisations de réalisation/publication. Base documentaire vérifiée : `work/8e380886db0b75eb92caa3b8cbd0cddd2374203c`, alignée GitHub au préflight ; état runtime non revérifié dans ce lot.
+
+**Définition de terminé.** Un opérateur SODATRA autorisé peut traiter chaque flux proposé, de la réception de la demande au devis enregistré, versionné et téléchargé, puis suivre son issue commerciale. Il peut compléter, corriger et reprendre un dossier après erreur sans intervention technique pour le parcours normal. Montants justifiés, décisions humaines tracées et historiques préservés sont obligatoires. Un dossier réellement incomplet peut rester bloqué ; un flux entier empêché par un défaut ou un référentiel manquant n'est pas accepté comme pleinement opérationnel. Les sorties partielles restent limitées aux modes explicitement autorisés et qualifiées comme telles ; elles ne remplacent pas la recette complète d'un flux.
+
+#### 2.39.1 Périmètre de réception figé
+
+- L'inventaire porte sur les fonctions existantes à `8e38088` ; un correctif ne crée pas implicitement un nouveau périmètre. Toute exclusion, réduction ou extension durable exige une décision utilisateur explicite. Ne pas retirer un flux de la matrice pour obtenir un PASS.
+- Six types de demande présents dans `src/integrations/supabase/types.ts` : `SEA_FCL_IMPORT`, `SEA_LCL_IMPORT`, `SEA_BREAKBULK_IMPORT`, `AIR_IMPORT`, `ROAD_IMPORT`, `MULTIMODAL_IMPORT`.
+- Treize packages définis dans `supabase/functions/_shared/service-scope.ts` et `src/features/quotation/constants.ts` : `DAP_PROJECT_IMPORT`, `TRANSIT_GAMBIA_ALL_IN`, `EXPORT_SENEGAL`, `BREAKBULK_PROJECT`, `AIR_IMPORT_DAP`, `LCL_IMPORT_DAP`, `TRANSIT_REGIONAL_VIA_DAKAR`, `DAP_PROJECT_IMPORT_EXW`, `AIR_IMPORT_EXW`, `LCL_IMPORT_EXW`, `AIR_IMPORT_DDP`, `LCL_IMPORT_DDP`, `DDP_PROJECT_IMPORT`. Export et transit doivent être couverts même s'ils ne constituent pas des valeurs distinctes de l'enum des demandes.
+- Trois modes terminal : `LOLO`, `RORO`, `CONRO`. Couvrir les variantes qui changent les services, bases ou résultats : incoterms proposés, origine/destination, mono/multi-lot, SOC/COC, équipements spéciaux, danger, franchises, frais partenaires, droits/taxes et ajustements commerciaux.
+- Inclure les administrations, recherches, historiques et outils actifs accessibles depuis `src/App.tsx`, notamment le chargement camion, selon leurs actions et permissions réellement proposées. Une valeur historique dormante sans action active n'impose pas l'invention d'un nouveau workflow. Aucune intégration à un logiciel tiers n'est ajoutée par ce contrat.
+- La matrice relie explicitement types, packages, modes et variantes aux cas de recette ; elle n'exige pas leur produit cartésien intégral. Un même cas peut couvrir plusieurs entrées si la preuve démontre chacune d'elles.
+
+#### 2.39.2 Critères obligatoires
+
+| ID | Domaine | Condition d'acceptation |
+|---|---|---|
+| V1-01 | Accès | Les opérateurs admis travaillent ; anonyme, non-membre, compte banni et rôle retiré sont refusés sur les accès concernés. Propriété et administration restent limitées par leurs règles existantes. Le modèle reste une équipe partageant ses dossiers, sans promesse nouvelle d'isolation par propriétaire ou multi-société. |
+| V1-02 | Réception | Courriels, fils et pièces jointes sont retrouvables et correctement rattachés ; rejeu sans doublon métier, nouveaux éléments signalés, import incomplet explicite et reprenable. |
+| V1-03 | Documents | PDF et images sont conservés, extraits et utilisables avec les fournisseurs réels ; extraction vide/échouée jamais déclarée réussie ; reprise sur le même document avec historique. |
+| V1-04 | Faits et corrections | Chaque information utilisée renvoie à une source ou décision opérateur. Ports/destinations, poids, quantités et équipements sont distingués. Corrections successives tracées ; faits manuels/validés protégés. |
+| V1-05 | Complétude | Blocages conformes aux informations manquantes ou contradictoires, prochaine action utile accessible ; une simple relance ou fermeture visuelle ne supprime pas une contradiction bloquante. |
+| V1-06 | Prestations | Services calculés conformes à la demande et aux choix opérateur, sans oubli, ajout indu ni double compte ; aucun héritage silencieux de règles import maritime dans un parcours aérien, export ou transit inadapté. |
+| V1-07 | Tarification et fiscalité | Résultat égal à un calcul de référence indépendant approuvé métier : source, date, devise, unité, quantité, poids, franchise, taxes, conversion et arrondis vérifiés. Inconnu, zéro, gratuité, exclusion et non-chiffré restent distincts ; aucune règle fiscale ni valeur inventée. |
+| V1-08 | Partenaires et décisions | Demande partenaire pertinente préparée, réponse rapprochée et éléments explicitement retenus avec provenance ; décisions commerciales, fiscales et de faisabilité accessibles et tracées. Aucun envoi automatique ajouté ; un brouillon prêt ne prouve pas l'envoi réel. |
+| V1-09 | Persistance et versions | Choix et ajustements retrouvés après actualisation/reconnexion ; double clic, réponse perdue et concurrence sans doublon ni version incohérente. Versions/PDF antérieurs inchangés ; nouvelle source n'altère pas silencieusement une sortie historique. |
+| V1-10 | Sorties client | Écran, version, PDF et brouillon cohérents en prestations, montants, devises et qualification. Bases/réserves lisibles, descriptions non amputées, coûts d'achat internes confidentiels ; PDF téléchargé conforme à la version choisie. |
+| V1-11 | Parcours et administrations | Toute action active produit son résultat ou une erreur explicite avec reprise. Recherche, pagination, navigation, saisies et suivi commercial fonctionnent. Référentiels administrables selon les permissions prévues, avec provenance et effet vérifiable sur les nouveaux calculs. |
+| V1-12 | Exploitation | Responsable identifié, traitements échoués/bloqués repérables, traces et procédure de reprise utilisables. Sauvegarde/restauration démontrées dans un environnement autorisé, avec cohérence des données, fichiers et références de secrets ; aucune lecture/exposition de secret réel exigée. |
+| V1-13 | Livraison | Candidat identifié par commit, CI, migrations et livraisons attestées. Fonctions réellement utilisées vérifiées par des parcours authentifiés ; HTTP200 ou refus401 seuls insuffisants. Métadonnées binaires non exposées restent UNKNOWN, jamais présentées comme une empreinte vérifiée ; preuves alternatives et réserve explicites au verdict humain. |
+
+#### 2.39.3 Recettes et preuves minimales
+
+Pour chaque type de demande et chaque package, démontrer :
+
+1. **Cas complet positif** : sources suffisantes → décisions nécessaires → calcul juste → sauvegarde → relecture → nouvelle version → PDF contrôlé texte et rendu.
+2. **Cas incomplet ou contradictoire** : blocage correct, résolution accessible, puis reprise réussie après apport/validation de l'élément requis. Si une sortie partielle est autorisée, sa qualification et ses réserves restent visibles et ses gardes sont testées.
+3. **Variantes déterminantes** : cas identifiés couvrant chaque changement de services, base/unité, mode terminal, propriété/équipement, danger, franchise et multi-lot applicable. Pour chaque mode terminal requis, obtenir aussi une recette positive avec une source tarifaire admissible ; un refus sûr seul ne suffit pas.
+
+La campagne transversale doit également couvrir :
+
+- nouveau courriel corrigeant une information antérieure, citation ancienne et ordre ambigu ; protection d'une modification opérateur contre la réanalyse ;
+- pièce illisible puis reprise réussie, couverture documentaire partielle explicitement conservée ;
+- réponse réseau perdue après sauvegarde et rejeu unique ; deux sessions concurrentes ;
+- changement de référentiel conservant les anciennes versions et leur provenance ;
+- refus d'accès et absence de fuite documentaire ;
+- PDF neuf généré/téléchargé et PDF existant récupéré, version et contenu vérifiés ;
+- suivi de l'envoi manuel et de l'issue commerciale selon les actions actives, sans confondre statut technique et preuve d'envoi.
+
+Les recettes respectent les GO et environnements autorisés ; aucune écriture Cloud, nouveau compte, envoi réel, migration, modification tarifaire ou restauration de production n'est implicitement autorisé. Les données de recette détaillées et secrets restent hors Git.
+
+Chaque ligne de matrice porte : `ID critère/recette · type/package/mode/variante · attendu · observé · version testée · environnement · preuve et date · acteur/relecteur · statut · blocage restant/prochaine action`. La référence de calcul métier est établie indépendamment du résultat produit par l'application ; les preuves anciennes sont réutilisables dans leur périmètre exact, après analyse des changements affectant leur validité.
+
+- **PASS** : attendu démontré par une preuve adaptée ; aucun PASS ne découle d'une simple déclaration de l'exécutant ou d'un nombre de tests.
+- **PASS_WITH_BASELINE** : dette technique identifiée et acceptée seulement ; jamais une dispense de recette métier ou de garde de sécurité requise.
+- **FAIL** : comportement attendu non satisfait ; consigner le défaut et son effet.
+- **NOT_RUN / UNKNOWN** : recette non exécutée ou preuve insuffisante ; aucun résultat positif déduit. Un accès outil indisponible est une limite de preuve, pas une panne applicative prouvée.
+- Fixtures et simulations prouvent leur logique locale, pas IMAP/OCR/IA/Storage/Auth réels. Une recette humaine datée et documentée peut fournir la preuve réelle lorsque l'outil de la dot manque ; ne pas prétendre l'avoir automatisée.
+- Pour les parcours authentifiés, vérifier l'environnement et les services effectivement utilisés ; conserver séparément preuves locales, connectées et validation métier.
+
+#### 2.39.4 Verdict de réception et pilotage
+
+La dot peut proposer **« V1 interne pleinement opérationnelle »** seulement si les six conditions sont réunies :
+
+1. Chaque flux/type/package requis et chaque mode terminal disposent de leur recette complète positive acceptée.
+2. Les treize critères obligatoires, variantes déterminantes et contrôles de refus/reprise sont démontrés ; aucun attendu indispensable ne reste FAIL, NOT_RUN ou UNKNOWN.
+3. Aucun défaut ouvert ne fausse un prix, ne perd/mélange des données, n'autorise un accès interdit ou n'empêche un parcours requis. Un blocage de sécurité ou de données ne peut être déclassé pour clôturer.
+4. Un opérateur désigné termine les parcours représentatifs dans l'application sans assistance technique ; choix métier et confirmations humaines restent normaux.
+5. Les écarts non bloquants sont nommés avec effet et preuve, puis acceptés explicitement ; une dette cosmétique ne provoque pas un audit général sans fin.
+6. L'utilisateur prononce le **GO de mise en service interne**, distinct d'une livraison documentaire, d'un déploiement privé et d'une ouverture/publication générale.
+
+Premier travail de suivi : construire la matrice et rattacher les preuves existantes, sans recommencer les points acceptés ni lancer une recette non autorisée. Présenter les écarts empêchant la réception et les lots cohérents pour les lever, avec dépendances métier/référentiels ; un exécutant par lot, contre-revue proportionnée et GO selon §2.1. Ce contrat n'autorise aucun correctif applicatif ni action Cloud supplémentaire.
+
+**Écart connu au cadrage** : le code de `supabase/functions/_shared/terminal-operation-mode.ts` refuse le chiffrage terminal RoRo/ConRo tant que la source canonique Dakar Terminal manque. Ce refus protège le résultat mais ne vaut pas acceptation complète de ces flux. Les cinq entrées INFO_MANQUANTE de la queue gardent leur portée ; ce contrat n'arbitre ni tarif, ni seuil de poids, ni contradiction de référentiel. Aucun nouveau verdict runtime n'a été produit ici.
 
 ## 3. Travaux vérifiés comme terminés
 
