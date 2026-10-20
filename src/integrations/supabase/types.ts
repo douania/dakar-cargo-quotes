@@ -9019,6 +9019,11 @@ export type Database = {
         }
         Returns: undefined
       }
+      container_designation_type: { Args: { p_raw: string }; Returns: string }
+      container_revision_value_key: {
+        Args: { p_key: string; p_type: string; p_value: Json }
+        Returns: Json
+      }
       create_canonical_quotation_version: {
         Args: {
           p_actor: string
@@ -9075,6 +9080,7 @@ export type Database = {
         Args: { p_type: string; p_value: Json }
         Returns: Json
       }
+      equipment_notation_inventory: { Args: { p_value: Json }; Returns: Json }
       fee_line_code_is_reserved: { Args: { p_code: string }; Returns: boolean }
       finalize_attachment_analysis: {
         Args: {
