@@ -2,6 +2,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 module.exports=async function({sql,session,waitFor,delay,id,actor,settings,q,j,results,repo}){
  sql('ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC,anon,authenticated,service_role');
  sql(fs.readFileSync(path.join(repo,'supabase/migrations/20261020093000_versioned_equipment_reprocessing.sql'),'utf8'));
+ sql(fs.readFileSync(path.join(repo,'supabase/migrations/20261020101000_equipment_quantity_boundaries.sql'),'utf8'));
  let serial=6000;const hash=x=>crypto.createHash('sha256').update(x).digest('hex');
  const check=(name,fn)=>{try{fn();}catch(error){throw new Error('equipment repair: '+name+': '+error.stack);}results.push({name:'equipment repair: '+name,status:'PASS'});};
  const current=x=>JSON.parse(sql("SELECT to_jsonb(f) FROM quote_facts f WHERE case_id="+q(x.c)+" AND fact_key='cargo.containers' AND is_current"));
@@ -20,6 +21,10 @@ module.exports=async function({sql,session,waitFor,delay,id,actor,settings,q,j,r
  const refused=(s,re)=>{let error;try{sql(s);}catch(e){error=String(e.stderr||e.message);}assert(error,'Expected refusal');assert.match(error,re);};
  const unresolved=x=>sql("SELECT count(*) FROM quote_email_fact_revisions r WHERE case_id="+q(x.c)+" AND status IN('conflict','protected') AND NOT EXISTS(SELECT 1 FROM quote_email_fact_revisions y WHERE y.resolves_revision_id=r.id AND y.status='resolved')");
  check('mixed equipment cannot be misclassified as registered defect',()=>{for(const other of ['1x40GP','1x45GP','45HC'])assert.equal(sql('SELECT unicode_equipment_inventory('+q(other+'; 1x40\u2019HC')+') IS NULL'),'t',other);});
+ check('plain years and bare numbers are not equipment; explicit quantity separator is required',()=>{
+  for(const body of ['Established 2020. No. of containers: 1 x 40\u2019HC','2020\n1x40\u2019HC','1 40\u2019HC'])assert.deepEqual(JSON.parse(sql('SELECT unicode_equipment_inventory('+q(body)+')')),[{quantity:1,type:'40HC'}]);
+  for(const body of ['2020','140\u2019HC','720'])assert.equal(sql('SELECT unicode_equipment_inventory('+q(body)+') IS NULL'),'t');
+ });
  const x=seed(),p=args(x),old=current(x),oldReceipts=sql("SELECT md5(jsonb_agg(to_jsonb(r) ORDER BY id)::text) FROM quote_email_fact_revisions r WHERE case_id="+q(x.c));
  let result;
  check('atomic successor derives HC from immutable own receipt, resolves only mechanical gap',()=>{
