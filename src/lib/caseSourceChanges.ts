@@ -17,6 +17,7 @@ export interface FactRevision {
   at: string | null; oldValue: unknown; newValue: unknown;
   emailId: string | null; excerpt: string | null; sentAt: string | null; manualExcerpt: string | null;
   proposals: Array<{value:unknown; emailId:string|null; excerpt:string|null}>;
+  processing?: {rule:string;fromVersion:string;toVersion:string};
 }
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -30,6 +31,7 @@ export function sourceRevisionHistory(rows: Array<{id:string; created_at:string|
       throw new Error('Historique des corrections incomplet');
     }
     const old = record(d.old_fact), evidence = record(d.source_evidence), selected = record(evidence.selected), manual = record(evidence.manual);
+    const processing=record(evidence.processing);
     const sources = Array.isArray(evidence.sources) ? evidence.sources.map(record) : [];
     const emailId = typeof selected.email_id === 'string' ? selected.email_id : null;
     const proposals = Array.isArray(evidence.candidates) ? evidence.candidates.map(record).map(c => ({value:c.value,
@@ -37,6 +39,8 @@ export function sourceRevisionHistory(rows: Array<{id:string; created_at:string|
     return [{id:row.id, revisionId:d.revision_id, key:d.fact_key, status:String(d.status), reason:d.reason, at:row.created_at,
       oldValue:old.value_text ?? old.value_number ?? old.value_json ?? old.value_date ?? null, newValue:d.new_value ?? null,
       emailId, proposals, manualExcerpt:typeof manual.excerpt === 'string' ? manual.excerpt : null, excerpt:typeof selected.excerpt === 'string' ? selected.excerpt : null,
+      ...(d.reason==='parser_correction'&&typeof processing.rule==='string'&&typeof processing.from_version==='string'&&typeof processing.to_version==='string'
+        ?{processing:{rule:processing.rule,fromVersion:processing.from_version,toVersion:processing.to_version}}:{}),
       sentAt:typeof sources.find(s => s.id === emailId)?.sent_at === 'string' ? String(sources.find(s => s.id === emailId)!.sent_at) : null}];
   });
 }

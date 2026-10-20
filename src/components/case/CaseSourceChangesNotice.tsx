@@ -5,6 +5,7 @@ import { changesAfterRun, readCaseSourceChanges, unresolvedSourceRevisions } fro
 const valueLabel = (value: unknown) => value == null ? 'Non renseigné' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 const dateLabel = (date: string | null) => date && Number.isFinite(Date.parse(date)) ? new Intl.DateTimeFormat('fr-FR', {dateStyle:'short',timeStyle:'short',timeZone:'UTC'}).format(new Date(date)) + ' UTC' : 'date inconnue';
 const reasons: Record<string,string> = {
+  parser_correction:'Correction technique du parseur sur la même source',retired_parser_output:'Ancienne extraction retirée, fait courant conservé',
   newer_verified_declaration:'Déclaration plus récente vérifiée', initial_source_attestation:'Source initiale attestée',
   explicit_own_source:'Déclaration dans le texte propre du courriel', older_verified_declaration:'Déclaration antérieure conservée dans l’historique',
   same_source_and_value:'Même source et même valeur', protected_value_unchanged:'Valeur protégée inchangée',
@@ -42,7 +43,7 @@ export function CaseSourceChangesNotice({ caseId, runId, overview = false, refre
       <summary className="cursor-pointer">Historique des corrections de faits ({data.revisions.length})</summary>
       <ul className="mt-2 space-y-3">
         {data.revisions.map(r => <li key={r.id} className="border-l-2 border-border pl-3">
-          <p className="font-medium">{r.key} — {r.status === 'applied' ? 'Actualisé, non validé' : r.status === 'confirmed' ? 'Confirmé par une source, non validé' : r.status === 'resolved' ? 'Résolu par décision manuelle' : ['conflict','protected'].includes(r.status) ? 'Conflit enregistré' : 'Valeur conservée'}</p>
+            <p className="font-medium">{r.key} - {r.status === 'applied' ? 'Actualisé, non validé' : r.status === 'confirmed' ? 'Confirmé par une source, non validé' : r.status === 'resolved' ? r.reason==='parser_correction'?'Résolu par correction technique':'Résolu par décision manuelle' : ['conflict','protected'].includes(r.status) ? 'Conflit enregistré' : 'Valeur conservée'}</p>
           {['conflict','protected'].includes(r.status) ? <div>
             <p>Valeur conservée : {valueLabel(r.oldValue)}</p>
             <ul>{r.proposals.map((p,index) => <li key={index}>Proposition : {valueLabel(p.value)} · Courriel {p.emailId ?? 'non établi'}{p.excerpt && <blockquote className="text-muted-foreground">{p.excerpt}</blockquote>}</li>)}</ul>
@@ -50,7 +51,8 @@ export function CaseSourceChangesNotice({ caseId, runId, overview = false, refre
           <p>{reasons[r.reason] ?? 'Preuve de source à examiner'} · Enregistré le {dateLabel(r.at)}</p>
           {r.emailId && <p>Courriel {r.emailId} · Date de source : {dateLabel(r.sentAt)}</p>}
           {r.excerpt && <blockquote className="mt-1 text-muted-foreground">{r.excerpt}</blockquote>}
-          {r.status === 'resolved' && <p>Saisie manuelle{r.manualExcerpt ? ` : ${r.manualExcerpt}` : ''}</p>}
+          {r.status === 'resolved' && r.reason!=='parser_correction' && <p>Saisie manuelle{r.manualExcerpt ? ` : ${r.manualExcerpt}` : ''}</p>}
+          {r.processing && <p>Retraitement {r.processing.rule} : {r.processing.fromVersion} → {r.processing.toVersion}. La source client et les anciens résultats sont conservés.</p>}
         </li>)}
       </ul>
     </details>}

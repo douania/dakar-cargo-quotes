@@ -67,10 +67,10 @@ for(const failure of [null,'evidence_read','gap_write','evidence_write'] as cons
   if(failure){assertEquals(r.status,500,JSON.stringify(body));assert(request.status!=='READY_TO_PRICE');return;}
   assertEquals(r.status,200,JSON.stringify(body));assertEquals(request.request_type,'SEA_FCL_IMPORT');assertEquals(request.status,'NEED_INFO');
   assertEquals(tables.quote_facts.find(f=>f.fact_key==='cargo.containers')?.value_json,[{quantity:1,type:'40HC'}]);
-  assertEquals(tables.quote_facts.find(f=>f.fact_key==='routing.destination_port')?.value_text,'Mombasa');
+  assertEquals(tables.quote_facts.find(f=>f.fact_key==='routing.destination_port')?.value_text,undefined);
   const contracts=tables.quote_gaps.filter(g=>String(g.gap_key).startsWith('source_contract.'));assertEquals(contracts.length,2);assert(contracts.every(g=>g.status==='open'&&g.is_blocking));
   assert(!tables.quote_gaps.some(g=>g.gap_key==='routing.shipment_mode_clarification'&&g.status==='open'));
-  const drafts=tables.external_quote_requests;assertEquals(drafts.length,1);assert(String(drafts[0].purpose_detail).includes('Bunia'));assert(String(drafts[0].purpose_detail).includes('Mombasa'));assert(String(drafts[0].purpose_detail).includes('1x40HC'));assertEquals(drafts[0].status,'draft');
+  const drafts=tables.external_quote_requests;assertEquals(drafts.length,1);assert(String(drafts[0].purpose_detail).includes('Bunia'));assert(!String(drafts[0].purpose_detail).includes('Mombasa'));assert(String(drafts[0].purpose_detail).includes('1x40HC'));assertEquals(drafts[0].status,'draft');
   const e=tables.case_timeline_events.filter(e=>(e.event_data as {kind?:string})?.kind==='source_contract_review');assertEquals(e.length,1);
   const second=await invoke();assertEquals(second.status,200);assertEquals(tables.external_quote_requests.length,1);
   assertEquals(tables.case_timeline_events.filter(e=>(e.event_data as {kind?:string})?.kind==='source_contract_review').length,1);

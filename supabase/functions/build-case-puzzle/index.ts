@@ -1,11 +1,12 @@
-import { prepareRevisionGroups, writeEmailFactRevisions } from '../_shared/email-fact-revisions.ts';
+import { prepareRevisionGroups, reprocessEquipment, writeEmailFactRevisions } from '../_shared/email-fact-revisions.ts';
+import { assessLocationClaim, isLocationKey, validateLineLocations, type LocationSource, type LocationProof } from '../_shared/request-location-evidence.ts';
 import { assertLoadedDocumentSources, beginDocumentAnalysis, documentAnalysisJob, documentAnalysisRequest, DocumentAnalysisError,
   DOCUMENT_COVERAGE_GAP, failDocumentAnalysis, finishDocumentAnalysis, inspectDocumentAnalysis, readableCaseDocuments,
   type DocumentAnalysisClient, type DocumentAnalysisRequest } from '../_shared/case-document-analysis.ts';
 import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { decodeEmailQuoteView, splitEmailQuoteContext } from "../_shared/email-quote-context.ts";
-import { assessRequestSourceContract, contractHash, explicitSeaGatewayClauses, seaGatewayAliasCandidates,
+import { assessRequestSourceContract, contractHash, explicitSeaGatewayClauses,
   SOURCE_CONTRACT_PREFIX, syncRequestSourceContract, type ContractEvidence, type ContractSource } from '../_shared/request-source-contract.ts';
 /**
  * Phase A1: build-case-puzzle
@@ -2063,22 +2064,27 @@ export function buildFactEmailContext(emails: FactEmailSource[]): string {
   }).join('\n\n---\n\n');
 }
 
-export async function extractExplicitSeaGatewayFacts(client: SupabaseClient, emails: FactEmailSource[]): Promise<ExtractedFact[]> {
+export async function extractExplicitSeaGatewayFacts(client: SupabaseClient, emails: FactEmailSource[],proofs:LocationProof[]=[]): Promise<ExtractedFact[]> {
   const sources=emails.filter(e=>!isSodatraEmail(e.from_address || '')).map(e=>({id:e.id,text:ownFactEmailBody(e.body_text || '')}));
   if(!/\b(?:container|vessel|sea\s*freight)\b/i.test(buildFactEmailContext(emails)))return [];
   const facts: ExtractedFact[]=[];
   for(const proposal of explicitSeaGatewayClauses(sources)){
-    const aliases=seaGatewayAliasCandidates(proposal.gateway);if(!aliases.length)continue;
-    const {data,error}=await client.from('location_aliases')
-      .select('locations_reference!inner(canonical_name,location_type,is_active)')
-      .in('normalized_alias',aliases).eq('locations_reference.location_type','sea').eq('locations_reference.is_active',true);
-    if(error)throw new Error('Sea gateway reference could not be verified: '+error.message);
-    const names=new Set((data || []).flatMap(row=>Array.isArray(row.locations_reference)?row.locations_reference:[row.locations_reference])
-      .filter(location=>location?.is_active&&location.location_type==='sea').map(location=>String(location.canonical_name)));
-    if(names.size!==1)continue;
-    for(const [key,value] of [['routing.destination_port',[...names][0]],['routing.destination_city',proposal.finalCity],['routing.final_destination',proposal.finalCity]]){
+    const evidenceSources:LocationSource[]=sources.map(s=>({...s,kind:'email'}));
+    for(const [key,value] of [['routing.destination_port',proposal.gateway],['routing.destination_city',proposal.finalCity],['routing.final_destination',proposal.finalCity]]){
+      const proof=await assessLocationClaim(client,{key,value,sourceExcerpt:proposal.excerpt,sourceEmailId:proposal.emailId},evidenceSources);
+      proofs.push(proof);
+      if(proof.status!=='accepted')continue;
       facts.push({key,category:'routing',value,valueType:'text',sourceType:'email_body',sourceEmailId:proposal.emailId,sourceExcerpt:proposal.excerpt,confidence:.95});
     }
+  }
+  for(const source of sources)for(const match of source.text.matchAll(/\b(POD|Port of discharge|POL|Port of loading)\s*[:=-]\s*([^\n;]+)/gi)){
+    const key=/^(?:POL|Port of loading)$/i.test(match[1])?'routing.origin_port':'routing.destination_port';
+    const value=match[2].trim();
+    const start=source.text.lastIndexOf('\n',match.index)+1,end=source.text.indexOf('\n',match.index);
+    const excerpt=source.text.slice(start,end<0?source.text.length:end);
+    const proof=await assessLocationClaim(client,{key,value,sourceExcerpt:excerpt,sourceEmailId:source.id},[{...source,kind:'email'}]);
+    proofs.push(proof);
+    if(proof.status==='accepted')facts.push({key,category:'routing',value,valueType:'text',sourceType:'email_body',sourceEmailId:source.id,sourceExcerpt:excerpt,confidence:.95});
   }
   return facts;
 }
@@ -2254,7 +2260,7 @@ const MULTI_QUOTE_ALLOWED_KEYS = new Set([
   "cargo.weight_kg", "cargo.volume_cbm", "cargo.description",
   "cargo.pieces_count", "cargo.hs_code", "cargo.dimensions",
   "cargo.containers", "routing.origin_port", "routing.origin_airport",
-  "routing.destination_port", "routing.destination_airport",
+  "routing.destination_port", "routing.destination_airport", "routing.destination_city", "routing.final_destination",
   "routing.incoterm", "timing.loading_date", "timing.delivery_deadline",
 ]);
 
@@ -2300,7 +2306,8 @@ Return ONLY a valid JSON object with this structure:
   ]
 }
 
-Allowed fact keys: cargo.weight_kg, cargo.volume_cbm, cargo.description, cargo.pieces_count, cargo.hs_code, cargo.dimensions, cargo.containers, routing.origin_port, routing.origin_airport, routing.destination_port, routing.destination_airport, routing.incoterm, timing.loading_date, timing.delivery_deadline.
+Allowed fact keys: cargo.weight_kg, cargo.volume_cbm, cargo.description, cargo.pieces_count, cargo.hs_code, cargo.dimensions, cargo.containers, routing.origin_port, routing.origin_airport, routing.destination_port, routing.destination_airport, routing.destination_city, routing.final_destination, routing.incoterm, timing.loading_date, timing.delivery_deadline.
+Keep inland final delivery, road transit, ocean transshipment and port of discharge distinct. A location after "via" alone is not proof of a discharge port. Give each route fact its exact sourceExcerpt.
 
 Rules:
 - Maximum 8 lines
@@ -5543,6 +5550,14 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       .filter(Boolean)
       .join("\n\n");
 
+    // STRUCTURAL_PATCH_ALLOWED: keep documentary type/role proof separate from accepted facts.
+    const locationSources: LocationSource[] = [
+      ...await Promise.all(inboundEmails.map(async e=>({id:e.id,kind:'email' as const,text:ownFactEmailBody(e.body_text || ''),sourceHash:await contractHash(e.body_text || '')}))),
+      ...(reloadedAttachments || []).filter(a=>inboundEmails.some(e=>e.id===a.email_id)).map(a=>({id:a.id,emailId:a.email_id,kind:'attachment' as const,text:a.extracted_text || a.extracted_data?.text_content || ''})),
+      ...(caseDocuments || []).filter(d=>!INTERNAL_DOC_TYPES.has(d.document_type)).map(d=>({id:d.id,kind:'document' as const,text:d.extracted_text || ''})),
+    ];
+    const locationProofs:LocationProof[]=[];
+
     // 7. Call AI for fact extraction (uses INBOUND context only — SOURCE-GUARD-1)
     let extractedFacts = await extractFactsWithAI(
       inboundThreadContext,
@@ -5552,7 +5567,20 @@ export const buildCasePuzzleHandler = async (req: Request) => {
       lovableApiKey
     );
     // STRUCTURAL_PATCH_ALLOWED: explicit own route + existing sea aliases, never a selected sailing.
-    extractedFacts.push(...await extractExplicitSeaGatewayFacts(serviceClient, inboundEmails));
+    extractedFacts.push(...await extractExplicitSeaGatewayFacts(serviceClient, inboundEmails,locationProofs));
+    const locationAccepted:ExtractedFact[]=[];
+    for(const fact of extractedFacts){
+      if(!isLocationKey(fact.key)){locationAccepted.push(fact);continue;}
+      const proof=await assessLocationClaim(serviceClient,{...fact,sourceType:fact.sourceType},locationSources);
+      locationProofs.push(proof);
+      if(proof.status==='accepted')locationAccepted.push(fact);
+    }
+    extractedFacts=locationAccepted;
+    if(locationProofs.length){
+      const {error}=await serviceClient.from('case_timeline_events').insert({case_id,event_type:'case_reasoning_v1',actor_type:'system',actor_user_id:userId,
+        event_data:{kind:'location_evidence',version:1,proofs:locationProofs}});
+      if(error)throw new Error('Location evidence could not be retained: '+error.message);
+    }
 
     const { data: subjectGuardCurrentFacts } = await serviceClient
       .from("quote_facts")
@@ -5744,9 +5772,17 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         return !SENSITIVE_MONETARY_FACTS.has(fact.key) || classifyEmailProvenance(source.from_address, threadClientEmail, threadPartnerEmail) === 'client';
       },
     });
+    // STRUCTURAL_PATCH_ALLOWED: repair our registered extraction defect without a client amendment.
+    const technicalRevision = await reprocessEquipment(serviceClient, {
+      caseId: case_id, actorId: userId, groups: revisionGroups, allEmails: emails, collectionComplete: imoGoodsEmailsComplete,
+    });
     const emailFactRevisions = await writeEmailFactRevisions(serviceClient, {
       caseId: case_id, actorId: userId, groups: revisionGroups, allEmails: emails, collectionComplete: imoGoodsEmailsComplete,
     });
+    if (technicalRevision) {
+      const index = emailFactRevisions.findIndex(r => r.key === technicalRevision.key);
+      if (index >= 0) emailFactRevisions[index] = technicalRevision;
+    }
     const revisedKeys = new Set(emailFactRevisions.map(r => r.key));
     for (const decision of emailFactRevisions) {
       if (decision.changed) { if (decision.had_current === false) factsAdded++; else factsUpdated++; } else factsSkipped++;
@@ -6693,9 +6729,10 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         );
 
         if (Array.isArray(quoteLines) && quoteLines.length > 0) {
-          const sourceEmailId = pickSourceEmailId(inboundEmails);
-
-          const linesPayload = quoteLines.map((line, idx) => ({
+          const linesPayload = await Promise.all(quoteLines.map(async (line, idx) => {
+            const checked=await validateLineLocations(serviceClient,line.extracted_facts as Array<Record<string,unknown>>,locationSources,line.source_excerpt || line.segment_text || '');
+            const sourceEmailId=ownEvidenceEmailId(line.source_excerpt || line.segment_text || '',locationSources.filter(s=>s.kind==='email'));
+            return ({
             line_index: idx + 1,
             line_label: line.line_label || `Quote ${idx + 1}`,
             request_type_hint: line.request_type_hint || null,
@@ -6703,9 +6740,17 @@ export const buildCasePuzzleHandler = async (req: Request) => {
             source_email_id: sourceEmailId,
             source_excerpt: line.source_excerpt || `[multi-quote] ${line.line_label || `Quote ${idx + 1}`}`,
             segment_text: line.segment_text || null,
-            extracted_facts_json: Array.isArray(line.extracted_facts) ? line.extracted_facts : [],
-            meta_json: line.meta_json && typeof line.meta_json === "object" && !Array.isArray(line.meta_json) ? line.meta_json : {},
-          }));
+            extracted_facts_json: checked.facts,
+            meta_json: {...(line.meta_json && typeof line.meta_json === "object" && !Array.isArray(line.meta_json) ? line.meta_json : {}),
+              raw_extracted_facts:line.extracted_facts,routing_validation:checked.proofs},
+          });}));
+
+          // Retain the old line and rejected proposals before the established replacement RPC.
+          const previous=await serviceClient.from('quote_request_lines').select('*').eq('case_id',case_id);
+          if(previous.error)throw new Error('Previous line evidence unavailable');
+          const retained=await serviceClient.from('case_timeline_events').insert({case_id,event_type:'case_reasoning_v1',actor_type:'system',actor_user_id:userId,
+            event_data:{kind:'quote_line_location_review',version:1,previous_lines:previous.data || [],proposed_lines:linesPayload}});
+          if(retained.error)throw new Error('Request line evidence could not be retained');
 
           const minFactLinesPayload = linesPayload.filter(
             (l) => Array.isArray(l.extracted_facts_json) && l.extracted_facts_json.length >= 2

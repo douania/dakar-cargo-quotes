@@ -91,4 +91,5 @@ module.exports=async function({sql,session,waitFor,delay,id,actor,settings,q,j,r
  }
  results.push({name:'Ban, role removal and manual decision committed during real lock waits are respected',status:'PASS',actualOverlap:true});
  check('RPC clients are denied and the audit register remains deny-all and append-only',()=>{const sig='apply_case_email_fact_revisions(uuid,uuid,text,jsonb,jsonb)';assert.equal(sql(`SELECT has_function_privilege('anon','${sig}','execute') OR has_function_privilege('authenticated','${sig}','execute') OR NOT has_function_privilege('service_role','${sig}','execute')`),'f');refused('SET ROLE authenticated;SELECT * FROM quote_email_fact_revisions',/permission denied/);refused(`UPDATE quote_email_fact_revisions SET reason='changed' WHERE case_id='${z.c}'`,/append-only/);refused(`DELETE FROM quote_email_fact_revisions WHERE case_id='${z.c}'`,/append-only/);});
+ await require('./equipment_reprocessing.cjs')({sql,session,waitFor,delay,id,actor,settings,q,j,results,repo});
 };

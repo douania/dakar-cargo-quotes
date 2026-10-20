@@ -1,4 +1,5 @@
 // Own-message proposals. The database decides order and writes their history atomically.
+import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 export interface RevisionEmail { id: string; body_text?: string | null; from_address?: string | null; sent_at?: string | null; }
 export interface RevisionFact {
   key: string; category: string; value: unknown; valueType: 'text' | 'number' | 'json' | 'date';
@@ -64,6 +65,44 @@ export interface RevisionDecision {
 }
 export interface RevisionWriter {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+}
+
+/** Only the admitted server analyser calls this; the RPC independently proves the
+ * registered defect from an immutable receipt and derives the successor value. */
+export async function reprocessEquipment(client: SupabaseClient, args: {
+  caseId: string; actorId: string; groups: RevisionGroup[]; allEmails: RevisionEmail[]; collectionComplete: boolean;
+}): Promise<RevisionDecision | null> {
+  const group = args.groups.find(g => g.key === 'cargo.containers');
+  if (!group || !group.candidates.length || !group.candidates.every(c => c.value_type === 'json' &&
+    Array.isArray(c.value) && c.value.length === 1 && /^(20|40)(HC|HQ)$/.test(String(c.value[0]?.type)))) return null;
+  if (!args.collectionComplete) throw new Error('Equipment source collection incomplete');
+  const {data: current, error: readError} = await client.from('quote_facts')
+    .select('id,source_revision_id,source_type,is_validated,source_email_id,source_excerpt,value_json,value_text,value_number,value_date')
+    .eq('case_id',args.caseId).eq('fact_key','cargo.containers').eq('is_current',true).maybeSingle();
+  if (readError) throw new Error('Equipment state unavailable: '+readError.message);
+  if (!current || current.is_validated || current.source_type !== 'email_body' || !current.source_revision_id ||
+    !Array.isArray(current.value_json) || current.value_json.length !== 1 ||
+    !/^(20|40)GP$/.test(String((current.value_json[0] as {type?:unknown})?.type))) return null;
+  const legacy=current.value_json[0] as {type:string;quantity:unknown};
+  if(!group.candidates.every(c=>c.email_id===current.source_email_id&&Array.isArray(c.value)&&
+    c.value[0]?.quantity===legacy.quantity&&String(c.value[0]?.type).slice(0,2)===legacy.type.slice(0,2)))return null;
+  const manifest = await Promise.all([...args.allEmails].sort((a,b)=>a.id.localeCompare(b.id)).map(async e=>({
+    id:e.id,sha256:await sourceSha256(e.body_text || ''),from_address:e.from_address??null,sent_at:e.sent_at??null,
+  })));
+  const command = 'equipment-v2:'+await sourceSha256(JSON.stringify(stable({groups:[group],manifest,
+    fact:current.id,revision:current.source_revision_id,rule:'equipment-unicode-suffix/2'})));
+  const {data,error} = await client.rpc('reprocess_case_equipment',{
+    p_case:args.caseId,p_actor:args.actorId,p_command:command,p_expected_fact:current.id,
+    p_expected_revision:current.source_revision_id,p_groups:[group],p_manifest:manifest,
+  });
+  if (error) throw new Error('Equipment reprocessing failed: '+error.message);
+  const receipt = data as Record<string,unknown> | null;
+  if(receipt?.status==='not_eligible'&&receipt.rule==='equipment-unicode-suffix/2')return null;
+  if (!receipt || receipt.key !== 'cargo.containers' || receipt.status !== 'applied' || receipt.reason !== 'parser_correction' ||
+    typeof receipt.fact_id !== 'string' || typeof receipt.changed !== 'boolean' || typeof receipt.replay !== 'boolean') {
+    throw new Error('Equipment reprocessing receipt unavailable; verify before retrying');
+  }
+  return receipt as unknown as RevisionDecision;
 }
 export async function writeEmailFactRevisions(client: RevisionWriter, args: {
   caseId: string; actorId: string; groups: RevisionGroup[]; allEmails: RevisionEmail[]; collectionComplete: boolean;

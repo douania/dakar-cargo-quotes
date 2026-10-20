@@ -1,4 +1,5 @@
 import { loadCustomsBasis, applyCustomsPricingFacts, type CustomsBasisSnapshot } from '../_shared/customs-basis.ts';
+import { pricingLocationPreflight } from '../_shared/request-location-evidence.ts';
 import { knownHsTaxProfile, equivalentHsTaxation, type HsTaxEquivalence } from "../_shared/hs-tax-profile.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { assertPartialServiceResponse, partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from '../_shared/partial-destination-quote.ts';
@@ -1651,7 +1652,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4a-bis. P3b.1: Multi-lot orchestrator — per-lot pricing when structured lines exist
+    // STRUCTURAL_PATCH_ALLOWED: verify the effective route before any run/status write.
+    const locationBlockers=await pricingLocationPreflight(serviceClient,case_id,String(caseData.request_type || ''),mergeFactsForLot,caseData.thread_id??null);
+    if(locationBlockers.length)return new Response(JSON.stringify({error:'Transport locations require source review',pricing_blockers:locationBlockers}),
+      {status:400,headers:{...corsHeaders,'Content-Type':'application/json'}});
+
+    // 4a-bis. P3b.1: Multi-lot orchestrator - per-lot pricing when structured lines exist
     const openCommunicationLoopsGuard = await getOpenCommunicationLoopsGuard(serviceClient, case_id);
     if (openCommunicationLoopsGuard.blocked) {
       return new Response(

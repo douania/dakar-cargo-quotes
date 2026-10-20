@@ -133,6 +133,20 @@ it('isole les dossiers et actualise les nouvelles pièces sans toucher aux déci
 const revision = (id: string, status: string, revisionId = id): Row => ({id,case_id:'case-a',event_type:'fact_updated',created_at:after,
   event_data:{source:'email-fact-revision',revision_id:revisionId,fact_key:'cargo.weight_kg',status,reason:status==='resolved'?'explicit_manual_successor':'newer_verified_declaration',
     old_fact:{value_number:2},new_value:3,source_evidence:{selected:{email_id:'correction',excerpt:'Poids corrigé : 3 kg.'},sources:[{id:'correction',sent_at:after}]}}});
+it('présente la correction technique et sa résolution sans les attribuer à une décision manuelle', async () => {
+ const technical=(id:string,status:string,revisionId=id)=>{
+  const row=revision(id,status,revisionId),data=row.event_data as Row;
+  return {...row,event_data:{...data,fact_key:'cargo.containers',reason:'parser_correction',old_fact:{value_json:[{quantity:1,type:'40GP'}]},new_value:[{quantity:1,type:'40HC'}],
+   source_evidence:{...(data.source_evidence as Row),processing:{rule:'equipment-unicode-suffix',from_version:'legacy-unversioned-reproduced',to_version:'2'}}}};
+ };
+ tables.case_timeline_events=[revision('conflict','conflict'),technical('repair','applied'),technical('resolution','resolved','conflict')];
+ const frozen=JSON.stringify(tables);mount({caseId:'case-a',runId:'run-a'});
+ expect(await screen.findByText(/Des faits ont été actualisés après ce calcul/)).toBeInTheDocument();
+ expect(screen.getByText(/Résolu par correction technique/)).toBeInTheDocument();
+ expect(screen.getAllByText(/Retraitement equipment-unicode-suffix/)).toHaveLength(2);
+ expect(screen.queryByText(/Saisie manuelle/)).not.toBeInTheDocument();expect(screen.queryByText(/correction\(s\) en conflit/)).not.toBeInTheDocument();
+ expect(JSON.stringify(tables)).toBe(frozen);
+});
 it('affiche historique exact et devis à réexaminer sans réécrire son contenu', async () => {
   tables.case_timeline_events=[revision('r1','applied')];const frozen=JSON.stringify(tables);
   mount({caseId:'case-a',runId:'run-a'});

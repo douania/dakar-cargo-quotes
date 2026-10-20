@@ -19,17 +19,17 @@ Deno.test('LCL: contractual partial award and unrelated substrings do not overri
  assertEquals(detectRequestType('LCL sea freight 1x40HC',[]).ambiguous_lcl_fcl,true);
 });
 function client(rows:unknown[],error:unknown=null){const calls:Array<unknown>=[];const q={select(){return q;},in(_k:string,v:unknown){calls.push(v);return q;},eq(){return q;},then(resolve:(v:unknown)=>unknown,reject:(e:unknown)=>unknown){return Promise.resolve({data:rows,error}).then(resolve,reject);}};return{db:{from(){return q;}} as unknown as SupabaseClient,calls};}
-Deno.test('gateway: explicit own clause resolves an existing active sea alias, retaining Bunia',async()=>{
+Deno.test('gateway: bare via retains final delivery without inventing a discharge role',async()=>{
  const c=client([{locations_reference:{canonical_name:'Mombasa',location_type:'sea',is_active:true}}]);
  const facts=await extractExplicitSeaGatewayFacts(c.db,[mail('Place of delivery: Bunia, DR Congo via Mombasa Kenya')]);
- assertEquals(facts.map(f=>[f.key,f.value]),[['routing.destination_port','Mombasa'],['routing.destination_city','Bunia'],['routing.final_destination','Bunia']]);
+ assertEquals(facts.map(f=>[f.key,f.value]),[['routing.destination_city','Bunia'],['routing.final_destination','Bunia']]);
  assert(facts.every(f=>f.sourceEmailId==='original'&&f.sourceExcerpt?.includes('via Mombasa Kenya')));
 });
 Deno.test('gateway: unknown/inland aliases, alternatives and cited history do not select a sea gateway',async()=>{
  for(const text of ['Place of delivery: Bunia via Uganda','Place of delivery: Bunia via Mombasa or Durban','Reminder\nOn Monday, Client wrote:\n> Place of delivery: Bunia via Mombasa Kenya']){
-  const c=client([]);assertEquals(await extractExplicitSeaGatewayFacts(c.db,[mail(text)]),[]);
+  const c=client([]);assert(!(await extractExplicitSeaGatewayFacts(c.db,[mail(text)])).some(f=>f.key==='routing.destination_port'));
  }
 });
 Deno.test('gateway: reference access error is visible',async()=>{
- const c=client([],{message:'synthetic read denied'});await assertRejects(()=>extractExplicitSeaGatewayFacts(c.db,[mail('Place of delivery: Bunia via Mombasa Kenya')]),Error,'could not be verified');
+ const c=client([],{message:'synthetic read denied'});await assertRejects(()=>extractExplicitSeaGatewayFacts(c.db,[mail('Place of delivery: Bunia via Mombasa Kenya')]),Error,'Location reference unavailable');
 });
