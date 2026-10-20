@@ -12,6 +12,16 @@ Ne jamais committer ce fichier avec autre chose que lui-même (commit docs-only 
 
 <!-- Nouvelle entrée : copier le bloc ci-dessous, remplir, ajouter en haut de la liste. -->
 
+## [2026-10-20 15:18 UTC] TRAITÉ — Contrat d'acceptation V1 interne, tous les flux — intégration locale
+**GO utilisateur** : « Je valide ces critères pour tous les flux si tu penses que c est optimal. Intègre-les dans les documents CTO existants et prépare le message à transmettre à mon dot, sans commit ni push pour l'instant. »
+**Appréciation Codex** : cadre adapté ; couverture figée des fonctions existantes, preuves adaptées et verdict humain empêchent une clôture par réduction de périmètre ou une boucle d'audit sans fin.
+**Décision canonique** : roadmap §2.39, treize critères V1-01 à V1-13, tous les types/packages/modes et fonctions actives ; guide de reprise et prompt alignés. La validation des critères ne vaut pas acceptation de la V1.
+**État vérifié** : work/8e380886db0b75eb92caa3b8cbd0cddd2374203c aligné GitHub au préflight ; seulement trois documents autorisés. Aucun nouveau verdict applicatif/runtime ; les cinq INFO_MANQUANTE antérieures ne sont pas arbitrées par ce contrat.
+**Périmètre et limites** : documentation locale et message préparé, non envoyé ; aucun commit/push, correction applicative, recette Cloud, migration, déploiement, changement Auth/RLS ou automatisation autorisé ici.
+**Contrôles et reprise** : contrôle documentaire, diff-check et réversibilité du patch ; tests applicatifs NOT_RUN. Sauvegardes et preuves hors Git : C:/Users/DELL/Documents/Codex/2026-10-20/dcq-v1-acceptance-1/. Publication documentaire sous GO distinct ; aucune mise en service interne ou générale prononcée.
+
+---
+
 ## [2026-10-20 12:22 UTC] TRAITÉ — RÉCONCILIATION-1, préparation et bascule locales autorisées
 **GO utilisateur** : « GO RÉCONCILIATION-1 pour la réalisation locale selon le plan. Prépare les sauvegardes et les documents, puis attends la clôture du lot en cours avant la bascule, sans commit ni push. »
 **Point de passage** : chat « Terminer validation accès DCQ » terminé, lot technique clos sur17fdeda0 et aucun lot suivant lancé ; copies secondaires préservées.
