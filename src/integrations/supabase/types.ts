@@ -9441,9 +9441,25 @@ export type Database = {
         Args: { p_case_id: string; p_lines: Json }
         Returns: number
       }
+      reprocess_case_equipment: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_command: string
+          p_expected_fact: string
+          p_expected_revision: string
+          p_groups: Json
+          p_manifest: Json
+        }
+        Returns: Json
+      }
       reset_attachment_for_retry: {
         Args: { p_attachment_id: string }
         Returns: string
+      }
+      retired_equipment_candidate: {
+        Args: { p_candidate: Json; p_fact: string }
+        Returns: boolean
       }
       select_quotation_version: {
         Args: { p_case_id: string; p_version_id: string }
@@ -9501,6 +9517,10 @@ export type Database = {
           p_weight_head_id: string
         }
         Returns: undefined
+      }
+      unicode_equipment_inventory: {
+        Args: { p_excerpt: string }
+        Returns: Json
       }
       upsert_cargo_equipment: {
         Args: {
