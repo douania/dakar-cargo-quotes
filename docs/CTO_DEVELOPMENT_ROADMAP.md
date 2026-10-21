@@ -687,6 +687,23 @@ Premier travail de suivi : construire la matrice et rattacher les preuves exista
 
 **Écart connu au cadrage** : le code de `supabase/functions/_shared/terminal-operation-mode.ts` refuse le chiffrage terminal RoRo/ConRo tant que la source canonique Dakar Terminal manque. Ce refus protège le résultat mais ne vaut pas acceptation complète de ces flux. Les cinq entrées INFO_MANQUANTE de la queue gardent leur portée ; ce contrat n'arbitre ni tarif, ni seuil de poids, ni contradiction de référentiel. Aucun nouveau verdict runtime n'a été produit ici.
 
+### 2.40 Chat/session et échanges Transport — clôture technique du 21 octobre 2026
+
+- Mandats : GO « Vas y » du 20/10 à 20:59 pour la réalisation locale ; GO du 21/10 à 12:45 pour la recette bornée, puis confirmations lecture à 16:09 et créations à 16:18. Base work/363e59d et GitHub alignés ; aucun commit/push ni publication.
+- Chat : jeton de session courant à chaque envoi/reprise, attente Auth bornée à 10 s et annulable, erreurs/reconnexion explicites, streaming conservé et fragments tardifs après effacement ignorés ; garde serveur et client Auth inchangés.
+- Transport : import/export raccordés ; export XLSX des seules lignes chargées après filtres, provenance/portée client conservées ; validation stricte, aperçu paginé et confirmation avant création de lignes sourcées inactives/to_confirm, sans remplacement, promotion ni nouvelle doctrine Sénégal.
+- Intégrité : identifiants stables, INSERT unique sans upsert/retry automatique, relecture complète avant succès ; refus SQLSTATE connu BLOCKED pour la tentative, issue réseau non confirmée UNKNOWN.
+- Contrôles locaux finaux exécutés : `npm run ci` exit 0 ; 1 001 tests Vitest / 80 fichiers PASS (45 tests ciblés) ; 2 671 tests Deno PASS, 0 échec, 6 ignorés ; types Deno : 49 diagnostics / 5 catégories, baseline 49/5 inchangée ; typecheck frontend et build PASS ; lint 708/16 contre 732/16 ; diff-check PASS.
+- Historique de contrôle : première tentative CI bloquée par DNS/JSR dans l'exécution restreinte ; relance finale verte après accès réseau autorisé aux registres officiels, sans changement DNS/proxy/sécurité, dépendances ou lockfiles. Le blocage initial n'est plus le statut final.
+- Contre-revue indépendante ciblée en lecture seule PASS après corrections ; aucun test contre-exécuté par le réviseur. Contrôles UI locaux sur mocks, clavier et dialogue mobile ; audit UI strict : 116 constats contre 118 en baseline, aucun nouveau, dette héritée conservée.
+- Recette connectée du 21/10 : frontend local corrigé non commité contre Lovable existant confirmé ; Transport PASS (invalide rejeté, aperçu/confirmation, un INSERT de 2 lignes synthétiques à 123 XOF, relecture, rejeu 0 nouvelle / 2 identiques et export de 2 lignes vérifié). Lignes conservées inactives/to_confirm ; 141 préexistantes inchangées, compte et empreinte avant/après identiques.
+- Chat connecté PARTIAL : deux appels IA consommés, réponses synthétiques complètes dont une après rafraîchissement normal de session ; annulation connectée non démontrée (réponse achevée avant ciblage), garde négative Cloud NOT_RUN ; aucun appel supplémentaire. Aucun contenu tarifaire métier validé.
+- Preuves CI : C:/Users/DELL/AppData/Local/Temp/dcq-chat-transport-preview-20261021/ci-network-retry.log et vitest-final.log.
+- Preuves connectées : C:/Users/DELL/AppData/Local/Temp/dcq-connected-chat-transport-20261021/receipt-current.json, export-verification.json et transport-export-verified.xlsx ; identifiants/source des deux lignes et rapprochement du téléchargement expiré consignés, sans réexport ni secret.
+- Maintien temporaire système seul libéré le 21/10 à 16:26:09 UTC : PID5172 terminé exit 0, requête effacée/handle fermé, état système relu à 0 ; reçu C:/Users/DELL/AppData/Local/Temp/dcq-awake-work-20261021-recipe-final/status.json. Aucun réglage permanent ni autostart.
+- Aucun backend/FROZEN, schéma, RLS, migration, accès ou donnée métier réelle modifié ; seules les deux lignes de recette autorisées ont été ajoutées. Copies/.claude préservées ; frontend applicatif Lovable non redéployé. Approbation tarifaire et acceptation globale restent distinctes, sans GO de mise en service interne.
+- Retour local : retirer seulement le diff de ce lot et ses cinq nouveaux fichiers source/tests ; préserver tout delta extérieur, preuves et historiques. Ne pas supprimer les deux lignes Cloud conservées ; aucun rollback exécuté. Publication future sous GO distinct.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

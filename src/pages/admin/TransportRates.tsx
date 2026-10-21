@@ -9,8 +9,6 @@ import {
   Trash2, 
   AlertTriangle, 
   CheckCircle2,
-  Upload,
-  Download,
   Search,
   Filter,
   Calendar,
@@ -48,25 +46,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { TransportRateExchange } from '@/components/admin/TransportRateExchange';
+import type { TransportRateRow } from '@/lib/transportRateWorkbook';
 
-interface TransportRate {
-  id: string;
-  origin: string;
-  destination: string;
-  container_type: string;
-  cargo_category: string | null;
-  rate_amount: number;
-  rate_currency: string;
-  provider: string | null;
-  rate_includes: string[] | null;
-  notes: string | null;
-  source_document: string | null;
-  validity_start: string | null;
-  validity_end: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string | null;
-}
+type TransportRate = TransportRateRow;
 
 interface RateFormData {
   origin: string;
@@ -99,7 +82,7 @@ export default function TransportRates() {
   });
 
   // Fetch transport rates
-  const { data: rates = [], isLoading } = useQuery({
+  const { data: rates = [], isLoading, isError } = useQuery({
     queryKey: ['transport-rates'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -269,7 +252,7 @@ export default function TransportRates() {
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Truck className="h-6 w-6" />
@@ -279,21 +262,15 @@ export default function TransportRates() {
               Gestion des tarifs de transport routier
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="gap-2">
-              <Upload className="h-4 w-4" />
-              Importer Excel
-            </Button>
-            <Button variant="outline" className="gap-2">
-              <Download className="h-4 w-4" />
-              Exporter
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            <TransportRateExchange rates={filteredRates} allRates={rates} ready={!isLoading && !isError} />
             <Button onClick={() => handleOpenDialog()} className="gap-2">
               <Plus className="h-4 w-4" />
               Nouveau Tarif
             </Button>
           </div>
         </div>
+        {isError && <p role="alert" className="text-destructive">Chargement des tarifs impossible. Import et export indisponibles ; rechargez la page après vérification de votre accès.</p>}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-4 gap-4">

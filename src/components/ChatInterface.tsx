@@ -6,9 +6,10 @@ import { QuickActions } from "./QuickActions";
 import { WelcomeSection } from "./WelcomeSection";
 import { useChat } from "@/hooks/useChat";
 import type { AttachedFile } from "@/types";
+import { Button, buttonVariants } from './ui/button';
 
 export function ChatInterface() {
-  const { messages, isLoading, sendMessage } = useChat();
+  const { messages, isLoading, error, sendMessage, retryMessage, cancelRequest } = useChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -89,6 +90,16 @@ export function ChatInterface() {
 
       <div className="border-t border-border bg-background/80 backdrop-blur-sm p-4">
         <div className="max-w-3xl mx-auto">
+          {error && (
+            <div role="alert" className="mb-3 rounded-md border border-destructive/40 p-3 text-sm">
+              <p>{error.message}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {error.reconnect && <a className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/login" target="_blank" rel="noopener noreferrer">Se reconnecter (nouvel onglet)</a>}
+                {error.retryable && <Button variant="outline" size="sm" disabled={isLoading} onClick={retryMessage}>Réessayer ce message</Button>}
+              </div>
+            </div>
+          )}
+          {isLoading && <Button variant="outline" size="sm" className="mb-2" onClick={cancelRequest}>Arrêter la réponse</Button>}
           <ChatInput onSend={handleSend} isLoading={isLoading} />
         </div>
       </div>
