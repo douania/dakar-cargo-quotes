@@ -848,7 +848,7 @@ async function readFileBytes(file) {
   });
 }
 async function sha256Bytes(bytes) {
-  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 async function verifyIntakeFile(reader, descriptor) {
   let result;

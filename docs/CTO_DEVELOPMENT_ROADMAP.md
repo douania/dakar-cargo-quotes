@@ -861,6 +861,18 @@ Audit§21 et reçu hors Git publication-stage11 : inventaire/empreintes, résult
 Prochain lot externe sous GO précis : §20.3 audit, confirmation des accès préparés puis3migrations/4fonctions/recette synthétique ; aucune action sensible autorisée par le présent push.
 Conservation/restauration Railway UNKNOWN bloque arrêt/résiliation ; credentials distincts ouverts. Pas de nouveau chantier camion.
 
+Résultat post-push (note locale non republiée) :6740f7da86a44eb51d4af56b959b770b36869b78 sur origin/work,44fichiers ; CI39997660575 FAIL terminal Vitest (buffer WebCrypto/PJ), aucune correction/rerun.
+135tests intake locaux PASS ; différence CI Node20/jsdom à reproduire sans changer le contrat. Lovable mêmeSHA/developer_update completed/is_published:false ;3sources exactes,3versions SQL absentes du ledger. Build/servi/Edge UNKNOWN ; prochain GO correctif CI borné, aucune activation/Cloud/arrêt. Audit§21.1/reçu publication-stage11.
+
+## 2.52 Correctif de compatibilité intake — 23 octobre 2026
+
+Même GO de livraison : reprise sur6740f7d aligné, quatre docs dirty/128non suivis préservés, aucun nouvel axe métier.
+Cause reproduite sur code réel Node20.20.2 : BufferSource ArrayBuffer étranger à WebCrypto refusé ; vue Uint8Array des mêmes octets acceptée, SHA abc exact. Node22 accepte le cas original ; différence de contextes démontrée, pas jugement global de version.
+Correctif sha256Bytes minimal + bundle/manifeste, deux régressions crypto réelles ;137ciblés/6suites PASS, CI locale9portes PASS_WITH_BASELINE et revue bornée PASS. Aucun test/assertion retiré.
+Linux/jsdom/Vitest complet local NOT_RUN : copie Docker refusée sur rootfs readonly, cible supprimée/vérifiée, aucune relance/contournement de cette copie. Essais VM natifs stdin isolés distincts, aucune jonction retentée.
+Publication corrective ciblée sous même GO ; nouveauSHA/CI/sync effectifs dans intake-crypto-stage12/result.json hors Git, audit§21.2. FAIL39997660575 conservé.
+Candidat toujours inactif, migrations/accès/Edge/Cloud métier/Railway inchangés ; prochain externe§20.3 seulement après CI verte/GO précis. Conservation/restauration UNKNOWN et credentials ouverts.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

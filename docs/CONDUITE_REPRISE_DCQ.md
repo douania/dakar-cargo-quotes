@@ -2,6 +2,10 @@
 
 - Publication ciblée autorisée le23/10 : paquet44fichiers intake uniquement, candidat inactif/SQL non appliqués. Audit§21/roadmap§2.51 et reçu hors Git C:/Users/DELL/Documents/Codex/2026-10-22/task-2/publication-stage11/ portent inventaire, SHA/CI/sync effectivement observés ; vérifier ce reçu avant reprise. Camion/CPU/.claude/preuves brutes conservés hors commit. Sync Lovable ne déploie pas Edge ni migration selon guide officiel ; build/preview/publication/artefact servi restent distincts.
 
+- Résultat publication23/10 (note locale après push) : work/origin6740f7da86a44eb51d4af56b959b770b36869b78 ;44fichiers, Lovable source/événement completed au mêmeSHA, non publié. **CI39997660575 FAIL Vitest** : WebCrypto buffer et reprise PJ ;135tests locaux PASS ne neutralisent pas ce blocage. Cause CI Node20/jsdom à reproduire sous prochain GO borné, sans sauter de tests. Aucun correctif/rerun après constat ; SQL candidats absents du ledger, candidat inactif, build/servi/Edge UNKNOWN. Audit§21.1/reçu publication-stage11 ; notes post-push non commitées.
+
+- Reprise corrective du même paquet : audit§21.2/roadmap§2.52, preuve Node20 du BufferSource étranger puis SHA exact avec vue Uint8Array ;137ciblés PASS et CI locale9portes PASS_WITH_BASELINE, revue bornée PASS. Aucun test retiré, métier/accès/SQL/activation inchangés. Reproduction Linux/jsdom complète NOT_RUN après copie Docker refusée (sans contournement) ; toutes cibles propres supprimées/vérifiées. SHA correctif, CI finale et réception Lovable effectifs dans C:/Users/DELL/Documents/Codex/2026-10-22/task-2/intake-crypto-stage12/result.json ; ne pas confondre ce correctif avec le FAIL historique6740f7d.
+
 ## Point courant — 23 octobre 2026, collaboration intake candidate locale
 
 - Nouveau GO métier : optimisation avancée des camions inutilisée, reportée hors V1 selon roadmap §2.39.5 ; arrêter son extension CPU/génétique. Code/preuves et historiques conservés. Aucun retrait des flux breakbulk, transport ou autres exigences métier ; aucun UNKNOWN reclassé PASS.

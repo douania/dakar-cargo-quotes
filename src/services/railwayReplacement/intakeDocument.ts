@@ -6,7 +6,9 @@ export async function readFileBytes(file:Blob):Promise<ArrayBuffer>{
  if(typeof FileReader==='undefined')throw new RecoveryError('FILE_READ_UNAVAILABLE');
  return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(new RecoveryError('FILE_READ_UNAVAILABLE'));reader.onload=()=>reader.result instanceof ArrayBuffer?resolve(reader.result):reject(new RecoveryError('FILE_READ_UNAVAILABLE'));reader.readAsArrayBuffer(file);});
 }
-export async function sha256Bytes(bytes:ArrayBuffer):Promise<string>{return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');}
+// A typed view preserves every byte and is accepted across FileReader/VM realms
+// by native WebCrypto, including Node 20. Do not stringify or hash a prefix.
+export async function sha256Bytes(bytes:ArrayBuffer):Promise<string>{return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes))),b=>b.toString(16).padStart(2,'0')).join('');}
 export async function describeIntakeFile(file:File,id:string,documentId:string):Promise<IntakeFileDescriptor>{
  if(file.size<1||file.size>10*1024*1024)throw new RecoveryError('FILE_SIZE_INVALID');
  const bytes=await readFileBytes(file);if(bytes.byteLength!==file.size)throw new RecoveryError('FILE_READ_CHANGED');

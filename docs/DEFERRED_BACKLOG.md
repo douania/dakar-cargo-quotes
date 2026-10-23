@@ -1246,6 +1246,10 @@ Lot collaboration/conflits du23/10 : **PASS local ; connecté/V1/retrait PARTIAL
 
 ### DCQ-RAILWAY-INTAKE-MIGRATION
 
+Correctif même livraison23/10 : BufferSource entre contextes démontré et vue typée conservant les octets,137ciblés/CI locale PASS, revue bornée PASS ; audit§21.2/roadmap§2.52 et reçu intake-crypto-stage12/result.json pour SHA/CI/sync réels. Aucun test retiré ni activation/SQL/accès/Edge manuel/Railway ; arrêt toujours bloqué par conservation/restauration UNKNOWN.
+
+Résultat23/10 (note locale) : commit6740f7d poussé/reçu Lovable, CI39997660575 FAIL terminal sur Vitest PJ/WebCrypto. Intake candidat non activé, trois SQL non appliqués confirmés par ledger ; correctif CI borné à autoriser avant toute livraison Cloud/recette. Audit§21.1/reçu publication-stage11 ; arrêt Railway toujours bloqué.
+
 Publication candidate23/10 : GO ciblé44fichiers, audit Railway§21/roadmap§2.51 ; résultats Git/CI/réception Lovable dans reçu publication-stage11 hors Git. Aucune application SQL, livraison Edge, modification d’accès ou activation par ce GO. Préserver les preuves locales et les fichiers camion reportés ; recette/conservation/restauration restent ouvertes.
 
 | Champ | Valeur |
