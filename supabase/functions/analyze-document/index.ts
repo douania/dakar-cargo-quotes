@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import {openIntakeTicket,completeIntakeTicket,ticketResponse,ticketUnknown,ticketFailure,type IntakeTicketContext} from "../_shared/intake-document-ticket.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
@@ -8,11 +9,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-serve(async (req) => {
+export async function handleAnalyzeDocument(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let intakeTicket:IntakeTicketContext|null=null;let ticketRequested=false;
   try {
     // Phase S0: Auth guard
     const auth = await requireUser(req);
@@ -22,27 +24,20 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { documentId, analysisType } = await req.json();
-
-    if (!documentId) {
-      return new Response(
-        JSON.stringify({ error: 'documentId is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Fetch document
-    const { data: doc, error: docError } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('id', documentId)
-      .single();
-
-    if (docError || !doc) {
-      return new Response(
-        JSON.stringify({ error: 'Document not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const body = await req.json();
+    const {documentId}=body;let analysisType=body.analysisType;let doc;
+    if(Object.prototype.hasOwnProperty.call(body,'intake_ticket')){
+      ticketRequested=true;
+      if((analysisType!==undefined&&analysisType!=='transit_order')||documentId!==undefined)return Response.json({ok:false,error:{code:'DOCUMENT_TICKET_INVALID',outcome:'BLOCKED'}},{status:400,headers:corsHeaders});
+      intakeTicket=await openIntakeTicket(auth,body.intake_ticket,'analysis');
+      if(!intakeTicket.started)return ticketResponse(intakeTicket.operation);
+      analysisType='transit_order';const source=intakeTicket.source!;
+      doc={filename:source.payload.filename,content_text:source.text,tags:source.payload.tags,extracted_data:source.payload.extracted_data};
+    }else{
+      if(!documentId)return new Response(JSON.stringify({error:'documentId is required'}),{status:400,headers:{...corsHeaders,'Content-Type':'application/json'}});
+      const {data,error}=await supabase.from('documents').select('*').eq('id',documentId).single();
+      if(error||!data)return new Response(JSON.stringify({error:'Document not found'}),{status:404,headers:{...corsHeaders,'Content-Type':'application/json'}});
+      doc=data;
     }
 
     console.log('Analyzing document:', doc.filename);
@@ -169,6 +164,11 @@ Réponds en JSON structuré avec les champs trouvés.`;
       parsedAnalysis = { raw_analysis: analysisResult };
     }
 
+    if(intakeTicket)return await completeIntakeTicket(intakeTicket,null,null,{
+      analysis:parsedAnalysis,analysis_type:analysisType,document_type:doc.tags,
+      extraction_claim_id:intakeTicket.source!.claim_id,text_sha256:intakeTicket.source!.text_sha256,
+    });
+
     // Update document with analysis
     const { error: updateError } = await supabase
       .from('documents')
@@ -197,6 +197,7 @@ Réponds en JSON structuré avec les champs trouvés.`;
     );
 
   } catch (error: unknown) {
+    if(ticketRequested)return intakeTicket?ticketUnknown():ticketFailure(error);
     console.error('Analyze document error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
@@ -204,4 +205,5 @@ Réponds en JSON structuré avec les champs trouvés.`;
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
-});
+}
+if(import.meta.main)serve(handleAnalyzeDocument);

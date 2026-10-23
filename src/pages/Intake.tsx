@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,47 +33,74 @@ import {
 import { buildIntakeFactBatch } from "@/lib/intakeFactBatch";
 import { extractionPayload } from '@/lib/documentExtraction';
 
+import type { ManualIntakeForm } from "@/services/railwayReplacement/manualIntakeCommand";
+import type { ManualFormSession } from "@/services/railwayReplacement/manualIntakeClient";
+
+import {describeIntakeFile} from '@/services/railwayReplacement/intakeDocument';
+import {canonicalJson,RecoveryError} from '@/services/railwayReplacement/recoveryContract';
+import type {IntakeFileDescriptor,RecoveryOperation} from '@/services/railwayReplacement/recoveryContract';
+export interface IntakeDocumentCandidate {
+ file:IntakeFileDescriptor|null;busy:boolean;locked:boolean;linked:boolean;warning:string;
+ analyze(file:File|null,form:ManualIntakeForm,prefill:(analysis:Record<string,unknown>,preview:string)=>ManualIntakeForm):Promise<{form:ManualIntakeForm;operation:RecoveryOperation}>;
+ interrupt():void;
+}
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ACCEPTED_EXTENSIONS = [".pdf", ".xlsx", ".xls", ".jpg", ".jpeg", ".png", ".csv"];
 
-export default function Intake() {
+// Explicit local seam only. App routes never supply this candidate.
+export default function Intake({ manualCandidate, restoredForm, restoredResult, documentCandidate }: { manualCandidate?: ManualFormSession; restoredForm?: ManualIntakeForm; restoredResult?: IntakeResponse; documentCandidate?:IntakeDocumentCandidate } = {}) {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const candidateSubmission = useRef(false);
+  const candidateLocked=Boolean(manualCandidate&&(documentCandidate?documentCandidate.locked:manualCandidate.hasUnresolved()));
+
+  useEffect(() => {
+    if (!manualCandidate) return;
+    const warnOnUnload = (event: BeforeUnloadEvent) => {
+      if (manualCandidate.hasUnresolved()) { event.preventDefault(); event.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", warnOnUnload);
+    return () => window.removeEventListener("beforeunload", warnOnUnload);
+  }, [manualCandidate]);
 
   // Form state
-  const [text, setText] = useState("");
-  const [clientName, setClientName] = useState("");
-  const [clientEmail, setClientEmail] = useState("");
-  const [customerRef, setCustomerRef] = useState("");
+  const [text, setText] = useState((restoredForm?.request.source as {text?:string})?.text ?? "");
+  const [clientName, setClientName] = useState(String(restoredForm?.request.client_name ?? ""));
+  const [clientEmail, setClientEmail] = useState(String(restoredForm?.request.client_email ?? ""));
+  const [customerRef, setCustomerRef] = useState(String(restoredForm?.request.customer_ref ?? ""));
 
   // Upload state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [extractedDocId, setExtractedDocId] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [extractionSource, setExtractionSource] = useState<string | null>(null);
-  const [extractedAnalysis, setExtractedAnalysis] = useState<Record<string, any> | null>(null);
+  const [extractionSource, setExtractionSource] = useState<string | null>(restoredForm?.has_extracted_document?documentCandidate?.file?.name??null:null);
+  const [extractedAnalysis, setExtractedAnalysis] = useState<Record<string, any> | null>(restoredForm?.analysis??null);
+
+  const selectedFile=uploadedFile??documentCandidate?.file??null;
 
   // Submit state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<IntakeResponse | null>(null);
+  const [storedResult, setResult] = useState<IntakeResponse | null>(restoredResult ?? null);
   // v5 — gate "Ouvrir le dossier" until critical facts are persisted
-  const [criticalInjectionOk, setCriticalInjectionOk] = useState(false);
+  const [criticalInjectionOk, setCriticalInjectionOk] = useState(Boolean(manualCandidate && restoredResult));
 
   function handleFileSelect(file: File) {
+    if (candidateLocked || Boolean(documentCandidate?.file&&extractionSource)) return;
     setError("");
     const ext = "." + file.name.split(".").pop()?.toLowerCase();
     if (!ACCEPTED_EXTENSIONS.includes(ext)) {
       setError(`Format non supporté. Formats acceptés : ${ACCEPTED_EXTENSIONS.join(", ")}`);
       return;
     }
-    if (file.size > MAX_FILE_SIZE) {
-      setError("Fichier trop volumineux (max 10 MB)");
+    if (file.size < 1 || file.size > MAX_FILE_SIZE) {
+      setError("Fichier vide ou trop volumineux (max 10 MB)");
       return;
     }
     setUploadedFile(file);
     setExtractionSource(null);
     setExtractedDocId(null);
+    if(manualCandidate)setExtractedAnalysis(null);
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -88,6 +115,7 @@ export default function Intake() {
   }
 
   function clearFile() {
+    if (candidateLocked || documentCandidate?.file) return;
     setUploadedFile(null);
     setExtractionSource(null);
     setExtractedDocId(null);
@@ -95,7 +123,39 @@ export default function Intake() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  function currentForm():ManualIntakeForm{return {request:{source:{type:'email_text',text},...(clientName?{client_name:clientName}:{}),...(clientEmail?{client_email:clientEmail}:{}),...(customerRef?{customer_ref:customerRef}:{})},analysis:extractedAnalysis,has_extracted_document:Boolean(extractedAnalysis||extractionSource)};}
+  function applyForm(form:ManualIntakeForm){setText(String((form.request.source as {text:string}).text));setClientName(String(form.request.client_name??''));setClientEmail(String(form.request.client_email??''));setCustomerRef(String(form.request.customer_ref??''));setExtractedAnalysis(form.analysis);}
+  function prefilledForm(extracted:Record<string,unknown>,preview:string):ManualIntakeForm{
+    const parts: string[] = [];
+    if (extracted.cargo_description) parts.push(`Marchandise : ${extracted.cargo_description}`);
+    if (extracted.origin) parts.push(`Origine : ${extracted.origin}`);
+    if (extracted.destination) parts.push(`Destination : ${extracted.destination}`);
+    if (extracted.weight_kg) parts.push(`Poids : ${extracted.weight_kg} kg`);
+    if (extracted.volume_cbm) parts.push(`Volume : ${extracted.volume_cbm} m³`);
+    if (extracted.nb_pieces) parts.push(`Colis : ${extracted.nb_pieces}`);
+    if (extracted.container_type) parts.push(`Conteneur : ${extracted.container_type}`);
+    if (extracted.container_count) parts.push(`Nb conteneurs : ${extracted.container_count}`);
+    if (extracted.incoterm) parts.push(`Incoterm : ${extracted.incoterm}`);
+    if (extracted.transport_mode && extracted.transport_mode !== "unknown") parts.push(`Mode : ${extracted.transport_mode}`);
+    if (extracted.special_instructions) parts.push(`Instructions : ${extracted.special_instructions}`);
+
+    const structuredText = parts.length > 0
+      ? parts.join("\n") + "\n\n--- Texte brut ---\n" + (preview)
+      : preview;
+
+    const form=currentForm();return {...form,request:{...form.request,source:{type:'email_text',text:structuredText},...(extracted.client_name?{client_name:extracted.client_name}:{}),...(extracted.client_email?{client_email:extracted.client_email}:{}),...(extracted.customer_ref?{customer_ref:extracted.customer_ref}:{})},analysis:extracted,has_extracted_document:true};
+  }
+
   async function handleAnalyzeDocument() {
+    if (manualCandidate) {
+      if(!documentCandidate){setError("Le raccord documentaire n'est pas fourni pour cet écran.");return;}
+      if(candidateSubmission.current||documentCandidate.busy)return;
+      candidateSubmission.current=true;setAnalyzing(true);setError('');
+      try{const value=await documentCandidate.analyze(uploadedFile,currentForm(),(analysis,preview)=>prefilledForm(analysis,preview));applyForm(value.form);setExtractionSource(value.operation.draft.file?.name??null);}
+      catch{setError("Traitement du document non confirmé. Vérifiez cette même demande ; aucune relance automatique ni nouveau dossier.");}
+      finally{candidateSubmission.current=false;setAnalyzing(false);}
+      return;
+    }
     if (!uploadedFile) return;
     setAnalyzing(true);
     setError("");
@@ -298,19 +358,33 @@ export default function Intake() {
     return result;
   }
 
+  // Apply the same existing display corrections to a recovered immutable receipt.
+  // This does not reclassify, change the saved snapshot or write another batch.
+  const result = storedResult && storedResult === restoredResult && restoredForm
+    ? correctAssumptions(storedResult, restoredForm.analysis, parseTextOverrides((restoredForm.request.source as {text:string}).text))
+    : storedResult;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (manualCandidate && (candidateSubmission.current||documentCandidate?.busy)) return;
+    candidateSubmission.current = true;
     setError("");
     setLoading(true);
     setCriticalInjectionOk(false);
 
     try {
-      const data = await createIntake({
-        source: { type: "email_text", text },
-        client_name: clientName || undefined,
-        client_email: clientEmail || undefined,
-        customer_ref: customerRef || undefined,
-      });
+      // Raw file recovery is not qualified by this text-only candidate.
+      if (manualCandidate && uploadedFile && !documentCandidate?.file) throw new Error("Le raccord local couvre la saisie texte. La reprise du fichier doit encore être validée ; conservez votre document.");
+      if(manualCandidate&&uploadedFile&&documentCandidate?.file){const descriptor=documentCandidate.file;const selected=await describeIntakeFile(uploadedFile,descriptor.path.split('/')[0],descriptor.document_id);if(canonicalJson(selected)!==canonicalJson(descriptor))throw new RecoveryError('FILE_CHANGED');}
+      const request = {
+        source: { type: "email_text" as const, text },
+        ...(clientName ? { client_name: clientName } : {}),
+        ...(clientEmail ? { client_email: clientEmail } : {}),
+        ...(customerRef ? { customer_ref: customerRef } : {}),
+      };
+      const data: IntakeResponse = manualCandidate
+        ? await manualCandidate.submit({ request, analysis: extractedAnalysis, has_extracted_document: Boolean(extractedAnalysis || extractionSource) }) as unknown as IntakeResponse
+        : await createIntake(request);
 
       // Parse text overrides from operator's edits
       const textOverrides = parseTextOverrides(text);
@@ -324,6 +398,7 @@ export default function Intake() {
         // under the user's JWT; it never uses set-case-fact or service-role for
         // canonical writes. Railway analysis and document storage remain outside
         // this transaction by design.
+        if (!manualCandidate) {
         const factBatch = buildIntakeFactBatch({
           caseId: data.case_id,
           text,
@@ -350,12 +425,14 @@ export default function Intake() {
           );
         }
 
+        }
+
         // The whole canonical batch succeeded (or was replayed identically).
         setResult(correctedData);
         setCriticalInjectionOk(true);
 
         // Step B: Store uploaded document in case-documents (best-effort, non-blocking)
-        if (uploadedFile) {
+        if (uploadedFile && !manualCandidate) {
           try {
             const { data: userData } = await supabase.auth.getUser();
             const userId = userData?.user?.id;
@@ -429,9 +506,12 @@ export default function Intake() {
         setResult(correctedData);
       }
     } catch (err: any) {
-      setError(err.message || "Erreur de connexion au serveur");
+      setError(err instanceof RecoveryError&&err.code==='FILE_CHANGED'?"Le fichier sélectionné diffère de l’original enregistré. Choisissez le fichier d’origine.":manualCandidate?.hasUnresolved()
+        ? "Enregistrement non confirmé. Gardez cette page et les mêmes informations, puis relancez pour vérifier la même demande. Ne recréez pas un dossier ; une modification doit attendre la résolution."
+        : err.message || "Erreur de connexion au serveur");
       setCriticalInjectionOk(false);
     } finally {
+      candidateSubmission.current = false;
       setLoading(false);
     }
   }
@@ -443,9 +523,20 @@ export default function Intake() {
   }
 
   function handleReset() {
+    if (manualCandidate?.hasUnresolved()) {
+      setError("Enregistrement non confirmé. Vérifiez la même demande avant d'en commencer une nouvelle.");
+      return;
+    }
+    manualCandidate?.startNew();
     setResult(null);
     setCriticalInjectionOk(false);
-    clearFile();
+    // startNew has fenced the previous operation. Reset local document state
+    // explicitly: clearFile's user-removal guard still sees the previous props.
+    if (documentCandidate) {
+      setUploadedFile(null);setExtractionSource(null);setExtractedDocId(null);setExtractedAnalysis(null);
+      if(fileInputRef.current)fileInputRef.current.value='';
+    } else clearFile();
+    setError('');
     setText("");
     setClientName("");
     setClientEmail("");
@@ -465,7 +556,7 @@ export default function Intake() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form noValidate={Boolean(manualCandidate)} onSubmit={handleSubmit} className="space-y-6">
           {/* Upload Document */}
           <Card>
             <CardHeader>
@@ -478,11 +569,14 @@ export default function Intake() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {!uploadedFile ? (
+              <input ref={fileInputRef} type="file" aria-label="Pièce jointe" className="hidden" accept={ACCEPTED_EXTENSIONS.join(',')} onChange={handleFileInputChange}/>
+              {!selectedFile ? (
                 <div
                   className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
                   onDrop={handleDrop}
                   onDragOver={(e) => e.preventDefault()}
+                  role="button" tabIndex={0} aria-label="Choisir une pièce jointe"
+                  onKeyDown={(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();fileInputRef.current?.click();}}}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <FileUp className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
@@ -492,32 +586,26 @@ export default function Intake() {
                   <p className="text-xs text-muted-foreground mt-1">
                     {ACCEPTED_EXTENSIONS.join(", ")}
                   </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    accept={ACCEPTED_EXTENSIONS.join(",")}
-                    onChange={handleFileInputChange}
-                  />
+
                 </div>
               ) : (
-                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                <div className={documentCandidate?"flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 bg-muted/50 rounded-lg":"flex items-center justify-between p-4 bg-muted/50 rounded-lg"}>
                   <div className="flex items-center gap-3">
                     <FileText className="h-6 w-6 text-primary" />
                     <div>
-                      <p className="font-medium text-sm">{uploadedFile.name}</p>
+                      <p className="font-medium text-sm break-all">{selectedFile.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {(uploadedFile.size / 1024).toFixed(0)} KB
+                        {(selectedFile.size / 1024).toFixed(0)} KB
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className={documentCandidate?"flex flex-wrap items-center gap-2":"flex items-center gap-2"}>
                     {!extractionSource && (
                       <Button
                         type="button"
                         size="sm"
                         onClick={handleAnalyzeDocument}
-                        disabled={analyzing}
+                        disabled={analyzing || Boolean(manualCandidate && !documentCandidate) || Boolean(documentCandidate?.busy)}
                       >
                         {analyzing ? (
                           <>
@@ -529,18 +617,24 @@ export default function Intake() {
                         )}
                       </Button>
                     )}
+                    {manualCandidate&&!documentCandidate&&<p role="status" className="text-sm text-muted-foreground">Raccord local limité au texte : lecture et reprise des fichiers à valider.</p>}
+                    {documentCandidate && <p role="status" className="text-sm text-muted-foreground">{documentCandidate.busy?'Préparation du document en cours…':documentCandidate.linked?'Document rattaché au dossier.':documentCandidate.file?'Document enregistré avec cette demande.':'Fichier sélectionné ; aucun transfert avant votre action.'}</p>}
                     {extractionSource && (
                       <Badge variant="secondary" className="text-xs">
                         <CheckCircle2 className="h-3 w-3 mr-1" />
                         Extrait
                       </Badge>
                     )}
-                    <Button type="button" size="icon" variant="ghost" onClick={clearFile}>
+                    <Button type="button" size="icon" variant="ghost" aria-label="Retirer la pièce jointe" disabled={Boolean(documentCandidate?.file)||candidateLocked||analyzing} onClick={clearFile}>
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
               )}
+              {documentCandidate?.file&&!extractionSource&&!documentCandidate.linked&&!candidateLocked&&<Button type="button" variant="outline" onClick={()=>fileInputRef.current?.click()}>Choisir le fichier d'origine</Button>}
+              {documentCandidate?.file&&!uploadedFile&&!documentCandidate.linked&&<p className="text-sm text-muted-foreground">Le fichier est conservé côté serveur. La reprise vérifie ses octets ; aucun nouveau transfert implicite.</p>}
+              {documentCandidate?.busy&&<Button type="button" variant="outline" onClick={documentCandidate.interrupt}>Interrompre et vérifier</Button>}
+              {documentCandidate?.warning&&<Alert><AlertDescription>{documentCandidate.warning}</AlertDescription></Alert>}
             </CardContent>
           </Card>
 
@@ -557,6 +651,7 @@ export default function Intake() {
                 <Input
                   id="clientName"
                   value={clientName}
+                  readOnly={Boolean(manualCandidate && (loading || analyzing || candidateLocked))}
                   onChange={(e) => setClientName(e.target.value)}
                   placeholder="SODATRA"
                 />
@@ -569,6 +664,7 @@ export default function Intake() {
                   id="clientEmail"
                   type="email"
                   value={clientEmail}
+                  readOnly={Boolean(manualCandidate && (loading || analyzing || candidateLocked))}
                   onChange={(e) => setClientEmail(e.target.value)}
                   placeholder="contact@client.com"
                 />
@@ -580,6 +676,7 @@ export default function Intake() {
                 <Input
                   id="customerRef"
                   value={customerRef}
+                  readOnly={Boolean(manualCandidate && (loading || analyzing || candidateLocked))}
                   onChange={(e) => setCustomerRef(e.target.value)}
                   placeholder="REF-2025-001"
                 />
@@ -607,6 +704,7 @@ export default function Intake() {
             <CardContent>
               <Textarea
                 value={text}
+                  readOnly={Boolean(manualCandidate && (loading || analyzing || candidateLocked))}
                 onChange={(e) => setText(e.target.value)}
                 rows={10}
                 placeholder="Exemple: 
@@ -617,14 +715,15 @@ Cargo: 10 colis, dont un de 2500kg (dimensions 3m x 2m x 1.5m).
 Date souhaitée: 15 janvier 2026.
 
 Merci de nous faire une cotation."
-                className="font-mono text-sm"
+                aria-label="Texte de la demande"
+                className="font-mono text-sm resize-none"
               />
             </CardContent>
           </Card>
 
           {/* Bouton soumettre */}
           <div className="flex justify-end">
-            <Button type="submit" disabled={loading || !text.trim()} size="lg">
+            <Button type="submit" disabled={loading || analyzing || Boolean(documentCandidate?.busy) || !text.trim()} size="lg">
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />

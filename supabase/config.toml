@@ -333,3 +333,11 @@ verify_jwt = false
 
 [functions.manage-customs-basis]
 verify_jwt = false
+
+# Local candidate; requireUser + workspace admission in code; no deployment.
+[functions.manual-intake]
+verify_jwt = false
+
+# Local inactive recovery candidate; Auth/admission enforced in code.
+[functions.manual-intake-recovery]
+verify_jwt = false

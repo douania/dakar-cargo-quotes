@@ -1,0 +1,53 @@
+{
+  "generator": "scripts/railway-exit/build-manual-server.mjs",
+  "sources": [
+    {
+      "path": "scripts/railway-exit/manual-server-entry.ts",
+      "sha256": "7eb68d971019614e81bd9b4748f7470fdb10c977901a0a711f6c0d830415f81c"
+    },
+    {
+      "path": "src/lib/intakeFactBatch.ts",
+      "sha256": "74618896f902bc24c2c4f809f0ad7d618d61b831e0794217c0b4dcfc36576a7a"
+    },
+    {
+      "path": "src/lib/intakeTextOverrides.ts",
+      "sha256": "37168eb5f0adf7e3f4c05849a26a95f561073b853fc0c637dfd7afb39d07a2a1"
+    },
+    {
+      "path": "src/services/railwayReplacement/contracts.ts",
+      "sha256": "0b890cbbc999700541eca801d484c96097661dfcc0f1d188f8a5714c006557f4"
+    },
+    {
+      "path": "src/services/railwayReplacement/durableIntake.ts",
+      "sha256": "16f7b79fd693e9a23e43457fb670591114f123475e2e04c761b53670b7542e30"
+    },
+    {
+      "path": "src/services/railwayReplacement/intakeClassifier.ts",
+      "sha256": "33483ad1271f148236bf665c1c7e7cc1f00525811ef057fde831d33a4ff2ea51"
+    },
+    {
+      "path": "src/services/railwayReplacement/intakeDocument.ts",
+      "sha256": "39db832fa8d6da4a4fc6ed0572c5fe9c2ee04d434c4b0f89866bfb049aa2e639"
+    },
+    {
+      "path": "src/services/railwayReplacement/manualIntakeCommand.ts",
+      "sha256": "813538772e1178681c08a27b8ddb8f34676026a99251df74fed7d90a985eb6cc"
+    },
+    {
+      "path": "src/services/railwayReplacement/recoveryContract.ts",
+      "sha256": "17411472f6aa67069a968c160e4bb4648d66aa9a06a868c56da083f9b7588d59"
+    },
+    {
+      "path": "supabase/functions/_shared/document-extraction.ts",
+      "sha256": "47669ea972875ca08e082012eef1c72f8fec424516e1bd5160541ae7d9276491"
+    },
+    {
+      "path": "supabase/functions/set-intake-facts-batch/contract.ts",
+      "sha256": "287f0c6205c29a35dc51b0e4e015782398ae7675eb37454816c8982fd20be1be"
+    }
+  ],
+  "output": {
+    "path": "supabase/functions/manual-intake/prepare.generated.js",
+    "sha256": "9f1a1a3ed9e9b91fe487bcf0921af74827aeb4dda8eb761d7bcfaa24b314c6eb"
+  }
+}

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import * as pdfjsLib from "npm:pdfjs-dist@4.4.168/legacy/build/pdf.mjs";
+import {openIntakeTicket,completeIntakeTicket,ticketResponse,ticketUnknown,ticketFailure,type IntakeTicketContext} from "../_shared/intake-document-ticket.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { DocumentExtractionError, EXTRACTION_CONTRACT, extractionOutcome, hasExtractedText, sanitizeDocumentText } from '../_shared/document-extraction.ts';
 
@@ -19,6 +20,7 @@ export async function handleParseDocument(req: Request): Promise<Response> {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let intakeTicket:IntakeTicketContext|null=null;let ticketRequested=false;
   try {
     // Phase S0: Auth guard
     const auth = await requireUser(req);
@@ -32,6 +34,14 @@ export async function handleParseDocument(req: Request): Promise<Response> {
     let file = formData.get('file') as File;
     let source: {id:string;case_id:string;file_name:string;storage_path:string;mime_type:string|null;extracted_text:string|null} | null = null;
     const caseDocumentId = formData.get('case_document_id') as string | null;
+    if(formData.has('intake_operation_id')||formData.has('intake_claim_id')){
+      ticketRequested=true;
+      if(formData.has('case_document_id'))return Response.json({ok:false,error:{code:'DOCUMENT_TICKET_INVALID',outcome:'BLOCKED'}},{status:400,headers:corsHeaders});
+      intakeTicket=await openIntakeTicket(auth,{operation_id:formData.get('intake_operation_id'),claim_id:formData.get('intake_claim_id')},'extraction');
+      if(!intakeTicket.started)return ticketResponse(intakeTicket.operation);
+      file=intakeTicket.file; // Exact immutable Blob whose bytes/hash were verified.
+    }
+
     
     if (caseDocumentId) {
       const userClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
@@ -78,7 +88,7 @@ export async function handleParseDocument(req: Request): Promise<Response> {
     
     // Upload to storage — only when NOT in case_document mode
     // (CaseDocumentsTab already uploaded to bucket "case-documents")
-    if (!caseDocumentId) {
+    if (!caseDocumentId && !intakeTicket) {
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('documents')
         .upload(fileName, file);
@@ -321,6 +331,16 @@ export async function handleParseDocument(req: Request): Promise<Response> {
     // Detect document type based on content
     const docType = detectDocumentType(extractedText);
 
+    if(intakeTicket){
+      if(extractionError)return ticketUnknown();
+      return await completeIntakeTicket(intakeTicket,extractedText.substring(0,2000000),extractedText.substring(0,200000),{
+        extraction_contract:EXTRACTION_CONTRACT,text_length:Math.min(extractedText.length,2000000),
+        filename:sanitizeText(file.name),file_type:fileExt,file_size:file.size,
+        text_preview:extractedText.substring(0,500)+(extractedText.length>500?'...':''),
+        extracted_data:extractedData,detected_type:docType,tags:docType.tags,
+      });
+    }
+
     let documentId: string | null = null;
 
     if (source) {
@@ -378,6 +398,7 @@ export async function handleParseDocument(req: Request): Promise<Response> {
     );
 
   } catch (error: unknown) {
+    if(ticketRequested)return intakeTicket?ticketUnknown():ticketFailure(error);
     console.error('Parse document error:', error);
     const failure = error instanceof DocumentExtractionError ? error : new DocumentExtractionError('EXTRACTION_UNAVAILABLE',500);
     return new Response(

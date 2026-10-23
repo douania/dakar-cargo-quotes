@@ -622,7 +622,7 @@ Règles non négociables :
 - Six types de demande présents dans `src/integrations/supabase/types.ts` : `SEA_FCL_IMPORT`, `SEA_LCL_IMPORT`, `SEA_BREAKBULK_IMPORT`, `AIR_IMPORT`, `ROAD_IMPORT`, `MULTIMODAL_IMPORT`.
 - Treize packages définis dans `supabase/functions/_shared/service-scope.ts` et `src/features/quotation/constants.ts` : `DAP_PROJECT_IMPORT`, `TRANSIT_GAMBIA_ALL_IN`, `EXPORT_SENEGAL`, `BREAKBULK_PROJECT`, `AIR_IMPORT_DAP`, `LCL_IMPORT_DAP`, `TRANSIT_REGIONAL_VIA_DAKAR`, `DAP_PROJECT_IMPORT_EXW`, `AIR_IMPORT_EXW`, `LCL_IMPORT_EXW`, `AIR_IMPORT_DDP`, `LCL_IMPORT_DDP`, `DDP_PROJECT_IMPORT`. Export et transit doivent être couverts même s'ils ne constituent pas des valeurs distinctes de l'enum des demandes.
 - Trois modes terminal : `LOLO`, `RORO`, `CONRO`. Couvrir les variantes qui changent les services, bases ou résultats : incoterms proposés, origine/destination, mono/multi-lot, SOC/COC, équipements spéciaux, danger, franchises, frais partenaires, droits/taxes et ajustements commerciaux.
-- Inclure les administrations, recherches, historiques et outils actifs accessibles depuis `src/App.tsx`, notamment le chargement camion, selon leurs actions et permissions réellement proposées. Une valeur historique dormante sans action active n'impose pas l'invention d'un nouveau workflow. Aucune intégration à un logiciel tiers n'est ajoutée par ce contrat.
+- Inclure les administrations, recherches, historiques et outils actifs accessibles depuis `src/App.tsx`, selon leurs actions et permissions réellement proposées, sous la seule exception métier explicite du chargement camion avancé consignée en §2.39.5. Une valeur historique dormante sans action active n'impose pas l'invention d'un nouveau workflow. Aucune intégration à un logiciel tiers n'est ajoutée par ce contrat.
 - La matrice relie explicitement types, packages, modes et variantes aux cas de recette ; elle n'exige pas leur produit cartésien intégral. Un même cas peut couvrir plusieurs entrées si la preuve démontre chacune d'elles.
 
 #### 2.39.2 Critères obligatoires
@@ -687,6 +687,14 @@ Premier travail de suivi : construire la matrice et rattacher les preuves exista
 
 **Écart connu au cadrage** : le code de `supabase/functions/_shared/terminal-operation-mode.ts` refuse le chiffrage terminal RoRo/ConRo tant que la source canonique Dakar Terminal manque. Ce refus protège le résultat mais ne vaut pas acceptation complète de ces flux. Les cinq entrées INFO_MANQUANTE de la queue gardent leur portée ; ce contrat n'arbitre ni tarif, ni seuil de poids, ni contradiction de référentiel. Aucun nouveau verdict runtime n'a été produit ici.
 
+#### 2.39.5 Amendement métier explicite du 22 octobre 2026 — optimisation avancée des camions reportée
+
+GO utilisateur « go » après recommandation de reporter le module actuellement inutilisé et de privilégier les cotations simples. Cette décision remplace la seule inclusion du module avancé de chargement camion dans §2.39.1 : catalogue utilisé par cet outil, suggestion automatisée du nombre/type de camions, optimisation simple/génétique, placement/visualisation 3D et qualification CPU associée sont **DEFERRED_OUT_OF_V1**, sans verdict de parité opérationnelle. Le code, les preuves, les défauts et UNKNOWN existants sont conservés ; aucune extension CPU ni suppression. Une réouverture exigera un besoin réel et un GO borné.
+
+Les six types de demande, treize packages, trois modes terminal, breakbulk/project cargo, transport simple et chiffrage/validation opérateur restent dans V1 avec les treize critères inchangés. Un dossier complexe reste explicitement soumis à l'opérateur ; aucune promesse de flotte ou de placement automatisés. Ce report ne corrige aucun tarif, déficit de données, défaut des demandes simples ou écart RoRo/ConRo ; aucun UNKNOWN/FAIL n'est converti en PASS. La matrice conserve les anciennes lignes camion avec la décision datée et le statut de report, sans les compter comme recettes réussies.
+
+La page/outillage camion déployés et leurs appels restent inchangés à ce stade. Avant l'arrêt Railway, neutraliser explicitement les points d'entrée et appels du module reporté sous un lot de livraison distinct, sans masquer une fonction de transport requise. L'intake manuel reste une dépendance active jusqu'au remplacement livré et vérifié. Conservation/restauration des cinq tables et fichiers attestées avant arrêt ; sécurité des credentials et résiliation restent des décisions séparées. Cette modification de contrat n'autorise aucune action Cloud ni réception globale V1.
+
 ### 2.40 Chat/session et échanges Transport — clôture technique du 21 octobre 2026
 
 - Mandats : GO « Vas y » du 20/10 à 20:59 pour la réalisation locale ; GO du 21/10 à 12:45 pour la recette bornée, puis confirmations lecture à 16:09 et créations à 16:18. Base work/363e59d et GitHub alignés ; aucun commit/push ni publication.
@@ -703,6 +711,155 @@ Premier travail de suivi : construire la matrice et rattacher les preuves exista
 - Maintien temporaire système seul libéré le 21/10 à 16:26:09 UTC : PID5172 terminé exit 0, requête effacée/handle fermé, état système relu à 0 ; reçu C:/Users/DELL/AppData/Local/Temp/dcq-awake-work-20261021-recipe-final/status.json. Aucun réglage permanent ni autostart.
 - Aucun backend/FROZEN, schéma, RLS, migration, accès ou donnée métier réelle modifié ; seules les deux lignes de recette autorisées ont été ajoutées. Copies/.claude préservées ; frontend applicatif Lovable non redéployé. Approbation tarifaire et acceptation globale restent distinctes, sans GO de mise en service interne.
 - Retour local : retirer seulement le diff de ce lot et ses cinq nouveaux fichiers source/tests ; préserver tout delta extérieur, preuves et historiques. Ne pas supprimer les deux lignes Cloud conservées ; aucun rollback exécuté. Publication future sous GO distinct.
+
+### 2.41 Sortie Railway — préparation locale du 22 octobre 2026
+
+- GO utilisateur « oui go » du22/10 : préparer les deux remplacements sans bascule Cloud ni réduction V1 ; base principale work/e79b1c5 alignée GitHub, `.claude/` et copies préservées.
+- PARTIAL : contrats/adaptateurs explicites non raccordés, classification pure et catalogue historique repris de c34c6dc ; sources non secrètes/empreintes et oracle Python synthétique dans scripts/railway-exit.
+- Services actifs, UI, Auth/RLS, pricing/FROZEN, migrations et configuration inchangés ; aucun sélecteur de trafic activé.
+- Qualification indépendante des unités/capacités/options : résultat partiel explicite, allocations séparées d'une preuve3D ; défauts legacy surcharge et réinterprétation cm reproduits, pas validés comme parité.
+- Architecture à arbitrer : persistance intégrale intake liée au dossier/acteur (quote_cases ne suffit pas), puis port natif qualifié versus autre hébergement Python ; aucun moteur complet ni endpoint prétendu livré.
+- Conservation préparée seulement : cinq familles Postgres et références fichiers, sauvegarde privée cohérente hors Railway et restauration isolée à attester avant suppression ; contenu/runtime actuels UNKNOWN.
+- Clôture locale :60tests synthétiques PASS, hashes/fixtures/catalogue cohérents, types frontend/node et lint ciblé PASS, diff-check PASS ; contre-revue ciblée PASS après trois corrections. Reçu scripts/railway-exit/verification.json ; audit§11.
+- Aucun secret/env réel, appel applicatif/IA, export métier, commit/push, déploiement, rotation, arrêt, visibilité/réseau, suppression ni abonnement modifié. Maintien éveillé non activé.
+- L'incident reste ouvert : migration/arrêt futurs ne révoquent pas les credentials externes potentiellement exposés ; sécurisation fournisseur sous autorisation distincte.
+- Retour local : retirer seulement les nouveaux fichiers/ajouts de ce sous-lot après contrôle ; préserver anciennes copies et historiques. Arrêt réversible puis retrait destructif/abonnement restent distincts et sous accords spécifiques.
+
+### 2.42 Sortie Railway - snapshot et port natif locaux du 22 octobre 2026
+
+- GO utilisateur : les deux choix de §2.41 validés, sous préservation V1 et risque maîtrisé ; work/e79b1c5 principal aligné GitHub, modifications précédentes/.claude/copies préservées.
+- PASS préparation inactive / global PARTIAL : snapshot durable dossier/acteur et moteurs natifs simple/génétique/flotte livrés localement ; aucun raccord de trafic ni nouveau flag.
+- Migration locale `20261022130000_prepare_durable_intake_snapshot.sql` NON APPLIQUÉE : RPC JWT/admission/écriture dossier, transaction snapshot+batch canonique, rejouabilité stricte, acteur serveur, table append-only/RLS et FK RESTRICT. Auth/RLS existants inchangés.
+- Port cm/kg sans conversion implicite ; corrections source étayées poids cumulé/clearance, IDs et métriques qualifiés ; partiels explicites, allocation distincte de 3D, coûts historiques non homologués. Budget unités/camions/opérations/temps explicite sans valeur production présumée.
+- CI complète locale adaptée sans env ni transports réels : 9 portes exit0, 1 133 Vitest/82 fichiers, 2 671 Deno/0 échec/6 ignorés ; types/build PASS, Deno49/5 et lint708/16 = PASS_WITH_BASELINE. Suite ciblée132 PASS, lint ciblé sans diagnostic.
+- PostgreSQL15 synthétique :16 scénarios PASS (rollback, concurrence, droits, rejeux, données partielles/protégées), conteneur jetable réseau none/0ports/0binds/tmpfs supprimé et disparition vérifiée. Fixture minimale, pas schéma/ACL Cloud certifiés.
+- Contre-revue indépendante PASS limitée après corrections reçus/structure SQL/budgets/dossier typé ; aucune contre-exécution attribuée au relecteur. Preuves scripts/railway-exit/verification-ci.json, verification-sql.json et verification-stage2.json ; audit Railway §12, backlog DCQ-RAILWAY actualisé.
+- Sondes26T synthétiques : simple8/8 et20/20 sous budget local20M/2s ; génétique8 épuise ce budget. Raccord calcul BLOQUÉ avant qualification worker/génétique ; refus sûr ≠ parcours métier opérationnel. Reçu verification-benchmark.json.
+- Restent raccord authentifié, choix/mesure worker et ressources, politique rétention/RESTRICT, vérification baseline cible, corpus V1/recette connectée et conservation/restauration cinq tables Railway/fichiers attestées avant arrêt réversible.
+- Migration/publication/recette Cloud, bascule, export métier, rotation, arrêt, suppression et abonnement exigent leurs accords spécifiques ; aucun exécuté, aucun commit/push. Incident/credentials restent ouverts ; maintien éveillé non activé.
+- Retour avant publication : diff local ciblé seulement, sans effacer copies/historique ; après application future conserver snapshots/RLS et privilégier correction en avant, aucun DROP automatique. Arrêt réversible, suppression et résiliation restent distincts.
+
+### 2.43 Sortie Railway - qualification CPU locale du 22 octobre 2026
+
+- GO existant limité au worker/ressources/corpus V1 et optimisations étayées, sans réduction du contrat ni raccord ; work/e79b1c5 principal aligné GitHub, sous-lots précédents/.claude/copies préservés.
+- PARTIAL V1 : worker navigateur candidat inactif, quotas explicites, annulation par terminate parent, concurrence bornée et blocage après nettoyage incertain. Mémoire browser non plafonnée par API attestée ; heapV8 Node64MiB n'est pas une limite RSS.
+- Élagage à score/départage identiques ; source native stage2/bundle figés avec hashes. Optimum génétique initial sur domaine entier sûr et opt-in uniquement ; jamais pour partiel, désactivé en flotte pour préserver RNG partagé. Aucun algorithme remplacé par simple.
+- Corpus19cas synthétiques reliés aux appels V1 ; Node106mesures/74comparaisons achevées identiques/6contrôles ; supplémentflotte6mesures. Timeouts et entrées invalides conservés dans le dénominateur, pas de PASS opérationnel par refus.
+- Chrome worker Vite réel sur127.0.0.1 :20/20 simple/génétique≈426/441ms ; cas exigeant GA simple4/5, génétique30/50 dépassant2s puis5/5 en3380ms sous budget8s. Annulation vérifiée, heartbeatmax15,3ms observé localement, pas SLA.
+- Gros cas80 faisable : refus2s, simple67/80 sous8s Node, génétique encore refusé ; témoin physique80/80 indépendant, jamais sortie moteur. Flotte3D génétique également hors budget. Ces fonctions restent non qualifiées ; hausse de budget seule insuffisante comme preuve.
+- Régressions241 PASS dont109nouvelles ; CI locale complète isolée9portes exit0,1 242Vitest/83fichiers,2 671Deno/0échec/6ignorés ; types/build PASS, detteDeno49/5/lint708/16 inchangée. Échec initial setup test corrigé sans changer application/setup global, historique conservé.
+- Contre-revue indépendante code/preuves PASS limitée, aucune contre-exécution attribuée au réviseur. Audit Railway§13/backlog actualisés ; reçus verification-cpu.json, verification-fleet-cpu.json, verification-browser-worker.json, verification-cpu-witness.json, verification-ci-stage3.json et verification-stage3.json.
+- Recommandation : Dedicated Web Worker explicite hors UI pour cas mesurés ; qualifier corpus volumineux, stratégie/tâches longues et politique ressources avant bascule. Aucun quota de production, hébergement neuf ou nouveau tarif choisi.
+- Tous workers Node sortis/ACK, onglet et serveurs temporaires fermés/vérifiés ; builds/preuves conservés, aucun maintien éveillé. Retour local limité au diffCPU, préserver snapshots/migration antérieure, références et copies.
+- Aucun raccord/flag actif, secret, appel métier/IA/Cloud, migration appliquée, commit/push, déploiement, rotation, arrêt/suppression ou abonnement modifié. Gates de conservation/restauration et incident credentials inchangés ; retrait Railway toujours bloqué.
+
+### 2.44 Priorité aux cotations simples — report camion et raccord intake local du 22 octobre 2026
+
+- GO métier « go » après arbitrage : seul module avancé camion reporté hors V1, amendement §2.39.5 ; breakbulk/transport/types/packages/modes et treize critères conservés. Aucun UNKNOWN/PARTIAL transformé PASS, aucun code/preuve supprimé ni CPU étendu.
+- Dépôt principal work/e79b1c5 toujours aligné GitHub au préflight et à la clôture ; sous-lots/.claude/copies préservés, aucun commit/push.
+- PASS préparation locale inactive / sortie Railway PARTIAL : endpoint `manual-intake` requireUser + admission, dérivation serveur par propriétaires existants, RPC unique JWT snapshot+batch/faits/timeline ; aucun service_role canonique. Migration20261022130000 inchangée/non appliquée.
+- Formulaire raccordé par prop optionnelle de test seulement, jamais fournie par App : chemin par défaut inchangé. SDK installé/customFetch synthétique, refus SQLSTATE+message stricts, reçus rapprochés et UNKNOWN conservé après transport ambigu.
+- Commande/UUID en mémoire, champs verrouillés pendant pending/UNKNOWN, refus Auth ultérieur ne lève pas une incertitude ancienne ; rejeu identique, nouvelle analyse explicite alloue un nouvel UUID seulement après résolution. Aucun fallback/retry silencieux.
+- Candidat UI texte seul : fichier brut refusé, analyse document/IA gardée et désactivée ; legacy documentaire préservé. Refus sûr ne vaut pas parité du flux documentaire V1. Reprise durable reload/crash/navigation interne encore bloquante avant activation ; beforeunload est un avertissement, pas une sauvegarde.
+- Tests ciblés59 PASS dont56nouveaux ; CI complète locale isolée9portes exit0,1 298Vitest/85fichiers,2 671Deno/0échec/6ignorés ; types/build et Deno endpoint explicite PASS, dette Deno49/5/lint708/16 inchangée. Première CI échouée conservée puis corrections source/tests, sans délai augmenté.
+- SQL PostgreSQL15 jetable26scénarios PASS (16précédents+10raccord SDK/handler/RPC), vraie concurrence SQL ; fixture minimale/JWT simulé, paire SDK sérialisée explicitement. Réseau none/0port/0bind/tmpfs, conteneurs supprimés et absence vérifiée ; aucun volume métier touché.
+- Chrome155 réel : attente/UNKNOWN/verrou, rejeu au clavier puis1dossier/1UUID/2RPC, résultat partiel explicite et navigation synthétique ; action à390px accessible. Auth/DB navigateur simulés ; PostgREST/Cloud et tarification/PDF réels NOT_RUN. Capture/reçus dans scripts/railway-exit.
+- Contre-revue indépendante intégrité PASS après corrections SQLSTATE/SDK/reset/UNKNOWN/Auth/garde fichier/verrou ; aucune contre-exécution attribuée au réviseur. Audit Railway§14, guide et backlog actuels alignés ; reçu/inventaire `verification-stage4.json`.
+- Suite locale utile : reprise durable et propriétaire/garde de navigation, puis parité documentaire du candidat ; vraie recette des demandes simples jusqu'au prix/version/PDF reste requise. Pas de nouvel audit général ni moteur camion.
+- Gates externes : GO livraison Lovable ciblée/baseline ACL/rétention, migration unique/déploiement/recette synthétique nommée, inventaire et backup-restauration attestés cinq tables/fichiers, neutralisation explicite accès camion, arrêt réversible puis abonnement/destruction séparés. Conservation UNKNOWN bloque l'arrêt.
+- Aucun secret/credential, appel réel Cloud/IA, migration appliquée, export métier, déploiement, arrêt/suppression/résiliation ou accès modifié ; incident credentials ouvert/distinct. Aucun maintien éveillé activé ; onglet/serveurs locaux fermés, ports vérifiés, viewport rétabli, builds/preuves conservés.
+- Retour local : restaurer seulement le delta de ce lot depuis `task-2/manual-intake-before` après contrôle, préserver tous sous-lots/preuves et données ; aucun rollback exécuté, aucun DROP. Après adoption future conserver snapshots/histoire/protections et correction en avant.
+
+### 2.45 Reprise intake durable et préparation PJ locale — 22 octobre 2026
+
+- GO local lot5, work/e79b1c5 aligné GitHub ;48deltas antérieurs vérifiés,137fichiers copiés avant écriture, `.claude`/copies/preuves et camion reporté conservés. Aucun commit/push ou nouveau routage actif.
+- Préparation texte vérifiée, sortie Railway/PJ PARTIAL : UUID seul dans URL avant effet, source/reçu privés sous acteur/JWT côté serveur, révision CAS et commande figée ; aucun contenu/token persisté dans navigateur. Frappes non encore sauvées et perte de référence restent hors garantie.
+- Reload/navigation/remount exigent lecture explicite ; ligne absente ne recrée rien. A→B/retour, changement acteur et props instables couverts ; guards après await empêchent effets tardifs/microtâches. Reçu historique validé sans reclassement, corrections d'affichage existantes conservées.
+- Migration locale170000 après130000, NON APPLIQUÉE : opérations/étapes/journal RLS/RESTRICT/grants fermés ; prepare attesté serveur seulement. Transaction canonique snapshot+batch/faits/timeline+reçu toujours JWT utilisateur, dernier contrôle admission après verrous ; service_role limité aux attestations de journal.
+- PJ : formats legacy/10MiB, UUID/path/SHA256, upload explicite upsert:false et observation seule après UNKNOWN ; tickets opération/source/résultat, analyse liée au texte extrait, liaison case_documents+timeline+reçu atomique préparés. Storage reste hors transaction/ACL workspace inchangées, immutabilité non prouvée.
+- Parser/analyze réels NON RACCORDÉS, UI toujours texte seul, aucune PJ/IA/Cloud réelle ; ports simulés et refus sûrs ne prouvent pas parité. Écart200000caractères/262144octets et résultat fournisseur perdu avant persistance à résoudre avant activation documentaire ; aucun tarif/règle inventé.
+-32tests ciblés finaux PASS ;39scénarios PostgreSQL15 jetable PASS, suppression conteneur vérifiée ; CI9portes PASS_WITH_BASELINE (1328Vitest/2671Deno), types/build, Deno49/5 et lint708/16 inchangés ; Vitest complète finale après derniers guards1330PASS/87fichiers dans reçu stage5. Échecs initiaux conservés, baseline non modifiée.
+- Chrome155 : UNKNOWN503 simulé après commit, navigation+reload+reprise mêmeUUID →1dossier/1commit puisread, texte/corrections récupérés. Auth/registre mémoire simulés ; aucune preuve Cloud/Storage/fournisseur. Capture dans task-2 autorisé après EPERM d'écriture dans dépôt ; onglet/serveurs fermés/écoute vérifiée, pas de maintien éveillé.
+- Contre-revue indépendante statique PASS limitée, sans contre-exécution ; audit Railway§15, guide/backlog et `scripts/railway-exit/verification-stage5.json` portent changements, empreintes et limites. App et trafic existants inchangés.
+- Prochain incrément : rendre extraction/analyse existantes récupérables avec tickets/source persistés puis raccorder PJ, sans refonte générale ; recette connectée séparée jusqu'au prix/version/PDF des demandes simples. Aucune activation ni nouveau chantier camion.
+- Gates externes inchangés : GO ciblé livraison Lovable/migrations/déploiements/recette, baseline ACL/rétention et politique d'issue IA inconnue ; inventaire/export privé/restauration attestés des cinq tables+fichiers, neutralisation camion puis arrêt réversible. Conservation UNKNOWN bloque arrêt ; destruction et abonnement exigent accords distincts.
+- Aucun export réel, secret/accès modifié, appel IA réel, migration Cloud, déploiement/arrêt/suppression/résiliation ; incident credentials distinct ouvert. Rollback local borné au manifeste/copie manual-intake-stage5-before, aucune donnée ni preuve supprimée ; après adoption conserver historique/protections et correction en avant.
+
+### 2.46 PJ intake — analyse bornée avant choix de conservation, 22 octobre 2026
+
+- GO lot6 limité au raccord existant et STOP si transformation plus large ; work/e79b1c5 local/GitHub inchangé.64empreintes lot5 vérifiées et190fichiers copiés/vérifiés avant notes ; `.claude`, copies, preuves et camion reporté préservés.
+- **PENDING_DESIGN / PJ PARTIAL**, aucune implémentation engagée : standalone parse-document d'Intake conserve2Mcaractères et métadonnées, tandis que candidat limite extraction200000 et journal1MiBJSON. Aperçu500/analyse8000 ne remplacent pas cette archive ; pas de troncature ni faux PASS.
+- Sondes locales synthétiques : validateur200000 accepté,200001/2M refusés ; JSON2MASCII≈2Mioctets et Unicodeé≈4Mioctets, au-delà1MiB. Trois bornes vérifiées, pas une extraction ou recette réelle.
+- Choix proposé **archive SQL privée séparée référencée par ticket/source/hash**, texte et métadonnées conservés, sorties de reprise bornées ; alternative élargir registre JSON avec coûts de duplication/réponses/mémoire et bornes Unicode à qualifier. Aucun choix validé ou migration nouvelle préparée ici.
+- Raccord optionnel possible après choix, sans changer moteur/prompts : tags et priorité cotation/douane avant transit_order, découpe8000 et parser existants à conserver ; sources vérifiées, écritures legacy non idempotentes évitées en mode ticket.
+- CAS fournisseur avant fetch : jamais autorisé, résultat persisté ou UNKNOWN ; accusé CAS perdu/crash entre begin et fetch ne prouvent pas un appel. Aucun retry/reset implicite ; politique d'une éventuelle nouvelle tentative potentiellement facturée à valider, pas un refus permanent opérationnel.
+- Contre-revue indépendante statique cohérente avec STOP, sans tests exécutés ; contrôle diff/empreintes seulement et sondes de bornes. CI/application lot6 NOT_RUN car aucun code modifié ; tests lot5 restent historiques. Audit§16/reçu `verification-stage6-analysis.json` et guide/backlog alignés.
+- Suite utile : valider le choix de conservation et la politique UNKNOWN, puis implémenter localement le raccord borné/tester/revoir. Cloud, Auth/Storage/prix/PDF connectés et conservation-restauration réelle restent requis sous GO séparés ; aucune action externe nécessaire à cette décision locale.
+- Aucun code/migration/accès/credential/serveur/maintien éveillé modifié, commit/push, données/PJ réelles, IA payante, migration Cloud, déploiement, arrêt/résiliation/destruction. Conservation cinq tables/fichiers UNKNOWN bloque arrêt ; incident credentials distinct ouvert.
+
+### 2.47 PJ intake — archive privée et tickets backend, 22 octobre 2026
+
+- Choix SQL séparé/UNKNOWN sans relance validé ; work/e79b1c5 local/GitHub inchangé.193fichiers copiés avant lot, `.claude`, preuves/copies et camion reporté préservés ; aucun commit/push.
+- **Backend local PASS, PJ/application PARTIAL** : migration183000 candidate non appliquée, texte legacy2M unités UTF16/métadonnées/tags/analyse privés, références/empreintes seules au journal, append-only/RESTRICT et acteur/admission vérifiés après verrou. Pas de nouveau TTL/droit ni affaiblissement Auth/RLS.
+- Branches ticket parse/analyze, archive-worker et projection récupérable raccordés en API ; extraction/OCR/prompts/ordre cotation→douane→transit_order inchangés, preuve de comparaison exacte. Écran PJ non raccordé, App candidate inactive ; aucun trafic déployé modifié.
+- CAS avant fournisseur : seul started:true reçu autorise ; récupération seule ne démarre rien. Résultat persisté relu sans doublon ; UNKNOWN après perte d'accusé reste explicite, ni reset ni relance automatique/manuelle payante autorisés.
+- Coupure case200000 UTF16 : archive complète valide préservée, texte dossier NULL avec reçu unconfirmed_legacy_prefix_utf16, réserve UI à raccorder. Coupure2M invalide, gros formulaires262144octets et partage exact Cloud restent limites, aucun faux PASS.
+- **56SQL PASS** PostgreSQL15 synthétique/concurrence réelle/rollback/grants/UTF16, conteneur réseau none/0port/0bind supprimé vérifié ;10Deno ticket handlers réels/transports simulés, sans réseau.
+- **CI9portes PASS_WITH_BASELINE :1330Vitest/87fichiers,2681Deno/0échec/6ignorés** ; types/build/config/bundles PASS, Deno49/5 et lint708/16 inchangés. Revue indépendante statique PASS après corrections admission/lecture et Unicode, pas de contre-exécution.
+- Audit§17, guide/backlog et `verification-stage7.json` : fichiers/empreintes/logs, tentatives préservées et limites. Aucune recette réelle Auth/Storage/IA/prix/PDF ni preuve de tous formats ticket, aucun serveur/maintien éveillé lancé.
+- Suite utile : UI/upload PJ local synthétique et réserves, puis GO distinct SHA/commit/push, Lovable projet/env/ledger/ACL/rétention, migrations130000→170000→183000 et quatre fonctions nommées ; activation seulement après recette connectée bornée.
+- Cinq tables/fichiers Railway : inventaire/export privé/restauration attestés UNKNOWN, bloquent arrêt ; module camion seul à neutraliser ultérieurement. Arrêt réversible, suppression base/volume et abonnement distincts sous accords précis ; incident credentials distinct ouvert, aucune rotation ni action externe.
+
+### 2.48 Intake/PJ — raccord candidat local clos, 23 octobre 2026
+
+- Reprise utilisateur du lot8 interrompu : work/e79b1c5 local/GitHub inchangé,235copies avant lot et238copies de reprise vérifiées ; copies/preuves/.claude et camion reporté conservés, aucun commit/push.
+- **PASS du lot local, connecté/V1/sortie Railway PARTIAL/UNKNOWN** : écran/upload candidat reliés aux tickets/archive/projections, mêmeUUID, préremplissage durable et link vérifié séparément du dossier. App reste Intake sans injection candidate ; SQL inchangé, migrations130000/170000/183000 non appliquées.
+- Revue corrigée : fences avant upload/après save, interruption sansUUID réutilisable, octets B/A vérifiés avant submit, Nouvelle analyse efface fichier/source/analyse et crée un UUID distinct. UNKNOWN sans retry et réserve préfixe UTF16 visibles ; aucun faux succès.
+- Port SDK injectable dans recoveryUpload : JWT acteur capturé/en-tête épinglé, upsert:false et guard après Auth ; aucun client/URL par défaut. Interruption ne garantit pas annulation d'un upload déjà lancé. Pas de nouvelle audience/durée de conservation, droits collaboratifs réels UNKNOWN.
+- **70ciblés PASS**, **CI9portes PASS_WITH_BASELINE :1359Vitest/87fichiers,2681Deno/0échec/6ignorés**, types/config/bundles/build PASS ; Deno49/5 et lint708/16 inchangés.56SQL du lot7 restent historiques, non relancés car SQL identique.
+- IAB officiel, CSV+transports simulés localhost : navigation/lecture/reload après confirmation, lostlinkACK→UNKNOWN→read,1upload/1extraction/1analyse/1dossier lié ; reset→2eUUID texte seul sans réutiliser PJ. Capture bureau/mobile390, compteurs et limites en reçu. Aucun vrai Auth/Storage/IA/Cloud/prix/PDF attesté.
+- Contre-revue statique indépendante PASS, aucun test contre-exécuté. Audit ciblé2fichiers UI :5→3constats hérités/0nouvelle violation, strict exit2 faute de contrats DESIGN/UX projetés ; pas un audit général ou conformité globale.
+- Ancienport59762 et bancs51567/55352/57526 fermés vérifiés,0processbanc, onglet fermé et viewport réinitialisé ; aucun fichier supprimé/conteneur/maintien éveillé. Erreurs outils/fixtures/mocks antérieures conservées sans cause supposée.
+- Audit§18, guide/backlog et `verification-stage8.json` donnent delta/empreintes et limites. Suite : préflight Lovable droits/schema/ledger/rétention, GO publication puis trois migrations/quatre fonctions/banc privé explicites et recette connectée bornée de tous cas requis.
+- Aucune action externe exécutée. Conservation/restauration cinq tables+fichiers Railway UNKNOWN bloque arrêt ; neutralisation du seul module camion reporté, arrêt réversible, destructions et abonnement exigent accords précis. Incident credentials distinct ouvert, aucune rotation autorisée.
+
+### 2.49 Préflight Lovable métadonnées — 23 octobre 2026
+
+- GO lecture seule, connecteur officiel ; projet c3b5e3c2-511e-4e1e-b88d-a47fe5ff5aef/backend snjewofqxfsdmaszapux confirmés. Work local/GitHub/Lovable e79b1c5, aucun avancement depuis11:06 ni réconciliation ;68empreintes lot8 intactes avant notes, code/copies/.claude préservés.
+- **PARTIAL : métadonnées vérifiées, livraison/recette non autorisées**. Six SELECT comme postgres, sans contenu/secret/objet Storage/attribution de rôle ni ancienne lecture cacheIMAP ; aucun appel applicatif/IA ou écriture Cloud.
+- Ledger dernier20261020115000, zéro candidat ; six nouvelles tables/RPC absentes. Prérequis/signatures/RLS présents, PJ unique nom/dossier et faits protégés/révisions ordonnées à recetter ; pas de preuve JWT réelle.
+- Admission opérateur/admin non banni ; lecture partagée, écriture dossier créateur/assigné. Snapshot partagé vs journal/archive/reprise acteur privé : audience métier à arbitrer, aucune ouverture automatique.
+- Buckets documents/case-documents privés, fichiers case-documents partagés et supprimables par membre admis. Règles de conservation/suppression métier UNKNOWN ; RESTRICT candidats à accepter explicitement.
+- Config source parse/analyze authentifiés dans handlers ; versions binaires Edge UNKNOWN, pas de lecture dédiée exposée au connecteur. workspace_edit concerne l'éditeur, pas une preuve de droit aux données/secrets.
+- Audit§19/reçu verification-lovable-preflight.json, guide/backlog actualisés ; CI/app/SQL métier NOT_RUN sans changement code. Contre-revue ciblée des métadonnées distincte de la recette connectée.
+- Contre-revue statique PARTIAL : fixture writer18/10 sans révisions ordonnées/trigger et sans UNIQUE PJ réel ; PT409/23505 peuvent rester UNKNOWN, diagnostics/reprise non qualifiés. Alignement local synthétique à autoriser avant activation, aucun correctif dans ce tour.
+- Suite sous GO distinct : décisions audience/cycle de vie, écarts locaux§19.3, versions Edge, diff/commit/push/CI ; ledger revérifié puis migrations130000→170000→183000 et quatre fonctions exactes§19.4, banc privé injecté/recette synthétique bornée. Aucun candidat actif ni camion repris.
+- Conservation/restauration cinq tables Railway UNKNOWN bloque arrêt/résiliation ; incident credentials ouvert. Aucun commit/push/déploiement/migration appliquée/rotation/arrêt dans ce tour.
+
+### 2.50 Collaboration intake et conflits attestés — 23 octobre 2026
+
+- GO local : lecture équipe autorisée au dossier, reprise créateur/assigné, aucune purge ajoutée. Work/e79b1c5 local/GitHub inchangé ;292copies avant lot vérifiées, .claude/copies/preuves et camion reporté conservés.
+- **PASS local, connecté/V1/retrait PARTIAL/UNKNOWN** : candidats170000/183000 adaptés,130000 inchangé, jamais appliqués Cloud ; App/candidat/flags déployés inchangés.
+- Rattachement par snapshot exact/receipt/source/classification/batch/origine ; UUID seul insuffisant. Avant dossier attesté, origine seule ; reprise collaborative de brouillon non prise en charge sans décision distincte.
+- Lecture archives/reprise selon case-read, mutations permises selon case-write courant/état figé, verrous op→SIFB→case→admission et relecture après attente. Origine immuable, viewer JWT, reprise sans SIFB nouveau, trace acteur courant ; uploaded_by origine/linked_by distinct.
+- PT409/23505 attestés reconnus par diagnostics bornés ; marqueurs non fiables/transport restent UNKNOWN. Refus courant n'efface pas une incertitude ni dossier antérieurs, collision PJ sans adoption/écrasement.
+- **80SQL locaux PASS dont14nouveaux**,87colonnes/42contraintes/27policies/7MD5 capturés égaux ; HTTParchive2MUnicode, conflits réels, accusé perdu, double lien et assignation/révocation concurrentes.
+- **CI9portes PASS_WITH_BASELINE :1377Vitest/88fichiers,2681Deno/0échec/6ignorés**, types Deno49/5 et lint708/16 inchangés.18nouvelles régressions ;65ciblés refusPASS, ancien guard23505 rétabli après FAIL conservé.
+- Contre-revue indépendante finale PASS borné, sans contre-exécution. Docker29.8 disponible après lancement normal/confirmation, conteneurs propres supprimés/vérifiés, liste étiquetée vide,0processus de banc/CI ; Desktop utilisateur laissé ouvert.
+- Limites modèle/defaults/enum/FK/MAINTAIN/Auth-Storage-IA et cas Unicode/gros formulaires conservées ;80PASS ne valent ni recette Cloud ni réception V1. Aucun secret/donnée réelle/IA/provider appelé.
+- Audit§20/reçu verification-stage10.json, guide/backlog actualisés. Suite sous GO précis : diff/commit/push/CI, préflight versionsEdge/ledger puis trois migrations/quatre fonctions exactes§20.3, accès en ligne à confirmer, banc privé/recette synthétique nommés.
+- Suppression/conservation manuelle reste à décider, aucune purge inventée ; cinq tables Railway/restauration UNKNOWN bloquent arrêt, credentials ouvert. Aucun commit/push/Cloud/accès réel/arrêt/résiliation dans ce lot.
+
+## 2.51 Publication ciblée du candidat intake — 23 octobre 2026
+
+GO commit/push work/CI/synchronisation reçu, conditionné à zéro migration/déploiement Edge/accès/activation implicite ; préparation sur e79b1c5 local/GitHub/Lovable alignés.
+Paquet explicite44fichiers, imports et inactivité contre-revus ; camion/CPU/.claude/copies de preuves/métadonnées connectées exclus et préservés.
+CI distant unique contrôles/build, zéro webhook de dépôt, hooks locaux samples ; documentation officielle Lovable : sync ne déploie pas Edge, n'applique pas les migrations et ne publie pas. Preview/build frontend distincts.
+Trois SQL toujours candidats NON APPLIQUÉS, quatre fonctions sources seulement ; App n'injecte pas le candidat, Railway reste inchangé.
+CI1377Vitest/2681Deno et80SQL sont preuves historiques du checkout complet ; aucune réattribution au paquet. Tentative CI export isolé NOT_RUN (lien refusé, aucun test lancé), conservée sans contournement.
+Audit§21 et reçu hors Git publication-stage11 : inventaire/empreintes, résultat réel du push/CI et réception source Lovable ; source/build/publication/servi distingués.
+Prochain lot externe sous GO précis : §20.3 audit, confirmation des accès préparés puis3migrations/4fonctions/recette synthétique ; aucune action sensible autorisée par le présent push.
+Conservation/restauration Railway UNKNOWN bloque arrêt/résiliation ; credentials distincts ouverts. Pas de nouveau chantier camion.
 
 ## 3. Travaux vérifiés comme terminés
 
