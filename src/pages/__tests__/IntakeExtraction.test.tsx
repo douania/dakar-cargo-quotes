@@ -1,5 +1,5 @@
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
-import {render,screen,waitFor,cleanup} from '@testing-library/react';
+import {render,screen,waitFor,cleanup,fireEvent} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Intake from '../Intake';
 const m=vi.hoisted(()=>({create:vi.fn(),invoke:vi.fn(),from:vi.fn(),upload:vi.fn(),navigate:vi.fn()}));
@@ -29,4 +29,27 @@ it('post-creation extraction failure preserves the created case, critical facts 
 it('failed file persistence is not described as a conserved document and never recreates the case',async()=>{
   m.upload.mockResolvedValue({error:new Error('synthetic upload failure')});render(<Intake/>);await file();await userEvent.type(screen.getByPlaceholderText(/Exemple:/), 'Demande synthétique de livraison de cinq colis vers Dakar.');await userEvent.click(screen.getByRole('button',{name:'Analyser la demande'}));
   await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('ajout du document non confirmé'));expect(m.create).toHaveBeenCalledTimes(1);expect(fetchMock).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Ouvrir le dossier'})).toBeEnabled();
+});
+
+it('plain text declared total weight reaches the existing atomic batch without file or AI',async()=>{
+  const text="RECETTE SYNTHETIQUE - AUCUN ENVOI CLIENT. Demande de cotation DAP pour un conteneur 20 pieds standard (20DV), COC, marchandises non dangereuses, 5 000 kg au total. Origine Shanghai, arrivée au port de Dakar, livraison à Dakar. Les tarifs et frais doivent être vérifiés par l’opérateur ; aucun tarif ne doit être inventé. Référence DCQ-SIMPLE-20261026.";
+  m.create.mockResolvedValue({...result,workflow_key:'WF_SIMPLE_QUOTE',missing_fields:[{field:'cargo.weight',question:'Poids total ?',priority:'high'}]});
+  render(<Intake/>);fireEvent.change(screen.getByLabelText('Texte de la demande'),{target:{value:text}});
+  await userEvent.click(screen.getByRole('button',{name:'Analyser la demande'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Ouvrir le dossier'})).toBeEnabled());
+  expect(m.create).toHaveBeenCalledExactlyOnceWith({source:{type:'email_text',text}});
+  expect(m.invoke).toHaveBeenCalledExactlyOnceWith('set-intake-facts-batch',{body:expect.objectContaining({source_type:'email_body',facts:expect.arrayContaining([{fact_key:'cargo.weight_kg',value_number:5000}])})});
+  expect(screen.getByText(/poids total : 5[ \u00a0\u202f]000 kg/)).toBeVisible();
+  expect(screen.queryByText('Poids total ?')).not.toBeInTheDocument();
+  expect(m.upload).not.toHaveBeenCalled();expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('ambiguous text totals stay absent from the atomic batch with visible correction guidance',async()=>{
+  render(<Intake/>);fireEvent.change(screen.getByLabelText('Texte de la demande'),{target:{value:'1 conteneur 20 pieds. Poids total : 5 t / 6 t.'}});
+  await userEvent.click(screen.getByRole('button',{name:'Analyser la demande'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Ouvrir le dossier'})).toBeEnabled());
+  expect(screen.getByText(/Poids total non repris/)).toBeVisible();
+  const batch=m.invoke.mock.calls.find(([name])=>name==='set-intake-facts-batch')![1].body;
+  expect(batch.facts.some((fact:{fact_key:string})=>fact.fact_key==='cargo.weight_kg')).toBe(false);
+  expect(m.create).toHaveBeenCalledTimes(1);expect(m.upload).not.toHaveBeenCalled();expect(fetchMock).not.toHaveBeenCalled();
 });

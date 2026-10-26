@@ -31,6 +31,7 @@ import {
   resolveContainerPlan,
 } from "@/lib/intakeTextOverrides";
 import { buildIntakeFactBatch } from "@/lib/intakeFactBatch";
+import { mergeDeclaredIntakeWeight } from "@/lib/intakeTextWeight";
 import { extractionPayload } from '@/lib/documentExtraction';
 
 import type { ManualIntakeForm } from "@/services/railwayReplacement/manualIntakeCommand";
@@ -390,7 +391,16 @@ export default function Intake({ manualCandidate, restoredForm, restoredResult, 
       const textOverrides = parseTextOverrides(text);
 
       // Correct assumptions using extracted analysis data + operator overrides
-      const correctedData = correctAssumptions(data, extractedAnalysis, textOverrides);
+      // Current Railway route only. Keep the suspended candidate's immutable
+      // snapshot/bundle untouched; the batch source flag still describes text.
+      const textWeight = manualCandidate
+        ? { analysis: extractedAnalysis, ambiguous: false }
+        : mergeDeclaredIntakeWeight(text, extractedAnalysis);
+      const corrected = correctAssumptions(data, textWeight.analysis, textOverrides);
+      const correctedData = textWeight.ambiguous ? { ...corrected, assumptions: [
+        ...(corrected.assumptions || []),
+        "Poids total non repris : déclaration ambiguë ou hors limites. Précisez un poids total unique avec son unité.",
+      ] } : corrected;
 
       if (data.case_id) {
         // Step A: create/retrieve the canonical case AND persist every intake
@@ -402,7 +412,7 @@ export default function Intake({ manualCandidate, restoredForm, restoredResult, 
         const factBatch = buildIntakeFactBatch({
           caseId: data.case_id,
           text,
-          analysis: extractedAnalysis,
+          analysis: textWeight.analysis,
           textOverrides,
           hasExtractedDocument: Boolean(extractedAnalysis || extractionSource),
           workflowKey: data.workflow_key || null,

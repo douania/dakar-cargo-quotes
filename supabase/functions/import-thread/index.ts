@@ -7,6 +7,8 @@ import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import { assertImportSearchIdentity, imapAccountKey, imapAccountSnapshot, ImportIdentityConflict } from "../_shared/imap-import-identity.ts";
 import { requireImapCommandOk, searchFetchMessages } from "../_shared/imap-subject-search.ts";
 
+import { candidateLearningData, previousLearningSources, type LearningSource } from "./learning-evidence.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -51,7 +53,14 @@ Analyse cet échange d'emails complet et extrais les connaissances suivantes:
    - Types de marchandises traitées
    - Codes SH mentionnés
    - Volumes/poids typiques
-   Format: { description, code_sh, volume, poids, conditionnement }
+   Format: { description, code_sh, volume, poids, conditionnement, weight_scope, dimensions_scope }
+
+RÈGLES DE PREUVE :
+- Ne complète pas les informations absentes : un nombre de pièces ne prouve pas « cartons ».
+- Garde poids et dimensions tels que déclarés. Sans mention explicite « total » ou « par colis », weight_scope et dimensions_scope restent null. Ne multiplie pas et ne calcule pas de total implicite.
+- Pour chaque champ de data, ajoute evidence avec status explicit|inferred|unknown, source_email_id et source_excerpt exact. Une information inférée doit être marquée inferred ; une information absente reste null/unknown.
+- Le résumé et la description sont des propositions IA : ils doivent conserver les ambiguïtés, sans convertir les valeurs déclarées en faits plus précis.
+- La confiance n'est pas une approbation métier. Un prix observé dans un échange n'est jamais un tarif homologué.
 
 Réponds UNIQUEMENT avec un JSON valide au format:
 {
@@ -62,6 +71,7 @@ Réponds UNIQUEMENT avec un JSON valide au format:
       "name": "Nom court descriptif",
       "description": "Description détaillée",
       "data": { ... données structurées ... },
+      "evidence": { "champ_data": { "status": "explicit|inferred|unknown", "source_email_id": "id exact", "source_excerpt": "extrait exact" } },
       "confidence": 0.0-1.0
     }
   ],
@@ -985,6 +995,7 @@ async function analyzeThreadWithAI(emails: any[], attachmentTexts: string[], sup
 
   let threadContent = sortedEmails.map((email, idx) => `
 --- EMAIL ${idx + 1}/${sortedEmails.length} ---
+SOURCE_EMAIL_ID: ${email.id}
 DATE: ${email.sent_at}
 DE: ${email.from_address}
 À: ${email.to_addresses?.join(', ') || 'N/A'}
@@ -1044,11 +1055,12 @@ ${email.body_text || '(Pas de contenu texte)'}
   }
 }
 
-async function storeExtractedKnowledge(
+export async function storeExtractedKnowledge(
   analysis: any, 
   threadId: string, 
   emailIds: string[], 
-  supabase: any
+  supabase: any,
+  sources: LearningSource[] = [],
 ): Promise<number> {
   if (!analysis || !analysis.extractions || analysis.extractions.length === 0) {
     return 0;
@@ -1057,31 +1069,40 @@ async function storeExtractedKnowledge(
   let stored = 0;
 
   for (const extraction of analysis.extractions) {
-    if (extraction.confidence < 0.3) {
+    if (typeof extraction.confidence !== "number" || !Number.isFinite(extraction.confidence) || extraction.confidence < 0.3 || extraction.confidence > 1) {
       console.log(`Skipping low confidence extraction: ${extraction.name}`);
       continue;
     }
 
     // Check for existing similar knowledge
-    const { data: existing } = await supabase
+    const { data: existing, error: lookupError } = await supabase
       .from('learned_knowledge')
-      .select('id, confidence')
+      .select('id, confidence, is_validated, data, source_id')
       .eq('category', extraction.category)
       .eq('name', extraction.name)
       .maybeSingle();
 
+    if (lookupError) {
+      console.warn('Knowledge lookup incomplete; candidate not written');
+      continue;
+    }
+    const candidateData = candidateLearningData(extraction, sources, threadId, emailIds);
     if (existing) {
-      if (extraction.confidence > existing.confidence) {
+      // is_validated is reusable knowledge approval, not model confidence.
+      if (existing.is_validated !== true && extraction.confidence > existing.confidence) {
         await supabase
           .from('learned_knowledge')
           .update({
-            data: extraction.data,
+            data: { ...candidateData, prior_source_history: previousLearningSources(existing) },
+            source_id: emailIds[0],
             confidence: extraction.confidence,
             description: extraction.description,
             updated_at: new Date().toISOString()
           })
-          .eq('id', existing.id);
-        console.log(`Updated knowledge: ${extraction.name}`);
+          .eq('id', existing.id)
+          .eq('is_validated', false)
+          .eq('confidence', existing.confidence);
+        console.log(`Candidate knowledge update attempted: ${extraction.name}`);
       }
       continue;
     }
@@ -1092,15 +1113,11 @@ async function storeExtractedKnowledge(
         category: extraction.category,
         name: extraction.name,
         description: extraction.description,
-        data: {
-          ...extraction.data,
-          source_thread_id: threadId,
-          source_email_ids: emailIds
-        },
+        data: candidateData,
         source_type: 'email_thread',
         source_id: emailIds[0],
         confidence: extraction.confidence,
-        is_validated: extraction.confidence >= 0.8
+        is_validated: false
       });
 
     if (!error) {
@@ -1429,17 +1446,18 @@ export const handler = async (req: Request) => {
         knowledgeStored = await storeExtractedKnowledge(
           analysisResult, 
           threadId!, 
-          allEmailIds, 
-          supabase
+          allEmailIds,
+          supabase,
+          allEmailsForAnalysis,
         );
 
         // Create/update main thread knowledge entry with analysis summary
         const threadKnowledgeName = `Échange: ${allEmailsForAnalysis[0]?.subject?.substring(0, 80) || 'Sans titre'}`;
         
         // Check if thread knowledge already exists
-        const { data: existingKnowledge } = await supabase
+        const { data: existingKnowledge, error: summaryLookupError } = await supabase
           .from('learned_knowledge')
-          .select('id')
+          .select('id, is_validated')
           .eq('name', threadKnowledgeName)
           .eq('category', 'quotation_exchange')
           .maybeSingle();
@@ -1462,19 +1480,25 @@ export const handler = async (req: Request) => {
             quotation_amount: analysisResult.quotation_amount,
             client_satisfaction: analysisResult.client_satisfaction,
             extractions_count: analysisResult.extractions?.length || 0,
-            attachments_analyzed: allAttachmentTexts.length
+            attachments_analyzed: allAttachmentTexts.length,
+            summary_status: 'ai_generated_unreviewed',
           },
           confidence: 0.7,
           is_validated: false,
           updated_at: new Date().toISOString()
         };
 
-        if (existingKnowledge) {
-          await supabase
-            .from('learned_knowledge')
-            .update(threadKnowledgeData)
-            .eq('id', existingKnowledge.id);
-          console.log('Updated existing thread knowledge');
+        if (summaryLookupError) {
+          console.warn('Thread knowledge lookup incomplete; summary not written');
+        } else if (existingKnowledge) {
+          if (existingKnowledge.is_validated !== true) {
+            await supabase
+              .from('learned_knowledge')
+              .update(threadKnowledgeData)
+              .eq('id', existingKnowledge.id)
+              .eq('is_validated', false);
+            console.log('Candidate thread summary update attempted');
+          }
         } else {
           await supabase.from('learned_knowledge').insert(threadKnowledgeData);
           console.log('Created new thread knowledge');
@@ -1490,6 +1514,7 @@ export const handler = async (req: Request) => {
                 ai_analyzed: true,
                 analyzed_at: new Date().toISOString(),
                 thread_summary: analysisResult.summary,
+                thread_summary_status: 'ai_generated_unreviewed',
                 learning_case: learningCase
               }
             })

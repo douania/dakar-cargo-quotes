@@ -13,7 +13,7 @@ const identity = { configId: config.id, accountKey: await imapAccountKey(config)
   messages: messages.map(({uid,messageId}) => ({uid,messageId})),
 };
 
-async function fixture(options: { identity?: unknown; root?: string; validity?: number; rpcError?: {code: string}; headerId?: string; headerRoot?: string; fetchedId?: string; mixed?: boolean } = {}) {
+async function fixture(options: { identity?: unknown; root?: string; validity?: number; rpcError?: {code: string}; headerId?: string; headerRoot?: string; fetchedId?: string; mixed?: boolean; summaryState?: 'approved' | 'pending' | 'concurrent' } = {}) {
   const env = ['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY','LOVABLE_API_KEY'];
   const previous = env.map(key => Deno.env.get(key));
   env.forEach((key,i) => Deno.env.set(key, ['https://fixture.invalid','fixture-anon','fixture-service','fixture-only-ai-key'][i]));
@@ -69,7 +69,11 @@ async function fixture(options: { identity?: unknown; root?: string; validity?: 
     if(options.mixed && url.pathname.endsWith('/email_attachments') && method==='POST') {
       assertEquals(payload.email_id,'fixture-email-3'); return json({id:'fixture-new-attachment',...payload});
     }
-    if(options.mixed && url.pathname.endsWith('/learned_knowledge')) return json(method==='GET'?[]:null);
+    if(options.mixed && url.pathname.endsWith('/learned_knowledge')) {
+      if (options.summaryState && method === 'GET') return json({id:'synthetic-summary',is_validated:options.summaryState === 'approved'});
+      if (options.summaryState && method === 'PATCH') assertEquals(url.searchParams.get('is_validated'),'eq.false','Summary update must guard concurrent approval');
+      return json(method==='GET'?[]:null);
+    }
     throw new Error(`Unexpected request ${method} ${url.pathname}`);
   };
   try {
@@ -142,4 +146,17 @@ Deno.test('import transport: UID FETCH cannot substitute another UID',async()=>{
   const client=new IMAPClient('fixture.invalid'); const raw='Message-ID: <root@example.invalid>\r\n\r\n';
   Object.assign(client,{sendCommand:()=>Promise.resolve(`* 1 FETCH (UID 102 BODY[HEADER.FIELDS (MESSAGE-ID)] {${raw.length}}\r\n${raw})\r\nA1 OK done\r\n`)});
   await assertRejects(()=>client.fetchHeaders(101),Error,'UID retourné');
+});
+
+Deno.test('import learning: an approved thread summary is neither overwritten nor devalidated', async () => {
+  const r = await fixture({mixed:true, summaryState:'approved'});
+  assertEquals(r.status,200);
+  assertEquals(r.requests.some(q=>q.path.endsWith('/learned_knowledge') && q.method==='PATCH'),false);
+});
+Deno.test('import learning: a pending thread summary update is approval guarded', async () => {
+  const r = await fixture({mixed:true, summaryState:'concurrent'});
+  assertEquals(r.status,200);
+  const updates=r.requests.filter(q=>q.path.endsWith('/learned_knowledge') && q.method==='PATCH');
+  assertEquals(updates.length,1);
+  assertEquals(new URLSearchParams(updates[0].query).get('is_validated'),'eq.false');
 });

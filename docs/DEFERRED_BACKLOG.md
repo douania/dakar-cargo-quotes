@@ -8,6 +8,13 @@ Source de vérité unique de tous les sujets volontairement reportés, laissés 
 
 > **Sujets ouverts restants** : `MAPPING-TAX-CHAIN-0` reste **OUVERT** pour arbitrage CTO (voir note d'audit V2 conservée plus bas dans ce header). `EMAIL-INGEST-SECURITY-1` reste **OUVERT** — contient deux items de gravité élevée (S0, S1) volontairement différés par décision CTO du 2026-09-11. `TRANSPORT-SPECIAL-CASE-1` reste **OUVERT** — le barème de livraison sature au tarif 40 pieds et ne sait pas exprimer un convoi exceptionnel.
 
+### KNOWLEDGE-AI-APPROVAL-1 — CORRIGÉ LOCAL / RUNTIME OUVERT — 26 octobre 2026
+
+- R02/P05 a montré poids total/cartons/portée dimensions inférés, puis learned_knowledge validée par confiance seule. Roadmap §2.54 : import-thread local protège l'approbation et les connaissances/résumés existants ; données conservées comme candidates, preuve littérale liée à la source ou inferred/unknown, concurrence et provenance testées.
+- 54 ciblés, 2720 Deno/6 ignorés, 1416 Vitest PASS ; contre-revue indépendante PASS. Aucun nouveau tarif, calcul, fait dossier ou composant FROZEN modifié ; ne pas imposer une revue manuelle de toutes les données explicites pour le parcours dossier.
+- Restent : publication sous GO distinct, traitement humain autorisé des anciennes connaissances erronées ; aucun retraitement du fil réel. Chat consomme aussi les candidats et learn-from-content garde une auto-validation analogue hors lot : pas de garantie globale sur tous les écrivains ou tout l'historique. Les réserves métier du cas et la recette jusqu'au devis restent ouvertes.
+- Aucun Cloud, accès, migration ou publication dans le sous-lot local ; preuves/sauvegardes privées real-r02-20261026/local-knowledge-fix sous task-2, base work/15f8ea22 inchangée. Railway et ses autres réserves demeurent distincts.
+
 ### TRANSPORT-SPECIAL-CASE-1 — DEFERRED / OUVERT
 
 | Champ | Valeur |
@@ -1246,6 +1253,10 @@ Lot collaboration/conflits du23/10 : **PASS local ; connecté/V1/retrait PARTIAL
 
 ### DCQ-RAILWAY-INTAKE-MIGRATION
 
+Point26/10 : intake réel synthétique unique conservé (2c226550-afd5-4719-bdac-a905d43cb46a), six faits persistés ; correction locale poids texte testée, détails roadmap§2.53. Aucun candidat/bundle/SQL de migration modifié, aucune réactivation. Versions/PDF connectés NOT_RUN, budget IA total1USD non borné bloque la suite IA ; ne pas rejouer le batch existant ou créer un autre dossier. Les suites historiques ci-dessous restent suspendues.
+
+Décision24-26/10 prioritaire : migration PAUSED, Railway conservé ; suite locale devis simple§2.53, aucune livraison Cloud. Historique et code candidat préservés ; les suites proposées ci-dessous ne sont plus une instruction de reprise.
+
 Correctif même livraison23/10 : BufferSource entre contextes démontré et vue typée conservant les octets,137ciblés/CI locale PASS, revue bornée PASS ; audit§21.2/roadmap§2.52 et reçu intake-crypto-stage12/result.json pour SHA/CI/sync réels. Aucun test retiré ni activation/SQL/accès/Edge manuel/Railway ; arrêt toujours bloqué par conservation/restauration UNKNOWN.
 
 Résultat23/10 (note locale) : commit6740f7d poussé/reçu Lovable, CI39997660575 FAIL terminal sur Vitest PJ/WebCrypto. Intake candidat non activé, trois SQL non appliqués confirmés par ledger ; correctif CI borné à autoriser avant toute livraison Cloud/recette. Audit§21.1/reçu publication-stage11 ; arrêt Railway toujours bloqué.
@@ -1256,13 +1267,14 @@ Publication candidate23/10 : GO ciblé44fichiers, audit Railway§21/roadmap§2.5
 |-------|--------|
 | **ID** | `DCQ-RAILWAY-INTAKE-MIGRATION` |
 | **Catégorie** | Infrastructure / Migration |
-| **Statut** | `🟡 AUDIT-DONE / AWAITING PHASE 1` |
-| **Priorité** | P1 |
+| **Statut** | `PAUSED / RAILWAY MAINTENU` (décision24-26/10/2026) |
+| **Priorité** | Différé ; priorité au devis simple courant |
 | **Phase d'origine** | DCQ-RAILWAY-BOUNDARY-AUDIT (2026-05-13) |
 | **Date** | 2026-05-13 |
 | **Constat** | Audit DCQ-RAILWAY-BOUNDARY-AUDIT livré et accepté. `createIntake` dans `src/services/railwayApi.ts` reste ACTIF — seul consommateur = `src/pages/Intake.tsx`. Pipeline email/import/pricing est 100% indépendant de Railway. |
-| **Déclencheur de réouverture** | GO local du22/10 reçu ; suite UI/reprise locale puis publication/recette connectée sous GO précis. |
-| **Recommandation** | Raccord écran/upload PJ candidat terminé et inactif (audit§18/reçu stage8), port SDK/JWT explicitement injectable ; aucun nouveau chantier local ou camion à lancer par défaut. Collaboration liée au dossier validée/préparée et conflits qualifiés localement (audit§20) ; préciser cycle de suppression/conservation manuelle, vérifier versions Edge/ledger puis soumettre diff/commit/push/CI, trois migrations/quatre fonctions exactes§20.3 et accès en ligne/banc privé sous GO précis, recette synthétique Auth-Storage-formats-OCR-IA-prix-version-PDF. Aucun flag/App actif ni fallback ; limites2MUnicode/gros formulaire/UNKNOWN conservées. Après équivalence seulement, conservation/restauration cinq tables+fichiers attestées avant arrêt réversible ; destructions/abonnement distincts. |
+| **Déclencheur de réouverture** | Nouvelle comparaison et GO explicite après preuve du besoin ; aucun GO historique ne permet de reprendre la migration. |
+| **Recommandation** | Conserver Railway (20USD/mois usage inclus, reçus attestés par parent), préserver candidat/preuves sans l’activer. Valider d’abord un devis simple sur le parcours actuel ; suivi roadmap§2.53. Conservation/restauration et incident credentials restent distincts, aucune suppression/rotation/arrêt autorisés. |
+
 
 ### DCQ-RAILWAY-TRUCK-LOADING-AUDIT
 

@@ -873,6 +873,30 @@ Linux/jsdom/Vitest complet local NOT_RUN : copie Docker refusée sur rootfs read
 Publication corrective ciblée sous même GO ; nouveauSHA/CI/sync effectifs dans intake-crypto-stage12/result.json hors Git, audit§21.2. FAIL39997660575 conservé.
 Candidat toujours inactif, migrations/accès/Edge/Cloud métier/Railway inchangés ; prochain externe§20.3 seulement après CI verte/GO précis. Conservation/restauration UNKNOWN et credentials ouverts.
 
+## 2.53 Devis simple courant, Railway conservé — 26 octobre 2026
+
+- GO local puis recette synthétique unique, plafond IA TOTAL 1 USD ; migration suspendue, abonnement20USD/mois attesté par parent, camion avancé seul différé. Work/origin15f8ea22f204f2da553918889e3b74a0eec3deda inchangés, aucun push.
+- Premiers contrôles :63Deno/82Vitest PASS, diagnostic avec Auth/SQL/Storage/pricing simulés3180→4360XOF,1révision/2versions/v1 intacte et PDF réel v2/DRAFT rendu ; aucune homologation de ces prix fictifs ni recette complète démontrée.
+- Recette réelle : une soumission, dossier2c226550-afd5-4719-bdac-a905d43cb46a, six faits email_body à0,70 relus après reload/SQL, deux événements, zéro document/version/PDF/correction commerciale. Source Railway c34c6dc1 attestée dans Details, intake sans IA ; aucun envoi ni doublon.
+- Défaut texte reproduit : poids absent car seulement analysis.weight_kg lu ; autres limites : origine non structurée, DAP/DG/COC hors allowlist, package/commodity à compléter. Analyse sans email/PJ bloquée volontairement ; extrait400caractères insuffisant, aucune garde déverrouillée.
+- Patch local minimal : nouveau helper de poids total explicite dans le seul handler Intake actuel ; affichage/batch cohérents, provenance honnête, ambiguïté/réserve/négation/multiples/unité non admise sans fallback documentaire. Pas de somme/poids unitaire/capacité inférés. Bibliothèques/bundles candidat, SQL et FROZEN inchangés.
+- Régression avant FAIL attestée ; finale 1416Vitest/90fichiers PASS, types app/node/build isolé PASS, revue indépendante PASS borné ; lint baseline dans result.json. Backend CI complet et navigateur post-patch NOT_RUN ; preuve locale distincte du dossier connecté antérieur au patch.
+- Lecture référentiel limitée au cas : zéro alias validé/direct pour « marchandises non dangereuses » ; pas de désignation précise/tarif inventé. Fallback Gemini possible, borne totale non attestée ; aucun appel IA lancé pour obtenir un PASS, budget inchangé.
+- Suite sous GO publication frontend distinct, puis compléments opérateur explicites sur le même dossier et vérification tarifs/borne IA ; pas de rejoue du batch avec nouveaux faits ni deuxième dossier. Ce chemin ne valide pas rétroactivement une nouvelle création corrigée ; versions/PDF connectés NOT_RUN.
+- Guide/backlog actualisés et copies avant préservées ;129anciens non suivis +2nouveaux code/tests. Preuves C:/Users/DELL/Documents/Codex/2026-10-22/task-2/simple-quote-20261026/connected-receipt.json et text-weight-fix/result.json ; aucun processus temporaire créé, aucun Cloud mutatif dans le sous-lot correctif. Railway conservé, conservation/restauration UNKNOWN, credentials ouvert.
+
+## 2.54 Import réel R02 et connaissances IA candidates — 26 octobre 2026
+
+- GO utilisateur distinct : import du seul message réel R02/P05, analyse texte unique, deux images privées autorisées sans analyse PJ ; exécuté avant ce correctif, persistance/lecture attestées. Aucun dossier créé par Traiter, devis, envoi ni coût facturé attesté ; import non rejoué.
+- Défaut constaté : poids ambigu devenu total, dimensions par colis et cartons inférés ; trois connaissances marquées validées par confiance seule. learned_knowledge.is_validated ouvre des références tarifaires/templates et badges UI ; distinct de quote_facts.is_validated et de l'extraction/readiness du dossier.
+- GO local correctif : candidat IA non approuvé quel que soit son score ; valeurs utiles conservées, preuve source/extrait littéral vérifiable par champ ou inferred/unknown, portées inconnues conservées. literal_match_only n'est ni certification sémantique ni décision humaine ; descriptions/résumés restent candidats.
+- Connaissances et résumés approuvés préservés ; PATCH candidat gardé atomiquement par is_validated=false (et ancienne confiance pour extraction). Provenance actuelle et attribution précédente conservées ; champs de provenance forgés par le modèle écartés, erreur de lookup sans insert de repli.
+- Avant : trois régressions synthétiques FAIL ; finale 54 tests import ciblés PASS, 2720 Deno/0 échec/6 ignorés et 1416 Vitest/90 fichiers PASS. Types app/node, config/bundles et build isolé PASS ; types Deno 49/5 baseline inchangée après correction de typage du test. Contre-revue indépendante PASS, 20 contrôles propres en mémoire.
+- Limites : chat lit aussi des candidats ; learn-from-content conserve un autre écrivain automatique hors trajet traité ; aucune réhabilitation ou réparation de l'historique Cloud. Aucun champ dossier, règle, tarif, calcul, composant FROZEN, Auth/RLS ou schéma modifié. Cela n'impose pas la validation manuelle de chaque donnée explicite du dossier.
+- Dépôt principal work/origin 15f8ea22f204f2da553918889e3b74a0eec3deda inchangés ; correctif poids, trois documents antérieurs, copies et .claude préservés. Quatre fichiers import-thread et ces trois notes seulement ; pas de commit/push/déploiement/migration/appel IA dans le sous-lot local.
+- Preuves privées et sauvegardes : C:/Users/DELL/Documents/Codex/2026-10-22/task-2/real-r02-20261026/local-knowledge-fix/. Échec initial de types conservé, porte finale corrigée distincte ; aucun contenu réel recopié dans les fixtures/Git. Retour arrière : restaurer uniquement ce diff, sans annuler le correctif poids ni les autres travaux.
+- Suite : GO de publication ciblée distinct ; ancienne connaissance réelle inchangée. Avant prochaine analyse réelle, préciser les inconnus utiles et autoriser séparément création/reprise du dossier et budget IA. Aucun devis connecté validé ; Railway conservé, migration suspendue, credentials distinct ouvert.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations
