@@ -25,7 +25,40 @@ export interface LocationProof {
  sources:Array<{id:string;kind:LocationSource['kind'];sha256:string}>;
  locationId:string|null;locationType:string|null;
 }
-const normalize=(value:string)=>value.toUpperCase().replace(/\s+/g,' ').trim();
+// Evidence comparison view only: decode valid UTF8 byte sequences retained as
+// Latin-1 codepoints by legacy mail ingestion. Raw source and its hash stay intact.
+const evidenceText=(value:string)=>value.replace(/[\u00c2-\u00f4][\u0080-\u00bf]+/g,bytes=>{
+ try{return new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(bytes,c=>c.charCodeAt(0)));}catch{return bytes;}
+}).normalize('NFC');
+const normalize=(value:string)=>evidenceText(value).toUpperCase().replace(/\s+/g,' ').trim();
+const regexLiteral=(value:string)=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const countryText=(value:string)=>normalize(value).normalize('NFD').replace(/\p{M}/gu,'');
+// One explicitly labelled address line only. A city mentioned in a street or
+// signature is not the final city; country and terminal position must agree.
+const addressBlocks=(value:string)=>[...value.matchAll(/(?:^|\n)[ \t]*(?:delivery address|delivery adress|adresse de livraison)[ \t]*:[ \t]*(?:\r?\n[ \t]*)?([^\r\n]+)/gi)];
+async function explicitAddressCity(client:SupabaseClient,value:string,excerpt:string,sources:LocationSource[]):Promise<string|null>{
+ const proposed=addressBlocks(excerpt);
+ if(proposed.length!==1||/\b(?:pickup|billing|collection)\s+address\b/i.test(excerpt))return null;
+ const line=proposed[0][1];
+ if(/\b(?:or|ou|not|never|via|transshipment)\b|\bn['’]est\s+pas\b/i.test(line))return null;
+ const bound=sources.flatMap(s=>addressBlocks(s.text)).filter(b=>normalize(b[0])===normalize(proposed[0][0]));
+ if(!bound.length)return null;
+ const {data,error,count}=await client.from('location_aliases')
+  .select('locations_reference!inner(id,canonical_name,location_type,is_active,country_code,country_name)',{count:'exact'})
+  .eq('normalized_alias',normalize(value)).eq('locations_reference.is_active',true);
+ if(error||!Array.isArray(data))throw new Error('Location reference unavailable: '+(error?.message || 'invalid response'));
+ if(count!==data.length)throw new Error('Location reference incomplete');
+ const refs=data.flatMap(r=>Array.isArray(r.locations_reference)?r.locations_reference:[r.locations_reference]);
+ if(refs.some(r=>!r?.is_active||typeof r.country_code!=='string'||!r.country_code.trim()||typeof r.country_name!=='string'||!r.country_name.trim()))return null;
+ const countries=new Set(refs.map(r=>r.country_code).filter(Boolean));
+ if(countries.size!==1)return null;
+ const countryNames=[...new Set(refs.flatMap(r=>[r.country_name,r.country_code]).filter((v):v is string=>typeof v==='string'&&!!v))];
+ if(!countryNames.length)return null;
+ const tail=new RegExp('(?:(?:^|[,–-]\\s*)(?:BP\\s*)?|\\bBP\\s*)'+regexLiteral(countryText(value))+
+  '(?:\\s*[,–-]\\s*|\\s+)(?:'+countryNames.map(n=>regexLiteral(countryText(n))).join('|')+')'+
+  '(?:\\s*[/,–-]?\\s*\\d{3,10})?\\s*$','i');
+ return tail.test(countryText(line))?bound[0][0].replace(/^\n/,''):null;
+}
 export const locationOwnText=(raw:string)=>splitEmailQuoteContext(decodeEmailQuoteView(raw,x=>x)).ownText;
 export const isLocationKey=(key:string)=>/^routing\.(?:origin_port|destination_port|origin_airport|destination_airport|destination_city|final_destination)$/.test(key);
 const portKey=(key:string)=>/_(?:port|airport)$/.test(key);
@@ -46,7 +79,8 @@ export async function assessLocationClaim(client:SupabaseClient,claim:LocationCl
   const delivery=/(?:place of delivery|final destination|delivery destination|destination finale|lieu de livraison)\s*:\s*([^\n;]+)/gi;
   const own=excerpt;
   const declared=[...own.matchAll(delivery)].some(m=>normalize(m[1].split(/\s+via\s+/i)[0].split(',')[0])===normalize(value));
-  return {...proof,role:'final_delivery_city',status:manual(claim)||declared?'accepted':'rejected',reason:manual(claim)?'operator_decision':declared?'explicit_final_delivery':'delivery_role_not_proven'};
+  const address=!manual(claim)&&!declared?await explicitAddressCity(client,value,excerpt,matches):null;
+  return {...proof,excerpt:address??proof.excerpt,role:'final_delivery_city',status:manual(claim)||declared||address?'accepted':'rejected',reason:manual(claim)?'operator_decision':declared?'explicit_final_delivery':address?'explicit_delivery_address':'delivery_role_not_proven'};
  }
  if(/\b(?:via|transshipment|transhipment|transbordement|or|ou)\b|[;/\n]/i.test(value))return {...proof,reason:'composite_location'};
  const {data,error}=await client.from('location_aliases')
@@ -65,7 +99,7 @@ export async function assessLocationClaim(client:SupabaseClient,claim:LocationCl
  if(manual(claim))return {...proof,role,status:'accepted',reason:'operator_decision'};
  const context=excerpt;
  const prefix=expected==='sea'?(origin?'(?:POL|Port of loading|Loading port|Port d.embarquement)':'(?:POD|Port of discharge|Discharge port|Port de d.chargement)'):
-  (origin?'(?:Departure airport|Origin airport|Airport of departure)':'(?:Arrival airport|Destination airport|Airport of arrival)');
+  (origin?'(?:Departure airport|Origin airport|Airport of departure)':'(?:Arrival airport|Destination airport|Airport of arrival|Airport of destination)');
  const clauses=[...context.matchAll(new RegExp('\\b'+prefix+'\\s*[:=-]?\\s*([^\\n;]+)','gi'))];
  const affirmative=(label:string)=>!/[/]|\b(?:or|ou|and|et|not|never|transshipment|transhipment|transbordement)\b|\bn['’]est\s+pas\b/i.test(label);
  const boundClauses=matches.flatMap(s=>[...s.text.matchAll(new RegExp('(?:^|[\\n;])\\s*(?:[-•]\\s*)?'+prefix+'\\s*[:=-]?\\s*([^\\n;]+)','gi'))]);
@@ -75,6 +109,10 @@ export async function assessLocationClaim(client:SupabaseClient,claim:LocationCl
     affirmative(m[0])&&boundClauses.some(bound=>affirmative(bound[0])&&normalize(bound[0]).includes(normalize(m[0])));
  });
  if(match&&clauses.length===1)return {...proof,role,status:'accepted',reason:'explicit_transport_role',excerpt:match[0]};
+ // AOD is used ambiguously by existing mail prompts (departure/destination).
+ // Keep the sourced airport proposal and reserve its role for the operator.
+ const aod=new RegExp('(?:^|[\\n;])\\s*AOD\\s*:\\s*'+regexLiteral(value)+'\\s*(?=$|[\\n;])','i');
+ if(expected==='air'&&aod.test(excerpt))return {...proof,reason:'ambiguous_airport_role'};
  const other=/\b(?:transshipment|transhipment|transbordement)\b/i.test(excerpt)?'ocean_transshipment':/\bvia\b/i.test(excerpt)?'sea_gateway_unspecified':'unknown';
  return {...proof,role:other,reason:'transport_role_not_proven'};
 }

@@ -897,6 +897,20 @@ Candidat toujours inactif, migrations/accès/Edge/Cloud métier/Railway inchang�
 - Preuves privées et sauvegardes : C:/Users/DELL/Documents/Codex/2026-10-22/task-2/real-r02-20261026/local-knowledge-fix/. Échec initial de types conservé, porte finale corrigée distincte ; aucun contenu réel recopié dans les fixtures/Git. Retour arrière : restaurer uniquement ce diff, sans annuler le correctif poids ni les autres travaux.
 - Suite : GO de publication ciblée distinct ; ancienne connaissance réelle inchangée. Avant prochaine analyse réelle, préciser les inconnus utiles et autoriser séparément création/reprise du dossier et budget IA. Aucun devis connecté validé ; Railway conservé, migration suspendue, credentials distinct ouvert.
 
+## 2.55 Routage depuis une adresse de livraison — correctif local du 27 octobre 2026
+
+- GO ciblé : diagnostiquer la perte de ville/aéroport du dossier réel déjà traité puis corriger localement, sans écriture Cloud, relance IA, publication ou déploiement. Railway conservé ; migration suspendue.
+- Préflight : work local09c96b5 propre ; distant a78e5d9, seul previewAuthStorage généré différent, expliqué et non intégré. Copies/.claude et129non suivis préservés.
+- Cause attestée dans les preuves du dossier : ville proposée par l’IA rejetée source_not_proven (extrait Unicode contre source legacy mal décodée), aéroport reconnu mais rôle AOD rejeté. Aucune perte UI après persistance : ces deux faits n’ont pas été admis en amont.
+- Seul helper request-location-evidence corrigé : vue de comparaison UTF8 valide/NFC sans réécriture du courriel ; adresse de livraison explicitement libellée, ville terminale séparée ou BP et pays de référence cohérent. Source brute et empreinte conservées dans la preuve ; nom de rue/signature/autre source/pays contradictoire refusés.
+- Référentiel : comptage exact obligatoire, inventaire tronqué observable, aucune référence au pays inconnu ignorée. Deux faux positifs trouvés par contre-revue puis corrigés et contre-exécutés.
+- AOD nu demeure une proposition d’aéroport sourcée, rôle ambigu réservé à l’opérateur ; Airport of destination explicite admis. Aucune origine/destination devinée ; aucun changement poids total/unitaire, portée des dimensions, emballage, tarif ou calcul.
+- Régressions :3FAIL/19PASS avant,23ciblés PASS après ; contre-revue indépendante PASS sur les deux blocages corrigés et sept contrôles additionnels. Provenance lisible dans le journal existant Données & audit, aucune refonte UI.
+- Validation locale9portes PASS_WITH_BASELINE :1416Vitest/90fichiers,2725Deno/0échec/6ignorés ; types Deno49/5 inchangés, lint sans aggravation, config/bundles/typesapp/node/build isolé PASS. Services distants simulés, Deno sans permission réseau.
+- Réserves réelles : dossier historique NEED_INFO inchangé ; destination explicite à reprendre depuis la source, rôle aéroport à confirmer ; poids total/par pièce, portée des dimensions, emballage et désignation précise restent à clarifier avant devis. Le seul gap affiché ne certifie pas la complétude commerciale.
+- Preuves/retour local : task-2/real-r02-20261026/location-fix (avant/après, logs, checks, backups, revue et manifeste). Inverser seulement ce delta local ; sources et historiques conservés. Aucun commit/push, migration, accès, déploiement, calcul ou envoi client ; recette du correctif en ligne NOT_RUN.
+- Publication ciblée autorisée le27/10 : quatre fichiers seulement, intégration fast-forward a78e5d9, runtime/tests inchangés depuis validation ; SHA livré, CI et synchronisation réellement constatés dans location-fix/publication-20261027/verification.json. Cette autorisation ne couvre aucun déploiement ni modification métier.
+
 ## 3. Travaux vérifiés comme terminés
 
 ### 3.1 Réconciliation des migrations

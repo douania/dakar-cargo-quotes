@@ -1,5 +1,14 @@
 # Dakar Cargo Quotes — conduite et reprise
 
+## Point courant — 27 octobre 2026, routage de la demande réelle
+
+- La demande réelle R02 a été traitée une seule fois par le parcours autorisé : un dossier AIR_IMPORT/AIR_IMPORT_DAP,11faits,NEED_INFO,1gap ville finale ; aucun devis/version/PDF ni envoi. Reçu privé processing-20261027.json, sans retraitement à la reprise.
+- Le client indique sa destination dans une adresse de livraison et un aéroport sous AOD. Les traces attestent leur rejet avant persistance ; ne pas redemander au client une ville déjà présente ni convertir AOD ambigu en rôle humainement confirmé.
+- Correctif local de provenance clos : roadmap§2.55, helper partagé+tests seulement ; source legacy conservée, ville terminale/pays étayés, AOD réservé, gardes rue/pays/inventaire incomplet. UI/tarifs/FROZEN/SQL/Auth/RLS inchangés.
+-23ciblés et contre-revue PASS ;9portes locales PASS_WITH_BASELINE,1416Vitest,2725Deno/6ignorés, types49/5 sans aggravation. Preuves : C:/Users/DELL/Documents/Codex/2026-10-22/task-2/real-r02-20261026/location-fix/verification.json.
+- Bilan local initial : work09c96b5, distant a78e5d9 expliqué ; patch alors non commité/non publié/non déployé. Le27/10, GO distinct reçu pour publication des quatre fichiers et contrôle CI/sync uniquement ; avance a78e5d9 intégrée par fast-forward,129non suivis préservés. SHA et résultats effectifs : reçu privé location-fix/publication-20261027/verification.json ; aucun déploiement autorisé.
+- Suite utile : confirmer les seuls faits manquants via les contrôles opérateur ; ne pas supposer104kg total, dimensions par pièce ou cartons. Les connaissances historiques restent inchangées ; aucun tarif homologué déduit d’un historique. Mise en ligne/recette corrective sous périmètre externe distinct, aucune relance IA automatique.
+
 ## Clôture locale du 26 octobre 2026 — connaissances IA après import R02
 
 - Priorité : vraie demande R02/P05 déjà importée et analysée une fois sous GO distinct ; ce sous-lot ne la retraite et ne la modifie pas. Fil/message et deux images privées conservés, aucun dossier de cotation créé. Ne pas réimporter, cliquer Traiter ou lancer une autre IA sans son autorisation propre.

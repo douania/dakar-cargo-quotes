@@ -43,10 +43,12 @@ function db(tables:Record<string,Row[]>={},failure?:string,incomplete=false){
   const req=new Request(input,init),u=new URL(req.url),table=u.pathname.split('/').pop()!;calls.push(req.method+' '+table);
   assertEquals(req.method,'GET','No mutation/provider call in location validation');
   if(table===failure)return Response.json({message:'synthetic read failure'},{status:400});
-  let rows=table==='location_aliases'?[{normalized_alias:'MOMBASA',locations_reference:{id:'sea-ke',canonical_name:'Mombasa',location_type:'sea',is_active:true}},
+  let rows=table==='location_aliases'?(tables.location_aliases??[{normalized_alias:'MOMBASA',locations_reference:{id:'sea-ke',canonical_name:'Mombasa',location_type:'sea',is_active:true}},
    {normalized_alias:'SINGAPORE',locations_reference:{id:'sea-sg',canonical_name:'Singapore',location_type:'sea',is_active:true}},
    {normalized_alias:'GOMA',locations_reference:{id:'inland-cd',canonical_name:'Goma',location_type:'inland',is_active:true}},
-   {normalized_alias:'AIRFIELD',locations_reference:{id:'air-a',canonical_name:'Airfield',location_type:'air',is_active:true}}]:(tables[table] || []);
+   {normalized_alias:'AIRFIELD',locations_reference:{id:'air-a',canonical_name:'Airfield',location_type:'air',is_active:true}},
+   {normalized_alias:'NAIROBI',locations_reference:{id:'city-ke',canonical_name:'Nairobi',location_type:'inland',country_code:'KE',country_name:'Kenya',is_active:true}},
+   {normalized_alias:'NBO',locations_reference:{id:'air-ke',canonical_name:'Nairobi airport',location_type:'air',country_code:'KE',country_name:'Kenya',is_active:true}}]):(tables[table] || []);
   for(const [key,filter] of u.searchParams){
    if(filter.startsWith('eq.')&&!key.includes('.'))rows=rows.filter(r=>String(r[key])===filter.slice(3));
    if(filter.startsWith('in.')){const values=filter.slice(4,-1).split(',');rows=rows.filter(r=>values.includes(String(r[key])));}
@@ -153,4 +155,63 @@ Deno.test('pricing route: legitimate manual canonical sea port passes, incomplet
  assertEquals(await pricingLocationPreflight(db(tables).client,'case','SEA_FCL_IMPORT',mergeFactsForLot),[]);
  await assertRejects(()=>pricingLocationPreflight(db(tables,undefined,true).client,'case','SEA_FCL_IMPORT',mergeFactsForLot),Error,'collection unavailable');
  await assertRejects(()=>pricingLocationPreflight(db(tables,'quote_request_lines').client,'case','SEA_FCL_IMPORT',mergeFactsForLot),Error,'collection unavailable');
+});
+
+
+Deno.test('location: delivery address retains raw source and accepts the terminal explicit city despite legacy UTF8 bytes',async()=>{
+ const {client,calls}=db();
+ const excerpt='DELIVERY ADRESS:\n14 Test Road - BP Nairobi – Kenya / 00100';
+ const raw=Array.from(new TextEncoder().encode(excerpt),b=>String.fromCharCode(b)).join('');
+ const p=await assessLocationClaim(client,{key:'routing.destination_city',value:'Nairobi',sourceExcerpt:excerpt,sourceEmailId:'email-1'},[source(raw)]);
+ assertEquals(p.status,'accepted');assertEquals(p.role,'final_delivery_city');
+ assertEquals(p.excerpt,raw);assertEquals(p.sources.map(s=>s.id),['email-1']);
+ const {sourceSha256}=await import('./email-fact-revisions.ts');assertEquals(p.sources[0].sha256,await sourceSha256(raw));
+ assert(calls.every(c=>c.startsWith('GET')));
+});
+Deno.test('location: delivery address city is not a street mention, signature, other source, or unproven country',async()=>{
+ const {client}=db();
+ for(const [excerpt,actual] of [
+  ['DELIVERY ADDRESS:\n14 rue de Nairobi - Kenya','DELIVERY ADDRESS:\n14 rue de Nairobi - Kenya'],
+  ['DELIVERY ADDRESS:\n14 Avenue Nairobi - Kenya','DELIVERY ADDRESS:\n14 Avenue Nairobi - Kenya'],
+  ['DELIVERY ADDRESS:\n14 Nairobi Street - Mombasa – Kenya / 00100','DELIVERY ADDRESS:\n14 Nairobi Street - Mombasa – Kenya / 00100'],
+  ['DELIVERY ADDRESS:\n14 Test Road - BP Nairobi – Rwanda / 00100','DELIVERY ADDRESS:\n14 Test Road - BP Nairobi – Rwanda / 00100'],
+  ['Nairobi','Signature: Nairobi'],
+  ['DELIVERY ADDRESS:\nBP Nairobi – Kenya','BILLING ADDRESS:\nBP Nairobi – Kenya'],
+  ['DELIVERY ADDRESS:\nBP Nairobi or Mombasa – Kenya','DELIVERY ADDRESS:\nBP Nairobi or Mombasa – Kenya'],
+  ['DELIVERY ADDRESS:\nNairobi – Kenya\nPICKUP ADDRESS:\nNairobi – Kenya','DELIVERY ADDRESS:\nNairobi – Kenya\nPICKUP ADDRESS:\nNairobi – Kenya'],
+ ]){
+  const p=await assessLocationClaim(client,{key:'routing.destination_city',value:'Nairobi',sourceExcerpt:excerpt,sourceEmailId:'email-1'},[source(actual)]);
+  assertEquals(p.status,'rejected',excerpt);
+ }
+ const text='DELIVERY ADDRESS:\nBP Nairobi – Kenya';
+ assertEquals((await assessLocationClaim(client,{key:'routing.destination_city',value:'Nairobi',sourceExcerpt:text,sourceEmailId:'other'},[source(text)])).status,'rejected');
+});
+Deno.test('location: clean address and explicit Airport of destination are distinct supported roles',async()=>{
+ const {client}=db();
+ for(const [key,value,excerpt,role] of [
+  ['routing.final_destination','Nairobi','Delivery address:\nBP Nairobi - Kenya / 00100','final_delivery_city'],
+  ['routing.destination_airport','NBO','Airport of destination: NBO','arrival_airport'],
+ ]){
+  const p=await assessLocationClaim(client,{key,value,sourceExcerpt:excerpt},[source(excerpt)]);
+  assertEquals(p.status,'accepted');assertEquals(p.role,role);
+ }
+});
+Deno.test('location: bare AOD remains a sourced airport proposal with an explicit role reservation',async()=>{
+ const {client}=db(),text='AOD:\nNBO';
+ const p=await assessLocationClaim(client,{key:'routing.destination_airport',value:'NBO',sourceExcerpt:text},[source(text)]);
+ assertEquals(p.status,'rejected');assertEquals(p.reason,'ambiguous_airport_role');
+ assertEquals(p.rawValue,'NBO');assertEquals(p.locationType,'air');assertEquals(p.sources[0].id,'email-1');
+ assertEquals((await assessLocationClaim(client,{key:'routing.origin_airport',value:'NBO',sourceExcerpt:text},[source(text)])).status,'rejected');
+});
+
+Deno.test('location: truncated or partly unknown address reference cannot establish a final city',async()=>{
+ const text='Delivery address:\nBP Nairobi - Kenya / 00100';
+ const claim={key:'routing.destination_city',value:'Nairobi',sourceExcerpt:text};
+ await assertRejects(()=>assessLocationClaim(db({},undefined,true).client,claim,[source(text)]),Error,'reference incomplete');
+ await assertRejects(()=>assessLocationClaim(db({},'location_aliases').client,claim,[source(text)]),Error,'reference unavailable');
+ const known={normalized_alias:'NAIROBI',locations_reference:{id:'known',is_active:true,country_code:'KE',country_name:'Kenya'}};
+ for(const unknown of [null,{id:'unknown',is_active:true,country_code:null,country_name:null}]){
+  const {client}=db({location_aliases:[known,{normalized_alias:'NAIROBI',locations_reference:unknown}]});
+  assertEquals((await assessLocationClaim(client,claim,[source(text)])).status,'rejected');
+ }
 });
