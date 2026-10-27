@@ -215,3 +215,36 @@ Deno.test('location: truncated or partly unknown address reference cannot establ
   assertEquals((await assessLocationClaim(client,claim,[source(text)])).status,'rejected');
  }
 });
+
+Deno.test('location: exact unlabeled address line binds only to its unique labeled source context',async()=>{
+ const {client}=db(),line='17 Example Road - BP Nairobi – Kenya / 00100',raw='Delivery adress:\n'+line;
+ const legacy=Array.from(new TextEncoder().encode(raw),b=>String.fromCharCode(b)).join('');
+ const claim={key:'routing.destination_city',value:'Nairobi',sourceExcerpt:line,sourceEmailId:'email-1'};
+ const p=await assessLocationClaim(client,claim,[source(legacy)]);
+ assertEquals(p.status,'accepted');assertEquals(p.reason,'explicit_delivery_address');assertEquals(p.excerpt,legacy);
+ const {sourceSha256}=await import('./email-fact-revisions.ts');assertEquals(p.sources[0].sha256,await sourceSha256(legacy));
+});
+Deno.test('location: unlabeled excerpt cannot borrow a signature, street, other address, lot or ambiguous source',async()=>{
+ const {client}=db(),line='17 Example Road - BP Nairobi – Kenya / 00100';
+ const claim={key:'routing.destination_city',value:'Nairobi',sourceExcerpt:line,sourceEmailId:'email-1'};
+ for(const raw of ['Signature:\n'+line,'Billing address:\n'+line,'Delivery address:\nNairobi – Kenya\nSignature:\n'+line,
+  'Delivery address:\n'+line+'\nDelivery address:\nMombasa – Kenya',
+  'Delivery address:\n'+line+'\nSignature:\n'+line]){
+  assertEquals((await assessLocationClaim(client,claim,[source(raw)])).status,'rejected',raw);
+ }
+ const street='17 Avenue Nairobi - Kenya';
+ assertEquals((await assessLocationClaim(client,{...claim,sourceExcerpt:street},[source('Delivery address:\n'+street)])).status,'rejected');
+ assertEquals((await assessLocationClaim(client,{...claim,sourceExcerpt:'Nairobi'},[source('Delivery address:\n'+line)])).status,'rejected');
+ assertEquals((await assessLocationClaim(client,{...claim,sourceEmailId:'foreign'},[source('Delivery address:\n'+line)])).status,'rejected');
+ const own='Lot 1\n'+line,foreign='Lot 2\nDelivery address:\n'+line;
+ const scoped=await validateLineLocations(client,[{key:claim.key,value:claim.value,sourceExcerpt:line}],[source(own+'\n'+foreign)],own);
+ assertEquals(scoped.facts,[]);assertEquals(scoped.proofs[0].status,'rejected');
+});
+
+Deno.test('location: lot context retains the source raw bytes and hash instead of model-normalized excerpt',async()=>{
+ const {client}=db(),excerpt='Lot 1\nDelivery adress:\n17 Example Road - BP Nairobi – Kenya / 00100';
+ const raw=Array.from(new TextEncoder().encode(excerpt),b=>String.fromCharCode(b)).join('');
+ const result=await validateLineLocations(client,[{key:'routing.destination_city',value:'Nairobi',sourceExcerpt:excerpt.split('\n').slice(1).join('\n')}],[source(raw)],excerpt);
+ assertEquals(result.facts.length,1);assert(raw.includes(result.proofs[0].excerpt));
+ const {sourceSha256}=await import('./email-fact-revisions.ts');assertEquals(result.proofs[0].sources[0].sha256,await sourceSha256(raw));
+});

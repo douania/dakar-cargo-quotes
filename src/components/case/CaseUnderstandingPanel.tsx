@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { readAirportRoleReservations, reserveIntentAirportRoles, type AirportRoleReservation } from "../../../supabase/functions/_shared/thread-intent-location-reservations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, HelpCircle, Brain, Clock, AlertTriangle, MessageSquare, Compass, Lightbulb } from "lucide-react";
@@ -12,6 +13,7 @@ interface TimelineEvent {
   event_type: string;
   event_data: Record<string, unknown> | null;
   related_email_id: string | null;
+  actor_type?: string | null;
   created_at: string | null;
 }
 
@@ -20,6 +22,8 @@ interface CurrentFact {
   value_text?: string | null;
   value_number?: number | null;
   value_json?: unknown;
+  is_validated?: boolean | null;
+  source_type?: string | null;
 }
 
 interface CaseUnderstandingPanelProps {
@@ -218,7 +222,31 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
 
     const latestEvent = intentEvents[0];
     const ed = latestEvent.event_data as Record<string, unknown>;
-    const intent = (ed?.["intent"] as Record<string, unknown>) ?? {};
+    const rawIntent = (ed?.["intent"] as Record<string, unknown>) ?? {};
+    // Reuse the latest source-bound location review for this exact email, including
+    // historical model summaries. Never rewrite the stored event or other emails.
+    const review = latestEvent.actor_type === "ai" && latestEvent.related_email_id ? events
+      .filter(e => e.event_type === "case_reasoning_v1" && e.event_data?.kind === "location_evidence")
+      .sort((a,b)=>(b.created_at ?? "").localeCompare(a.created_at ?? ""))
+      .find(e => Array.isArray(e.event_data?.proofs) && e.event_data.proofs.some((p: Record<string, unknown>) =>
+        p && typeof p === 'object' && Array.isArray(p.sources) && p.sources.some((source: Record<string, unknown>) => source && typeof source === 'object' && source.id === latestEvent.related_email_id))) : null;
+    const proofs = Array.isArray(review?.event_data?.proofs) ? review.event_data.proofs : [];
+    const fromProof: AirportRoleReservation[] = proofs.flatMap((p: Record<string, unknown>) =>
+      p && typeof p === "object" && p.status === "rejected" && p.reason === "ambiguous_airport_role" &&
+      p && typeof p === 'object' && Array.isArray(p.sources) && p.sources.some((source: Record<string, unknown>) => source && typeof source === 'object' && source.id === latestEvent.related_email_id) &&
+      typeof p.rawValue === "string" && /^[A-Z]{3}$/.test(p.rawValue) ? [{code:p.rawValue,reason:"ambiguous_airport_role" as const}] : []);
+    if (isStaleThreadIntent(rawIntent, currentFactByKey)) {
+      return { intentV2: null, staleIntentV2: true };
+    }
+    const confirmations = (currentFacts ?? []).filter(f =>
+      /^routing\.(origin|destination)_airport$/.test(f.fact_key) &&
+      (f.is_validated === true || ["operator", "manual_input", "operator_correction"].includes(f.source_type ?? "")) &&
+      typeof f.value_text === "string" && /^[A-Z]{3}$/.test(f.value_text.trim().toUpperCase()))
+      .map(f => ({code:f.value_text!.trim().toUpperCase(),role:f.fact_key === "routing.origin_airport" ? "departure_airport" as const : "arrival_airport" as const}));
+    const reservations = latestEvent.actor_type === "ai"
+      ? [...readAirportRoleReservations(rawIntent.location_reservations), ...fromProof] : [];
+    const hasUnconfirmedLocation = reservations.some(r => new Set(confirmations.filter(c => c.code === r.code).map(c => c.role)).size !== 1);
+    const intent = reserveIntentAirportRoles(rawIntent, reservations, confirmations);
 
     // Only show V2 sections if we have the enriched fields
     if (!intent["request_summary"] && !intent["transport_mode_hypothesis"]) {
@@ -244,6 +272,8 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
           ? (intent["missing_business_questions"] as string[]) : [],
         operator_guidance: Array.isArray(intent["operator_guidance"])
           ? (intent["operator_guidance"] as string[]) : [],
+        hasLocationReservation: reservations.length > 0,
+        hasUnconfirmedLocation,
         confidence: typeof ed["confidence"] === "number"
           ? (ed["confidence"] as number)
           : (typeof intent["confidence"] === "number" ? intent["confidence"] as number : null),
@@ -251,7 +281,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
       },
       staleIntentV2: false,
     };
-  }, [events, currentFactByKey]);
+  }, [events, currentFactByKey, currentFacts]);
 
   // ── V2: case_coherence_v1 data ──
   const coherence = useMemo(() => {
@@ -531,12 +561,13 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
               </CardTitle>
               {intentV2.confidence !== null && (
                 <Badge variant="outline" className="text-xs">
-                  confiance {Math.round(intentV2.confidence * 100)}%
+                  classification {Math.round(intentV2.confidence * 100)}%
                 </Badge>
               )}
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
+            {intentV2.hasLocationReservation && <p role="note" className="text-xs text-muted-foreground mb-2">{intentV2.hasUnconfirmedLocation ? "Rôle de l’aéroport à confirmer. Le score classe le courriel ; il ne valide pas le trajet." : "Rôle aéroportuaire confirmé par l’opérateur ; l’ancien résumé IA reste soumis à cette correction."}</p>}
             {intentV2.request_summary && (
               <p className="text-xs text-muted-foreground italic mb-2">{intentV2.request_summary}</p>
             )}

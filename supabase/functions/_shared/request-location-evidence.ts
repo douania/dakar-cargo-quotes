@@ -15,7 +15,7 @@ export async function replaceRequestLinesWithEvidence(client:SupabaseClient,args
  return await client.rpc('replace_quote_request_lines',{p_case_id:args.caseId,p_lines:args.lines});
 }
 
-export interface LocationSource {id:string;kind:'email'|'attachment'|'document';text:string;sourceHash?:string;emailId?:string|null;}
+export interface LocationSource {id:string;kind:'email'|'attachment'|'document';text:string;sourceHash?:string;emailId?:string|null;contextExcerpt?:string;}
 export interface LocationClaim {
  key:string;value:unknown;sourceExcerpt?:string;sourceEmailId?:string;sourceAttachmentId?:string;
  sourceType?:string;validated?:boolean;
@@ -38,11 +38,18 @@ const countryText=(value:string)=>normalize(value).normalize('NFD').replace(/\p{
 const addressBlocks=(value:string)=>[...value.matchAll(/(?:^|\n)[ \t]*(?:delivery address|delivery adress|adresse de livraison)[ \t]*:[ \t]*(?:\r?\n[ \t]*)?([^\r\n]+)/gi)];
 async function explicitAddressCity(client:SupabaseClient,value:string,excerpt:string,sources:LocationSource[]):Promise<string|null>{
  const proposed=addressBlocks(excerpt);
- if(proposed.length!==1||/\b(?:pickup|billing|collection)\s+address\b/i.test(excerpt))return null;
- const line=proposed[0][1];
+ if(proposed.length>1||/\b(?:pickup|billing|collection)\s+address\b/i.test(excerpt))return null;
+ // Bind a whole address line, never a city substring, to one exact labelled
+ // context in one source. Repeated lines or competing delivery blocks are ambiguous.
+ const blocks=sources.flatMap(s=>addressBlocks(s.text).filter(block=>s.contextExcerpt===undefined||normalize(s.contextExcerpt).includes(normalize(block[0]))).map(block=>({source:s,block})));
+ if(blocks.length!==1)return null;
+ const {source,block}=blocks[0];
+ const complete=proposed.length===1&&normalize(block[0])===normalize(proposed[0][0]);
+ const bare=proposed.length===0&&normalize(block[1])===normalize(excerpt)&&
+  source.text.split(/\r?\n/).filter(line=>normalize(line)===normalize(excerpt)).length===1;
+ if(!complete&&!bare)return null;
+ const line=block[1];
  if(/\b(?:or|ou|not|never|via|transshipment)\b|\bn['’]est\s+pas\b/i.test(line))return null;
- const bound=sources.flatMap(s=>addressBlocks(s.text)).filter(b=>normalize(b[0])===normalize(proposed[0][0]));
- if(!bound.length)return null;
  const {data,error,count}=await client.from('location_aliases')
   .select('locations_reference!inner(id,canonical_name,location_type,is_active,country_code,country_name)',{count:'exact'})
   .eq('normalized_alias',normalize(value)).eq('locations_reference.is_active',true);
@@ -57,7 +64,7 @@ async function explicitAddressCity(client:SupabaseClient,value:string,excerpt:st
  const tail=new RegExp('(?:(?:^|[,–-]\\s*)(?:BP\\s*)?|\\bBP\\s*)'+regexLiteral(countryText(value))+
   '(?:\\s*[,–-]\\s*|\\s+)(?:'+countryNames.map(n=>regexLiteral(countryText(n))).join('|')+')'+
   '(?:\\s*[/,–-]?\\s*\\d{3,10})?\\s*$','i');
- return tail.test(countryText(line))?bound[0][0].replace(/^\n/,''):null;
+ return tail.test(countryText(line))?block[0].replace(/^\n/,''):null;
 }
 export const locationOwnText=(raw:string)=>splitEmailQuoteContext(decodeEmailQuoteView(raw,x=>x)).ownText;
 export const isLocationKey=(key:string)=>/^routing\.(?:origin_port|destination_port|origin_airport|destination_airport|destination_city|final_destination)$/.test(key);
@@ -124,7 +131,9 @@ export async function validateLineLocations(client:SupabaseClient, facts:Array<R
   if(typeof fact.key!=='string'||!isLocationKey(fact.key)){accepted.push(fact);continue;}
   const fieldExcerpt=typeof fact.sourceExcerpt==='string'?fact.sourceExcerpt:excerpt;
   const withinLine=!!excerpt.trim()&&normalize(excerpt).includes(normalize(fieldExcerpt));
-  const assessed=await assessLocationClaim(client,{key:fact.key,value:fact.value,sourceExcerpt:fieldExcerpt},withinLine?lineSources:[]);
+  // A lot cannot borrow the role label from another lot in the same source.
+  const scopedSources=withinLine?lineSources.map(s=>({...s,contextExcerpt:excerpt})):[];
+  const assessed=await assessLocationClaim(client,{key:fact.key,value:fact.value,sourceExcerpt:fieldExcerpt},scopedSources);
   const proof:LocationProof=withinLine?assessed:{...assessed,status:'rejected',reason:'outside_line_evidence'};
   proofs.push(proof);
   if(proof.status==='accepted')accepted.push({...fact,location_evidence:proof});

@@ -1,5 +1,21 @@
 # Dakar Cargo Quotes — conduite et reprise
 
+## Point courant — 27 octobre 2026, verrou npm réconcilié localement
+
+- Publication ciblée de ce paquet autorisée le27/10 : correctifs ville/rôle aéroport, verrou npm, tests et ces deux notes seulement ; commit/push/CI/sync, sans Edge/migration/accès ni relance. Résultats effectifs à vérifier dans real-r02-20261026/context-publication-20261027/verification.json hors Git.
+
+- Roadmap§2.57 : work15cf336 aligné GitHub après fast-forward non destructif ; les deux correctifs fonctionnels restent locaux, non publiés. Neuf empreintes précédentes vérifiées intactes avant notes,132fichiers non suivis préservés ; aucun stash/reset/force ou installation dans le node_modules principal.
+- Lockfile npm corrigé seul (+32lignes), deux plugins/versions/intégrités conformes Bun. Avant npm ci dry-run FAIL EUSAGE ; après lock-only+vrai npm ci661paquets PASS dans une copie isolée sans .env/.claude. Vérification9portes PASS_WITH_BASELINE sur dépendances fraîches :1182Vitest/88fichiers+2738Deno ; tests camion non suivis exclus de cette copie et conservés au principal.
+- Windows Node22/npm10, Linux/Node20 NOT_RUN ; contre-revue ciblée PASS. Preuves et inventaire : dependency-fix/verification.json dans real-r02-20261026. CI distante15cf336 demeure FAIL historique, aucun nouveau run ou publication. N’annoncer ni CI GitHub réparée ni correctifs en ligne.
+- Prochaine étape sous GO séparé : publication ciblée du paquet fonctionnel+lock+notes, contrôle CI/sync, puis livraison serveur/frontend et recette bornée. R02 inchangé, aucune nouvelle analyse, donnée métier, IA, migration, accès ou action Railway ; conservation des preuves/copies maintenue.
+
+## Point courant — 27 octobre 2026, correction locale après recette Dakar
+
+- Roadmap§2.56 : correctif local seulement, work/ec297cb, distant15cf336 non intégré (package/bun lock). CI distante40549765933 FAIL installation npm ci, tests non exécutés ; succès ec297cb distinct. Aucun push/déploiement/accès/migration/donnée réelle ni nouvelle relance.
+- Source d’adresse exacte reliée à son libellé, brut/hash conservés et contexte de lot borné. Résumé/intention AOD réservés, classification séparée du rôle ; décisions opérateur et informations étrangères conservées, ancien résumé brut traçable. Aucun tarif, poids total/par pièce, portée des dimensions ou emballage confirmé par ce lot.
+-36Deno+7UI ciblés,9portes locales finales PASS_WITH_BASELINE (2738Deno/1423Vitest), revue indépendante finale PASS après six constats corrigés. Preuves et limites : context-fix/verification.json dans le dossier privé real-r02-20261026 voisin de location-fix. UI jsdom seulement, correctif connecté NOT_RUN.
+- La recette connectée historique demeure PARTIAL : Dakar non enregistré, gap toujours ouvert ; ne pas répéter l’analyse. Publication/correction du lockfile distant et livraison serveur/frontend nécessitent leurs périmètres propres. Aucun serveur temporaire créé, copies/.claude/129non suivis initiaux préservés ; Railway reste conservé.
+
 ## Point courant — 27 octobre 2026, routage de la demande réelle
 
 - La demande réelle R02 a été traitée une seule fois par le parcours autorisé : un dossier AIR_IMPORT/AIR_IMPORT_DAP,11faits,NEED_INFO,1gap ville finale ; aucun devis/version/PDF ni envoi. Reçu privé processing-20261027.json, sans retraitement à la reprise.

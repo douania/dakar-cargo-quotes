@@ -5,6 +5,9 @@ import { requireUser } from "../_shared/auth.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 
+import { locationOwnText } from '../_shared/request-location-evidence.ts';
+import { ambiguousAirportRoles, reserveIntentAirportRoles } from '../_shared/thread-intent-location-reservations.ts';
+
 const INTENT_TYPES = [
   "new_quote_request",
   "provide_missing_info",
@@ -70,7 +73,7 @@ Règles de contradiction :
 
 Réponds UNIQUEMENT avec le JSON, sans texte autour.`;
 
-serve(async (req: Request) => {
+export async function handleThreadIntent(req: Request) {
   const corsResp = handleCors(req);
   if (corsResp) return corsResp;
 
@@ -144,7 +147,7 @@ serve(async (req: Request) => {
     // 4. Idempotence check
     const { data: existing } = await serviceClient
       .from("case_timeline_events")
-      .select("id, event_data")
+      .select("id, event_data, actor_type")
       .eq("case_id", case_id)
       .eq("event_type", "thread_intent_v1")
       .eq("related_email_id", email_id)
@@ -152,10 +155,14 @@ serve(async (req: Request) => {
 
     if (existing) {
       const intentData = existing.event_data as Record<string, unknown> | null;
+      const savedIntent = intentData?.["intent"];
+      const existingReservations = existing.actor_type === 'ai' ? ambiguousAirportRoles(locationOwnText(String(email.body_text || ''))) : [];
+      const safeIntent = savedIntent && typeof savedIntent === 'object' && !Array.isArray(savedIntent)
+        ? reserveIntentAirportRoles(savedIntent as Record<string,unknown>, existingReservations) : savedIntent;
       return jsonResponse({
         ok: true,
         idempotent: true,
-        intent: intentData ? (intentData["intent"] as unknown) ?? null : null,
+        intent: safeIntent ?? null,
         confidence: intentData ? (intentData["confidence"] as unknown) ?? null : null,
       });
     }
@@ -204,7 +211,7 @@ serve(async (req: Request) => {
     const toStringArray = (val: unknown): string[] =>
       Array.isArray(val) ? val.filter((s) => typeof s === "string") : [];
 
-    const intent = {
+    const modelIntent = {
       intent_type: intentType,
       risk_level: typeof parsed["risk_level"] === "string" ? parsed["risk_level"] : "low",
       confidence: typeof parsed["confidence"] === "number" ? parsed["confidence"] : 0.5,
@@ -229,6 +236,9 @@ serve(async (req: Request) => {
       extracted_signals: normalizedSignals,
     };
 
+    const reservations = ambiguousAirportRoles(locationOwnText(String(email.body_text || '')));
+    const intent = reserveIntentAirportRoles(modelIntent, reservations);
+
     // 7. Insert timeline event (with returning id for auto-apply)
     const dedupe_key = `${case_id}_thread_intent_v1_${email_id}`;
 
@@ -244,6 +254,8 @@ serve(async (req: Request) => {
           thread_id,
           dedupe_key,
           intent,
+          ...(reservations.length ? { model_intent: parsed } : {}),
+          confidence_scope: "intent_classification_only",
           confidence: intent.confidence,
           model_meta: { model: "google/gemini-2.5-flash", version: "v2" },
         },
@@ -296,4 +308,6 @@ serve(async (req: Request) => {
     console.error("[analyze-thread-event] Unexpected error:", (err as Error).message);
     return errorResponse("Internal server error", 500);
   }
-});
+}
+
+if (Deno.env.get('MAIL_FUNCTION_DISABLE_SERVE') !== '1') serve(handleThreadIntent);
