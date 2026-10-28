@@ -155,7 +155,7 @@ function MerchandisePresentation({ guided, hasQuestions, summary, scenarioPanel,
         <h2 className="mb-3 font-medium">Demande et prestations</h2>
         {slot("understanding")}
       </section>
-      {!hasQuestions && <p id="section-data" tabIndex={-1} className="mb-4 text-sm">Rien à compléter</p>}
+      {!hasQuestions && <p id="section-data" tabIndex={-1} className="mb-4 text-sm">Aucune question ouverte</p>}
       <details id={hasQuestions ? "section-data" : undefined} hidden={!hasQuestions} open={hasQuestions || undefined} className={sectionClass}>
         <summary className={summaryClass}>1. Ce qu’il faut compléter</summary>
         <p className="my-3 text-sm text-muted-foreground">Renseignez les réponses connues ; préparez les questions restantes pour le client.</p>

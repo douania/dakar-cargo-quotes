@@ -437,12 +437,12 @@ it('preserves PAD and cargo instances, portal actions and drafts when the layout
 it('shows an honest empty step, then opens arriving questions without hiding the groups',async()=>{
   localStorage.removeItem(CASE_PRESENTATION_KEY);gaps=[];const {container,rerender}=mount();
   await userEvent.click(screen.getByRole('button',{name:'Marchandise'}));
-  expect(screen.getByText('Rien à compléter')).toBeVisible();
+  expect(screen.getByText('Aucune question ouverte')).toBeVisible();
   expect(screen.getByText('1. Ce qu’il faut compléter')).not.toBeVisible();
   expect(container.querySelector('#section-scenarios')).toHaveAttribute('open');
   expect(screen.getByLabelText('Résumé de la marchandise')).toHaveTextContent('0 question ouverte');
   gaps=initialGaps;rerender(<QueryClientProvider client={client}><CaseView/></QueryClientProvider>);
-  expect(screen.queryByText('Rien à compléter')).toBeNull();
+  expect(screen.queryByText('Aucune question ouverte')).toBeNull();
   expect(container.querySelector('#gap-review-g')).toBeVisible();
   expect(container.querySelectorAll('#section-data')).toHaveLength(1);
   expect(invoke).not.toHaveBeenCalled();

@@ -1,6 +1,6 @@
 import {assert,assertEquals,assertRejects} from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {createClient} from 'jsr:@supabase/supabase-js@2';
-import {assessLocationClaim,validateLineLocations,pricingLocationPreflight,replaceRequestLinesWithEvidence,type LocationSource} from './request-location-evidence.ts';
+import {bindAcceptedLocationProof,unresolvedAirportRoles,assessLocationClaim,validateLineLocations,pricingLocationPreflight,replaceRequestLinesWithEvidence,type LocationSource} from './request-location-evidence.ts';
 Deno.env.set('RUN_PRICING_DISABLE_SERVE','1');
 const {mergeFactsForLot}=await import('../run-pricing/index.ts');
 type Row=Record<string,unknown>;
@@ -247,4 +247,60 @@ Deno.test('location: lot context retains the source raw bytes and hash instead o
  const result=await validateLineLocations(client,[{key:'routing.destination_city',value:'Nairobi',sourceExcerpt:excerpt.split('\n').slice(1).join('\n')}],[source(raw)],excerpt);
  assertEquals(result.facts.length,1);assert(raw.includes(result.proofs[0].excerpt));
  const {sourceSha256}=await import('./email-fact-revisions.ts');assertEquals(result.proofs[0].sources[0].sha256,await sourceSha256(raw));
+});
+
+Deno.test('location provenance: accepted unique raw proof binds email FK/excerpt without changing raw source or confidence',async()=>{
+ const {client}=db(),raw='Delivery address:\nCentre d\u00c3\u00a9monstration, Nairobi, Kenya';
+ const sources=[{id:'mail',kind:'email' as const,text:raw}],claim={key:'routing.destination_city',value:'Nairobi',sourceExcerpt:'Centre démonstration, Nairobi, Kenya',sourceType:'ai_extraction',confidence:.95};
+ const proof=await assessLocationClaim(client,claim,sources);assertEquals(proof.status,'accepted');
+ const [bound]=await bindAcceptedLocationProof(claim,proof,sources);
+ assertEquals(bound.sourceEmailId,'mail');assertEquals(bound.sourceExcerpt,raw);assertEquals(bound.confidence,.95);assertEquals(sources[0].text,raw);
+ for(const invalid of [{...proof,status:'rejected' as const},{...proof,key:'routing.origin_port'},{...proof,rawValue:'Elsewhere'},
+  {...proof,sources:[{...proof.sources[0],sha256:'bad'}]},{...proof,sources:[proof.sources[0],{...proof.sources[0],id:'other'}]}]){
+  assertEquals(await bindAcceptedLocationProof(claim,invalid,sources),[]);
+ }
+ assertEquals(await bindAcceptedLocationProof({...claim,sourceEmailId:'foreign'},proof,sources),[]);
+ for(const manual of [{...claim,sourceType:'manual_input'},{...claim,validated:true}])assertEquals(await bindAcceptedLocationProof(manual,proof,sources),[manual]);
+});
+Deno.test('location provenance: real attachment parent is retained; documents and missing parents never become email FKs',async()=>{
+ const {client}=db(),claim={key:'routing.destination_city',value:'Nairobi',sourceExcerpt:'Place of delivery: Nairobi',sourceType:'ai_extraction'};
+ for(const kind of ['attachment','document'] as const){
+  const source={id:'source',kind,emailId:'mail',text:claim.sourceExcerpt},proof=await assessLocationClaim(client,claim,[source]);assertEquals(proof.status,'accepted');
+  const [bound]=await bindAcceptedLocationProof(claim,proof,[source]);
+  if(kind==='attachment'){
+   assertEquals(bound.sourceEmailId,'mail');assertEquals(bound.sourceAttachmentId,'source');
+   assertEquals(await bindAcceptedLocationProof(claim,proof,[{...source,emailId:null}]),[]);
+   assertEquals(await bindAcceptedLocationProof({...claim,sourceEmailId:'wrong'},proof,[source]),[]);
+  }else {assertEquals(bound.sourceEmailId,undefined);assertEquals(bound.sourceAttachmentId,undefined);assertEquals(bound.sourceExcerpt,source.text);}
+ }
+});
+Deno.test('location readiness: sourced AOD stays reserved until one current protected or proven role, never confidence or a different airport',async()=>{
+ const {client}=db(),sources=[source('AOD : NBO')],claim={key:'routing.destination_airport',value:'NBO',sourceExcerpt:'AOD : NBO'};
+ const proof=await assessLocationClaim(client,claim,sources);assertEquals(proof.reason,'ambiguous_airport_role');
+ const base={fact_key:claim.key,value_text:'NBO',is_current:true,source_type:'ai_extraction',confidence:.99};
+ for(const facts of [[],[base],[{...base,source_type:'manual_input',value_text:'OTHER'}],[{...base,source_type:'manual_input',is_current:false}],
+  [{...base,source_type:'manual_input'},{...base,fact_key:'routing.origin_airport',source_type:'manual_input'}]])assertEquals(unresolvedAirportRoles(sources,[proof],facts),['NBO']);
+ for(const f of [{...base,source_type:'manual_input'},{...base,is_validated:true}])assertEquals(unresolvedAirportRoles(sources,[proof],[f]),[]);
+ const explicit=source('Arrival airport: NBO'),accepted=await assessLocationClaim(client,{...claim,sourceExcerpt:explicit.text},[explicit]);
+ assertEquals(unresolvedAirportRoles([...sources,explicit],[proof,accepted],[{...base,source_email_id:explicit.id,source_excerpt:explicit.text}]),[]);
+ assertEquals(unresolvedAirportRoles(sources,[proof,accepted],[{...base,source_email_id:'foreign',source_excerpt:explicit.text}]),['NBO']);
+ assertEquals(unresolvedAirportRoles([source('Arrival airport: NBO')],[],[]),[]);
+ assertEquals(unresolvedAirportRoles([source('Destination city: Nairobi\nContact: AOD department')],[],[]),[]);
+});
+
+Deno.test('location provenance: identical own declarations keep both source IDs for ordering instead of a legacy unbound fact',async()=>{
+ const {client}=db(),claim={key:'routing.destination_city',value:'Nairobi',sourceExcerpt:'Place of delivery: Nairobi',sourceType:'ai_extraction'},sources=['one','two'].map(id=>({id,kind:'email' as const,text:claim.sourceExcerpt}));
+ const proof=await assessLocationClaim(client,claim,sources),bound=await bindAcceptedLocationProof(claim,proof,sources);
+ assertEquals(bound.map(f=>f.sourceEmailId),['one','two']);assert(bound.every(f=>f.sourceExcerpt===claim.sourceExcerpt));
+ assertEquals(await bindAcceptedLocationProof(claim,{...proof,sources:[proof.sources[0],proof.sources[0]]},sources),[]);
+});
+Deno.test('location provenance: explicit final/airport raw Unicode views satisfy the actual ordered writer',async()=>{
+ const {prepareRevisionGroups}=await import('./email-fact-revisions.ts');const {client}=db();
+ for(const [key,value,unicode] of [['routing.destination_city','Montréal','Final destination: Montréal'],['routing.destination_airport','NBO','Arrival airport: NBO, près du terminal']]){
+  const raw=Array.from(new TextEncoder().encode(unicode),b=>String.fromCharCode(b)).join(''),claim={key,value,sourceExcerpt:unicode,sourceType:'ai_extraction',category:'routing',valueType:'text' as const,confidence:.9};
+  const sources=[{id:'mail',kind:'email' as const,text:raw}],proof=await assessLocationClaim(client,claim,sources),facts=await bindAcceptedLocationProof(claim,proof,sources);
+  assertEquals(proof.status,'accepted');assertEquals(facts.length,1);assertEquals(facts[0].sourceExcerpt,raw);
+  const groups=await prepareRevisionGroups({emails:[{id:'mail',body_text:raw}],facts,ownBody:s=>s,basic:()=>[],eligible:()=>true});
+  assertEquals(groups[0].candidates[0].evidence_error,null);assertEquals(groups[0].candidates[0].excerpt,raw);
+ }
 });

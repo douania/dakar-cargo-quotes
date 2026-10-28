@@ -1,5 +1,16 @@
 # Dakar Cargo Quotes — conduite et reprise
 
+## Point courant — 28 octobre 2026, provenance et réserves corrigées localement
+
+- Publication ciblée autorisée le28/10 : ces huit fichiers de provenance/statut/tests et deux notes, commit/push/CI/sync seulement ; aucun Edge, analyse R02 ou changement métier. Résultats effectifs à vérifier dans real-r02-20261026/integrity-publication-20261028/verification.json hors Git.
+
+- Roadmap§2.58 : work/d0d5944 toujours aligné GitHub ; correctif non publié, huit fichiers du lot seulement,129 anciens non suivis conservés. Aucun Cloud/IA/retraitement R02.
+- Preuve location → chaque source liée + extrait brut dans le writer ordonné ; refus sans fallback non sourcé, documents sans FK email inventée. AOD propre non résolu → DECISIONS_PENDING, ready_to_price faux ; choix opérateur/validés et états gelés préservés. Le libellé « Aucune question ouverte » ne prétend plus que toute réserve est levée.
+- Résultat local :68 ciblés PASS ; agrégés1423Vitest+2750Deno/6ignorés, autres portes PASS_WITH_BASELINE après correction de trois types de fixture (Deno49/5,lint708/16). Première chaîne exit1 et toutes tentatives gardées ; le seul test orphelin ajouté après l’agrégé passe dans les68 finaux. Contre-revue ciblée PASS, pas de recette DB/Cloud.
+- Limites : ancien fait sans source non ordonnable → conflit conservé, pas d’attestation inventée ; R02 reste inchangé. Ambiguïtés poids total/unitaire, dimensions par colis et emballage non résolues. Aucun devis/PDF validé ni nouveau tarif.
+- Preuves : real-r02-20261026/integrity-20261028/verification.json hors Git (chemin task-2 de la roadmap). Aucun serveur temporaire lancé ; ne pas rejouer les essais historiques.
+- Prochaine autorisation séparée : publication ciblée puis activation/recette distinctes, et résolution opérateur d’un éventuel conflit historique. Railway conservé, migration suspendue ; aucun arrêt, accès ou credential modifié.
+
 ## Point courant — 27 octobre 2026, verrou npm réconcilié localement
 
 - Publication ciblée de ce paquet autorisée le27/10 : correctifs ville/rôle aéroport, verrou npm, tests et ces deux notes seulement ; commit/push/CI/sync, sans Edge/migration/accès ni relance. Résultats effectifs à vérifier dans real-r02-20261026/context-publication-20261027/verification.json hors Git.

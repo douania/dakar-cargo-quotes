@@ -1,6 +1,6 @@
 import {inspectContainerText,normalizeContainerDesignation,normalizeContainerInventory} from '../_shared/container-designation.ts';
 import { prepareRevisionGroups, reprocessEquipment, writeEmailFactRevisions } from '../_shared/email-fact-revisions.ts';
-import { assessLocationClaim, isLocationKey, validateLineLocations, replaceRequestLinesWithEvidence, type LocationSource, type LocationProof } from '../_shared/request-location-evidence.ts';
+import { assessLocationClaim, bindAcceptedLocationProof, unresolvedAirportRoles, isLocationKey, validateLineLocations, replaceRequestLinesWithEvidence, type LocationSource, type LocationProof } from '../_shared/request-location-evidence.ts';
 import { assertLoadedDocumentSources, beginDocumentAnalysis, documentAnalysisJob, documentAnalysisRequest, DocumentAnalysisError,
   DOCUMENT_COVERAGE_GAP, failDocumentAnalysis, finishDocumentAnalysis, inspectDocumentAnalysis, readableCaseDocuments,
   type DocumentAnalysisClient, type DocumentAnalysisRequest } from '../_shared/case-document-analysis.ts';
@@ -5516,8 +5516,10 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     for(const fact of extractedFacts){
       if(!isLocationKey(fact.key)){locationAccepted.push(fact);continue;}
       const proof=await assessLocationClaim(serviceClient,{...fact,sourceType:fact.sourceType},locationSources);
-      locationProofs.push(proof);
-      if(proof.status==='accepted')locationAccepted.push(fact);
+      // STRUCTURAL_PATCH_ALLOWED: retain each proven FK/raw excerpt through ordered revisions.
+      const bound = proof.status==='accepted' ? await bindAcceptedLocationProof(fact,proof,locationSources) : [];
+      locationProofs.push(proof.status==='accepted'&&!bound.length ? {...proof,status:'rejected',reason:'source_binding_not_proven'} : proof);
+      locationAccepted.push(...bound);
     }
     extractedFacts=locationAccepted;
     if(locationProofs.length){
@@ -8323,10 +8325,10 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         // Check critical fact exists in DB
         const { data: criticalFacts, error: criticalFactsError } = await serviceClient
           .from("quote_facts")
-          .select("fact_key")
+          .select("fact_key,value_text,source_type,is_validated,source_email_id,source_attachment_id,source_excerpt")
           .eq("case_id", case_id)
           .eq("is_current", true)
-          .in("fact_key", ["service.package"]);
+          .in("fact_key", ["service.package", "routing.origin_airport", "routing.destination_airport"]);
 
         if (criticalFactsError) {
           console.error(`[P4] Failed to read critical facts for case ${case_id}: ${criticalFactsError.message}`);
@@ -8335,6 +8337,10 @@ export const buildCasePuzzleHandler = async (req: Request) => {
 
         const criticalFactKeys = new Set((criticalFacts || []).map((f: any) => f.fact_key));
         if (!criticalFactKeys.has("service.package")) ambiguitySignals.push("NO_SERVICE_PACKAGE");
+        // STRUCTURAL_PATCH_ALLOWED: P4 must not certify a sourced unresolved airport role.
+        for (const code of unresolvedAirportRoles(locationSources, locationProofs, criticalFacts || [])) {
+          ambiguitySignals.push("AMBIGUOUS_AIRPORT_ROLE:" + code);
+        }
 
         if (ambiguitySignals.length > 0) {
           newStatus = "DECISIONS_PENDING";
@@ -8549,7 +8555,7 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         assumption_result: assumptionResult,
         gaps_identified: gapsIdentified,
         puzzle_completeness: completeness,
-        ready_to_price: !documentCoverageBlocked && (newStatus === "DECISIONS_PENDING" || newStatus === "READY_TO_PRICE" || newStatus === "ACK_READY_FOR_PRICING"),
+        ready_to_price: !documentCoverageBlocked && (newStatus === "READY_TO_PRICE" || newStatus === "ACK_READY_FOR_PRICING"),
         quote_request_lines_detected: multiQuoteResult?.detected || false,
         quote_request_lines_stored: multiQuoteResult?.stored || 0,
         quote_request_lines_mode: multiQuoteResult?.mode || null,

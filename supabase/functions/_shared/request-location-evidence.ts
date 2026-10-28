@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { decodeEmailQuoteView, splitEmailQuoteContext } from './email-quote-context.ts';
 import { sourceSha256 } from './email-fact-revisions.ts';
+import { ambiguousAirportRoles } from './thread-intent-location-reservations.ts';
 import {normalizeContainerInventory,inspectContainerText} from './container-designation.ts';
 
 /** Both replacement and clearing retain the exact old rows before the existing RPC. */
@@ -66,6 +67,65 @@ async function explicitAddressCity(client:SupabaseClient,value:string,excerpt:st
   '(?:\\s*[/,–-]?\\s*\\d{3,10})?\\s*$','i');
  return tail.test(countryText(line))?block[0].replace(/^\n/,''):null;
 }
+/** Recover a bounded raw line span from the already proven comparison view.
+ * Do not rewrite bytes or pass model Unicode into the raw-excerpt revision guard. */
+function rawLocationExcerpt(text:string,excerpt:string):string|null{
+ const target=normalize(excerpt),at=target?normalize(text).indexOf(target):-1;if(at<0)return null;
+ // Two linear passes, no quadratic line-window search on large documents.
+ // Each comparison grapheme retains its original raw boundaries.
+ let offset=0,start:number|undefined,space=true;
+ for(const chunk of text.matchAll(/(?:[\u00c2-\u00f4][\u0080-\u00bf]+|[^\s])\p{M}*|\s+/gu)){
+  let part=evidenceText(chunk[0]).toUpperCase();
+  if(/^\s+$/.test(part)){if(space)continue;part=' ';space=true;}else space=false;
+  const next=offset+part.length;
+  if(start===undefined&&at<next)start=chunk.index;
+  if(start!==undefined&&at+target.length<=next){
+   const raw=text.slice(start,chunk.index+chunk[0].length);
+   return raw.length<=2000&&normalize(raw)===target?raw:null;
+  }
+  offset=next;
+ }
+ return null;
+}
+
+/** Bind every independently proven declaration; the established ordered writer
+ * decides between emails. No fallback to an unbound fact after a binding refusal.
+ * Manual documents retain journal provenance, never a fabricated email FK. */
+export async function bindAcceptedLocationProof<T extends LocationClaim>(claim:T,proof:LocationProof,sources:LocationSource[]):Promise<Array<T & LocationClaim>>{
+ if(proof.status!=='accepted'||proof.key!==claim.key||proof.rawValue!==claim.value)return [];
+ if(manual(claim))return [claim];
+ if(!proof.sources.length||new Set(proof.sources.map(s=>s.kind+':'+s.id)).size!==proof.sources.length)return [];
+ const bound:Array<T & LocationClaim>=[];
+ for(const reference of proof.sources){
+  const matches=sources.filter(s=>s.id===reference.id&&s.kind===reference.kind);
+  if(matches.length!==1)return [];
+  const source=matches[0],excerpt=rawLocationExcerpt(source.text,proof.excerpt);
+  if(!excerpt||reference.sha256!==(source.sourceHash || await sourceSha256(source.text)))return [];
+  if(claim.sourceAttachmentId&&claim.sourceAttachmentId!==source.id)return [];
+  if(claim.sourceEmailId&&claim.sourceEmailId!==(source.kind==='email'?source.id:source.emailId))return [];
+  if(source.kind==='attachment'&&!source.emailId)return [];
+  bound.push({...claim,sourceEmailId:source.kind==='email'?source.id:source.kind==='attachment'?source.emailId!:undefined,
+   sourceAttachmentId:source.kind==='attachment'?source.id:undefined,sourceExcerpt:excerpt});
+ }
+ return bound;
+}
+
+/** Known source ambiguity is an operator decision, independently of AI recall.
+ * Only a current protected choice or a proven current explicit role resolves it.
+ * A code alone, an old automatic assertion, or a role for another code cannot. */
+export function unresolvedAirportRoles(sources:LocationSource[],proofs:LocationProof[],current:Array<Record<string,unknown>>):string[]{
+ const codes=[...new Set(sources.flatMap(s=>ambiguousAirportRoles(s.text).map(r=>r.code)))];
+ return codes.filter(code=>{
+  const roles=current.filter(f=>f.is_current!==false&&['routing.origin_airport','routing.destination_airport'].includes(String(f.fact_key))&&
+   normalize(String(f.value_text || ''))===code&&(f.is_validated===true||['operator','manual_input','operator_correction'].includes(String(f.source_type))||
+    proofs.some(p=>p.status==='accepted'&&p.reason==='explicit_transport_role'&&p.key===f.fact_key&&normalize(String(p.rawValue))===code&&
+     !!f.source_excerpt&&normalize(String(f.source_excerpt)).includes(normalize(p.excerpt))&&
+     p.sources.some(s=>s.kind==='email'?s.id===f.source_email_id:s.kind==='attachment'&&s.id===f.source_attachment_id))))
+   .map(f=>String(f.fact_key));
+  return new Set(roles).size!==1;
+ });
+}
+
 export const locationOwnText=(raw:string)=>splitEmailQuoteContext(decodeEmailQuoteView(raw,x=>x)).ownText;
 export const isLocationKey=(key:string)=>/^routing\.(?:origin_port|destination_port|origin_airport|destination_airport|destination_city|final_destination)$/.test(key);
 const portKey=(key:string)=>/_(?:port|airport)$/.test(key);
