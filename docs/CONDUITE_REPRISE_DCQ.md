@@ -1,5 +1,18 @@
 # Dakar Cargo Quotes — conduite et reprise
 
+## Point courant - 28 octobre 2026, conseil de volume fiabilisé localement
+
+- Publication ciblée autorisée le28/10 : ces sept fichiers volume/tests/deux notes, commit/push/CI/synchronisation Lovable uniquement ; aucun déploiement serveur/IA/donnée métier. SHA et résultats effectifs : volume-publication-20261028/verification.json hors Git, dans task-2.
+
+- Roadmap§2.60 : base work/e5e5c326 alignée GitHub ; sept fichiers locaux dont3nouveaux,129 anciens non suivis et copies/.claude préservés. Aucun commit/push/Cloud/IA/donnée métier.
+- Unités et toutes allocations vérifiées avant tout conseil global ; pas de somme entre sources alternatives ni de compte inventé. Volume opérateur existant préservé, allocation inconnue/contradictoire réservée. Aucun fait canonique ou gap écrit/résolu, aucun tarif/pricing/poids taxable changé.
+- Cache versionné sur faits/gaps/intent courants ; append historique lors d'un changement, lectures défaillantes observables. UI projetée depuis les données courantes, ancien candidat/résumé/faux blocage retirés sans réécrire le journal.
+-32volume+53ciblés poids/volume et10UI PASS ;1426Vitest et2804Deno/6ignorés, autres portes PASS_WITH_BASELINE après reprise du typeapp ES2020. Première chaîne exit1 et essais antérieurs gardés ; contre-revue PASS32+7sondes+1complémentaire.
+- Navigateur NOT_RUN : cua_repl/node_repl absents ; aucune voie improvisée, aucun serveur temporaire. UI jsdom seulement. AuditUI global114constats hors fichiers modifiés, non résolus dans ce lot ; aucune conformité globale ou recette Cloud annoncée.
+- Future livraison sous GO distinct : publication/CI/sync puis build-case-puzzle(poids)+analyze-case-coherence(volume) et frontend actualisé ; aucune migration. Recette synthétique bornée à préciser/autoriser ; aucun traitement R02, devis/PDF ou contact client couvert ici.
+- Preuves : C:/Users/DELL/Documents/Codex/2026-10-22/task-2/volume-local-20261028/verification.json. Ne pas confondre conseil sûr et cotation réelle validée ; données historiques non réparées, concurrence DB non testée. Railway maintenu/migration suspendue.
+
+
 ## Point courant - 28 octobre 2026, scope du poids corrigé localement
 - Publication ciblée autorisée le28/10 : ces cinq fichiers poids/tests/deux notes, commit/push/CI/sync uniquement ; aucun déploiement/analyse de dossier/donnée métier. SHA et résultats effectifs dans real-r02-20261026/weight-publication-20261028/verification.json hors Git.
 

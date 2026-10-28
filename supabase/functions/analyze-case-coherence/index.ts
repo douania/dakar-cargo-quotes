@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
+import {projectVolumeAdvice,stableCoherenceInput} from "../_shared/cargo-volume-advice.ts";
+import {contractHash} from "../_shared/request-source-contract.ts";
 
 // ── Types ──
 interface DerivedCandidate {
@@ -45,29 +47,7 @@ interface CoherenceResult {
 }
 
 // ── Helpers ──
-function parseDimensions(dimText: string): { l: number; w: number; h: number; unit: string } | null {
-  // Support formats: "120x80x100 cm", "1.2x0.8x1.0 m", "120 x 80 x 100cm"
-  const match = dimText.match(
-    /(\d+(?:[.,]\d+)?)\s*[xX×]\s*(\d+(?:[.,]\d+)?)\s*[xX×]\s*(\d+(?:[.,]\d+)?)\s*(cm|m|mm)?/i
-  );
-  if (!match) return null;
-  const l = parseFloat(match[1].replace(",", "."));
-  const w = parseFloat(match[2].replace(",", "."));
-  const h = parseFloat(match[3].replace(",", "."));
-  if (!match[4]) return null; // No unit = ambiguous, skip
-  const unit = match[4].toLowerCase();
-  return { l, w, h, unit };
-}
-
-function dimensionsToVolumeCbm(l: number, w: number, h: number, unit: string): number {
-  let factor = 1;
-  if (unit === "cm") factor = 1e-6;
-  else if (unit === "mm") factor = 1e-9;
-  // m → already cbm
-  return l * w * h * factor;
-}
-
-serve(async (req: Request) => {
+export const analyzeCaseCoherenceHandler = async (req: Request) => {
   const corsResp = handleCors(req);
   if (corsResp) return corsResp;
 
@@ -103,7 +83,8 @@ serve(async (req: Request) => {
       .order("created_at", { ascending: false })
       .limit(5);
 
-    const { data: intentEvents } = await intentQuery;
+    const { data: intentEvents, error: intentReadError } = await intentQuery;
+    if(intentReadError)return errorResponse("Coherence intent unavailable",503);
 
     // Prefer intent matching related_email_id if provided
     let intentEvent = intentEvents?.[0] ?? null;
@@ -115,54 +96,10 @@ serve(async (req: Request) => {
     const intentEventId = intentEvent?.id ?? null;
     const effectiveEmailId = related_email_id || intentEvent?.related_email_id || null;
 
-    // ── 2. Idempotence check ──
-    const dedupe_key = `${case_id}_case_coherence_v1_${effectiveEmailId ?? intentEventId ?? "no_ref"}`;
-
-    const { data: existing } = await serviceClient
-      .from("case_timeline_events")
-      .select("id, event_data")
-      .eq("case_id", case_id)
-      .eq("event_type", "case_coherence_v1")
-      .eq("related_email_id", effectiveEmailId ?? "")
-      .maybeSingle();
-
-    // Also check by dedupe_key in event_data for robustness
-    if (existing) {
-      return jsonResponse({
-        ok: true,
-        idempotent: true,
-        coherence: existing.event_data,
-      });
-    }
-
-    // If no email ref, also check by intent_event_id
-    if (!effectiveEmailId && intentEventId) {
-      const { data: existingByIntent } = await serviceClient
-        .from("case_timeline_events")
-        .select("id, event_data")
-        .eq("case_id", case_id)
-        .eq("event_type", "case_coherence_v1")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existingByIntent) {
-        const ed = existingByIntent.event_data as Record<string, unknown> | null;
-        if (ed?.["intent_event_id"] === intentEventId) {
-          return jsonResponse({
-            ok: true,
-            idempotent: true,
-            coherence: existingByIntent.event_data,
-          });
-        }
-      }
-    }
-
-    // ── 3. Load facts + gaps ──
     const [factsRes, gapsRes] = await Promise.all([
       userClient
         .from("quote_facts")
-        .select("fact_key, fact_category, value_text, value_number, value_json")
+        .select("fact_key, fact_category, value_text, value_number, value_json, source_type, is_validated")
         .eq("case_id", case_id)
         .eq("is_current", true),
       userClient
@@ -172,16 +109,22 @@ serve(async (req: Request) => {
         .eq("status", "open"),
     ]);
 
+    if (factsRes.error || gapsRes.error || !Array.isArray(factsRes.data) || !Array.isArray(gapsRes.data)) return errorResponse("Current coherence inputs unavailable", 503);
     const facts = factsRes.data ?? [];
     const gaps = gapsRes.data ?? [];
+    const ordered = (values: unknown[]) => [...values].sort((a,b)=>stableCoherenceInput(a).localeCompare(stableCoherenceInput(b)));
+    const input_hash=await contractHash(stableCoherenceInput({rule_version:2,related_email_id:effectiveEmailId,
+      intent_event_id:intentEventId,intent:intentEvent?.event_data??null,facts:ordered(facts),gaps:ordered(gaps)}));
+    const dedupe_key=`${case_id}_case_coherence_v2_${input_hash}`;
+    // Validate current inputs before reusing advice. Old snapshots remain append-only.
+    let cacheQuery=serviceClient.from("case_timeline_events").select("id, event_data")
+      .eq("case_id",case_id).eq("event_type","case_coherence_v1");
+    cacheQuery=effectiveEmailId?cacheQuery.eq("related_email_id",effectiveEmailId):cacheQuery.is("related_email_id",null);
+    const {data:existing,error:cacheError}=await cacheQuery.order("created_at",{ascending:false}).limit(1).maybeSingle();
+    if(cacheError)return errorResponse("Coherence history unavailable",503);
+    const cached=existing?.event_data as Record<string,unknown>|null;
+    if(cached?.rule_version===2&&cached.input_hash===input_hash)return jsonResponse({ok:true,idempotent:true,coherence:cached});
 
-    // Build lookup maps
-    const factByKey = new Map<string, { value_text: string | null; value_number: number | null; value_json: unknown }>();
-    for (const f of facts) {
-      factByKey.set(f.fact_key, { value_text: f.value_text, value_number: f.value_number, value_json: f.value_json });
-    }
-
-    const openGapKeys = new Set(gaps.map((g) => g.gap_key));
     const blockingGapKeys = new Set(gaps.filter((g) => g.is_blocking).map((g) => g.gap_key));
 
     // Extract intent data
@@ -198,34 +141,6 @@ serve(async (req: Request) => {
     const operatorGuidance: string[] = [];
     const suggestedQuestions: string[] = [];
     const falseBlockerCandidates: FalseBlockerCandidate[] = [];
-
-    // ── Rule 1: dimensions → volume candidate ──
-    const dimFact = factByKey.get("cargo.dimensions");
-    const volumeFact = factByKey.get("cargo.volume_cbm");
-    if (dimFact?.value_text && (!volumeFact || volumeFact.value_number === null)) {
-      const dims = parseDimensions(dimFact.value_text);
-      if (dims) {
-        const volumeCbm = dimensionsToVolumeCbm(dims.l, dims.w, dims.h, dims.unit);
-        if (volumeCbm > 0 && volumeCbm < 10000) {
-          derivedCandidates.push({
-            fact_key: "cargo.volume_cbm",
-            value_number: Math.round(volumeCbm * 1000) / 1000,
-            reason_code: "DIMENSIONS_TO_VOLUME",
-            auto_applicable: true,
-            explanation_fr: `Volume calculé depuis dimensions ${dimFact.value_text}: ${(Math.round(volumeCbm * 1000) / 1000)} m³`,
-          });
-
-          // Rule 5 (narrowed): If gap exists for volume, flag as potential false blocker
-          if (openGapKeys.has("cargo.volume_cbm")) {
-            falseBlockerCandidates.push({
-              gap_key: "cargo.volume_cbm",
-              reason_code: "DERIVABLE_FROM_DIMENSIONS",
-              message_fr: "Ce gap peut être résolu automatiquement à partir des dimensions du colis.",
-            });
-          }
-        }
-      }
-    }
 
     // ── Rule 2: LCL + explicit container → contradiction ──
     if (extractedSignals["has_lcl_signal"] && extractedSignals["has_container_signal"]) {
@@ -295,7 +210,7 @@ serve(async (req: Request) => {
     const confidence = contradictions.length === 0 && warnings.length === 0 ? 0.95 : 0.7;
 
     // ── 5. Build result ──
-    const coherenceResult: CoherenceResult = {
+    const baseResult: CoherenceResult = {
       related_email_id: effectiveEmailId,
       intent_event_id: intentEventId,
       dedupe_key,
@@ -309,6 +224,8 @@ serve(async (req: Request) => {
       false_blocker_candidates: falseBlockerCandidates,
     };
 
+    const coherenceResult={...projectVolumeAdvice(baseResult as unknown as Record<string,unknown>,facts,gaps.map(g=>g.gap_key)),rule_version:2,input_hash};
+    // Informational snapshot only: no canonical fact or gap mutation.
     // ── 6. Insert timeline event ──
     const { error: insertErr } = await serviceClient
       .from("case_timeline_events")
@@ -335,4 +252,5 @@ serve(async (req: Request) => {
     console.error("[analyze-case-coherence] Unexpected error:", (err as Error).message);
     return errorResponse("Internal server error", 500);
   }
-});
+};
+if(Deno.env.get("ANALYZE_CASE_COHERENCE_DISABLE_SERVE")!=="1")serve(analyzeCaseCoherenceHandler);

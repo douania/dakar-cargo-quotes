@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import {projectVolumeAdvice} from "../../../supabase/functions/_shared/cargo-volume-advice";
 import { readAirportRoleReservations, reserveIntentAirportRoles, type AirportRoleReservation } from "../../../supabase/functions/_shared/thread-intent-location-reservations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -291,7 +292,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
 
     if (coherenceEvents.length === 0) return null;
 
-    const ed = coherenceEvents[0].event_data as Record<string, unknown>;
+    const ed = projectVolumeAdvice(coherenceEvents[0].event_data as Record<string, unknown>,currentFacts,openGapKeys);
 
     return {
       summary: typeof ed["summary"] === "string" ? ed["summary"] : null,
@@ -309,7 +310,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
         ? (ed["false_blocker_candidates"] as Array<Record<string, unknown>>) : [],
       date: coherenceEvents[0].created_at,
     };
-  }, [events]);
+  }, [events,currentFacts,openGapKeys]);
 
   // ── Merge contradiction flags from intent + coherence (deduplicated) ──
   const allContradictions = useMemo(() => {
