@@ -1,5 +1,17 @@
 # Dakar Cargo Quotes — conduite et reprise
 
+## Point courant - 28 octobre 2026, scope du poids corrigé localement
+- Publication ciblée autorisée le28/10 : ces cinq fichiers poids/tests/deux notes, commit/push/CI/sync uniquement ; aucun déploiement/analyse de dossier/donnée métier. SHA et résultats effectifs dans real-r02-20261026/weight-publication-20261028/verification.json hors Git.
+
+- Roadmap§2.59 ; work/d3cfca1 toujours aligné GitHub. Cinq fichiers de ce lot seulement,129 anciens non suivis préservés ; aucun commit/push/déploiement/IA/donnée métier.
+- Historique à ne pas rejouer : publication d3cfca1/CI verte, déploiement unitaire et recette isolée de provenance/statut déjà terminés. Preuves activation-d3-20261028/verification.json ; aucun devis/PDF et R02 inchangé par cette recette.
+- Défaut poids IA25kg/carton→total25 reproduit puis bloqué avant writer ; refus journalisé avec source/hash/motif. Total explicite et choix opérateur conservés, pas de multiplication inventée, aucun tarif/SQL/Auth/RLS changé.
+-21ciblés+5contre-vérifications indépendantes PASS ;9portes locales PASS_WITH_BASELINE,1423Vitest et passe serveur finale2772Deno/6ignorés, types49/5,lint708/16. Données synthétiques et fetch intercepté seulement ; premier agrégat2770Deno et essais échoués gardés séparément.
+- Scope nu104kg et dimensions/emballage de R02 restent UNKNOWN ; anciens faits non réparés. Conseil volume du premier triplet identifié dans analyze-case-coherence, hors correctif/pricing ; ne pas le promouvoir en volume confirmé.
+- Prochaine étape utile : qualification opérateur des seules ambiguïtés puis calcul sur tarif attesté ; publication/activation/recette et toute écriture réelle requièrent leurs GO précis. Pas de nouveau traitement autorisé par cette note, aucun envoi client.
+- Preuves : real-r02-20261026/weight-scope-local-20261028/verification.json hors Git. Aucun processus temporaire créé ; copies/.claude conservées, Railway maintenu/migration suspendue.
+
+
 ## Point courant — 28 octobre 2026, provenance et réserves corrigées localement
 
 - Publication ciblée autorisée le28/10 : ces huit fichiers de provenance/statut/tests et deux notes, commit/push/CI/sync seulement ; aucun Edge, analyse R02 ou changement métier. Résultats effectifs à vérifier dans real-r02-20261026/integrity-publication-20261028/verification.json hors Git.

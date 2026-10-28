@@ -4,7 +4,7 @@ import { assessLocationClaim, bindAcceptedLocationProof, unresolvedAirportRoles,
 import { assertLoadedDocumentSources, beginDocumentAnalysis, documentAnalysisJob, documentAnalysisRequest, DocumentAnalysisError,
   DOCUMENT_COVERAGE_GAP, failDocumentAnalysis, finishDocumentAnalysis, inspectDocumentAnalysis, readableCaseDocuments,
   type DocumentAnalysisClient, type DocumentAnalysisRequest } from '../_shared/case-document-analysis.ts';
-import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
+import { declaredWeightKg, documentCargoEvidence, documentDimensionSources, dimensionGroupsDisagree, emailCargoEvidence, emailWeightScopeIssue, type EmailWeightScopeIssue, sourceConfidence, sourceNumber } from "../_shared/cargo-source-evidence.ts";
 import { requireWorkspaceAccess } from "../_shared/auth.ts";
 import { decodeEmailQuoteView, splitEmailQuoteContext } from "../_shared/email-quote-context.ts";
 import { assessRequestSourceContract, contractHash, explicitSeaGatewayClauses,
@@ -5502,14 +5502,25 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     ];
     const locationProofs:LocationProof[]=[];
 
+    const rejectedWeightProposals: Array<Record<string,unknown>> = [];
     // 7. Call AI for fact extraction (uses INBOUND context only — SOURCE-GUARD-1)
     let extractedFacts = await extractFactsWithAI(
       inboundThreadContext,
       fullAttachmentContext,
       inboundEmails,
       reloadedAttachments || [],
-      lovableApiKey
+      lovableApiKey,
+      (fact,issue) => rejectedWeightProposals.push({fact_key:fact.key,proposed_value:fact.value,source_type:fact.sourceType,
+        source_email_id:fact.sourceEmailId,source_excerpt:fact.sourceExcerpt,reason:issue.reason,unit_declarations:issue.unit_declarations,
+        body_sha256:locationSources.find(s=>s.kind==='email'&&s.id===fact.sourceEmailId)?.sourceHash ?? null})
     );
+    // STRUCTURAL_PATCH_ALLOWED: refuse unit/global scope confusion before any
+    // canonical writer; keep the source proposal without manufacturing a total.
+    if(rejectedWeightProposals.length){
+      const {error}=await serviceClient.from('case_timeline_events').insert({case_id,event_type:'case_reasoning_v1',actor_type:'system',actor_user_id:userId,
+        event_data:{kind:'cargo_weight_scope_rejections',version:1,proposals:rejectedWeightProposals}});
+      if(error)throw new Error('Weight scope evidence could not be retained: '+error.message);
+    }
     // STRUCTURAL_PATCH_ALLOWED: explicit own route + existing sea aliases, never a selected sailing.
     extractedFacts.push(...await extractExplicitSeaGatewayFacts(serviceClient, inboundEmails,locationProofs));
     const locationAccepted:ExtractedFact[]=[];
@@ -8621,7 +8632,7 @@ function containerDeclarationKey(value: unknown): string | null {
 }
 
 type FactAttachmentSource = { id: string; email_id?: string | null; extracted_text?: string | null; extracted_data?: unknown };
-export function bindExtractedFactSources(facts: ExtractedFact[], emails: FactEmailSource[], attachments: FactAttachmentSource[], attachmentContext = ''): ExtractedFact[] {
+export function bindExtractedFactSources(facts: ExtractedFact[], emails: FactEmailSource[], attachments: FactAttachmentSource[], attachmentContext = '', onWeightRejected?: (fact:ExtractedFact,issue:EmailWeightScopeIssue)=>void): ExtractedFact[] {
   const normalizedText = (text: string) => text.replace(/\s+/g, ' ').trim();
   const sources = emails.filter(e => !isSodatraEmail(e.from_address || '')).map(email => ({email, ...splitEmailQuoteContext(quoteAwareEmailText(email.body_text || ''))}));
   const candidates = collectEmailContainerCandidates(emails);
@@ -8642,11 +8653,24 @@ export function bindExtractedFactSources(facts: ExtractedFact[], emails: FactEma
       if (explicit) own = sources.find(s => s.email.id === explicit.emailId);
       if (own && containerDeclarationKey(parseContainersFromText(own.ownText, false, true)) !== containerDeclarationKey(f.value)) return [];
     }
+    const refuseUnitWeight=(candidates:typeof sources)=>{
+      if(f.key!=='cargo.weight_kg'||!['email_body','ai_extraction','ai_assumption','deterministic_calc'].includes(f.sourceType))return false;
+      let refused=false;
+      for(const source of candidates){
+        const issue=emailWeightScopeIssue(source.ownText,f.sourceExcerpt || '',typeof f.value==='number'?f.value:NaN);
+        if(issue){refused=true;onWeightRejected?.({...f,sourceEmailId:source.email.id},issue);}
+      }
+      return refused;
+    };
+    if(own&&refuseUnitWeight([own]))return [];
     if (own) return [{ ...f, sourceEmailId: own.email.id, sourceAttachmentId: undefined,
       sourceExcerpt: f.key === 'cargo.containers' ? own.ownText : f.sourceExcerpt }];
     const att = attMatches.find(a => a.id === f.sourceAttachmentId) || (attMatches.length === 1 ? attMatches[0] : undefined);
     if (att) return [{ ...f, sourceEmailId: att.email_id || undefined, sourceAttachmentId: att.id }];
     if (excerpt && normalizedText(attachmentContext).includes(excerpt)) return [{ ...f, sourceEmailId: undefined, sourceAttachmentId: undefined }];
+    // A missing/nonliteral model quote must not restore the unsafe unbound fallback.
+    const possibleEmailSources=ownMatches.length?ownMatches:sources;
+    if(refuseUnitWeight(possibleEmailSources))return [];
     if (f.key === 'cargo.containers' || sources.some(s => s.hasQuotedHistory) && !f.isAssumption) return [];
     return [{ ...f, sourceEmailId: undefined, sourceAttachmentId: undefined }];
   });
@@ -8664,9 +8688,10 @@ export async function extractFactsWithAI(
   attachmentContext: string,
   emails: any[],
   attachments: any[],
-  apiKey?: string
+  apiKey?: string,
+  onWeightRejected?: (fact:ExtractedFact,issue:EmailWeightScopeIssue)=>void
 ): Promise<ExtractedFact[]> {
-  const basicExtraction = () => bindExtractedFactSources(extractFactsBasic(emails, attachments), emails, attachments, attachmentContext);
+  const basicExtraction = () => bindExtractedFactSources(extractFactsBasic(emails, attachments), emails, attachments, attachmentContext,onWeightRejected);
   if (!apiKey) {
     console.warn("No LOVABLE_API_KEY, using basic extraction");
     return basicExtraction();
@@ -8804,7 +8829,7 @@ ${attachmentContext ? `\n\nAttachment content:\n${attachmentContext}` : ""}`;
           sourceType: f.isAssumption ? "ai_assumption" : "ai_extraction",
         };
       });
-      return bindExtractedFactSources(normalized, emails, attachments, attachmentContext);
+      return bindExtractedFactSources(normalized, emails, attachments, attachmentContext,onWeightRejected);
     } catch {
       return basicExtraction();
     }

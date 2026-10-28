@@ -31,6 +31,40 @@ export function declaredWeightKg(value: unknown, keyHasKgUnit = false): number |
   return /^(?:t|tons?|tonnes?)$/i.test(match[2] || "") ? number * 1000 : number;
 }
 
+export type EmailWeightScopeIssue = { reason:'PER_UNIT_WEIGHT_NOT_TOTAL'; unit_declarations:Array<{kg:number;excerpt:string}> };
+/** A clipped model quote must not strip the per-carton qualifier from a total.
+ * Check every occurrence in this own source; never multiply units or borrow a
+ * total from another message. Ordinary explicit totals retain their path. */
+export function emailWeightScopeIssue(body:string,excerpt:string,valueKg:number):EmailWeightScopeIssue|null{
+ const normalized=(s:string)=>s.replace(/\s+/g,' ').trim();
+ const prefixLength=(n:number)=>body.slice(0,n).replace(/\s+/g,' ').trimStart().length;
+ const declarations:Array<{kg:number;unit:boolean;start:number;end:number;excerpt:string}>=[];
+ let previousEnd=0;
+ for(const m of body.matchAll(/\b(\d[\d ,.'\u00a0]*)\s*(kgs?|kilograms?|t|tons?|tonnes?)\b/gi)){
+  const kg=declaredWeightKg(m[0]);if(kg===null)continue;
+  const start=m.index,end=start+m[0].length;
+  const lineStart=Math.max(body.lastIndexOf('\n',start),body.lastIndexOf(';',start),body.lastIndexOf('|',start))+1;
+  const contextStart=/^[ \t]*$/.test(body.slice(lineStart,start))?Math.max(previousEnd,body.lastIndexOf('\n',Math.max(0,lineStart-2))+1):Math.max(lineStart,previousEnd);
+  const before=body.slice(contextStart,start);
+  const after=body.slice(end);
+  const unit=/^\s*(?:(?:per|par)\b\s*\S+|\/\s*\S+|each\b|chacun(?:e)?\b)/i.test(after)||
+   /(?:\b(?:per|par)\s+(?:cartons?|boxes?|packages?|pieces?|pcs?|colis|crates?|pkgs?|pallets?|palettes?|units?|buses?|vehicles?|sets?)|\b(?:unit(?:ary)?\s+(?:gross\s+)?weight|poids\s+unitaire)|\beach\s+(?:carton|box|package|piece|crate|pallet|unit|bus|vehicle|set)\s*(?:weighs|weight|gross\s+weight)?)\s*[:=]?\s*$/i.test(before);
+  const lineEnd=body.indexOf('\n',end);
+  declarations.push({kg,unit,start:prefixLength(start),end:prefixLength(start+m[1].trimEnd().length),excerpt:body.slice(Math.max(contextStart,start-120),Math.min(lineEnd<0?body.length:lineEnd,end+80)).trim()});
+  previousEnd=end;
+ }
+ const unitDeclarations=declarations.filter(d=>d.unit);if(!unitDeclarations.length)return null;
+ const issue:EmailWeightScopeIssue={reason:'PER_UNIT_WEIGHT_NOT_TOTAL',unit_declarations:unitDeclarations.map(d=>({kg:d.kg,excerpt:d.excerpt}))};
+ const source=normalized(body),quote=normalized(excerpt);if(!quote)return issue;
+ let occurrence=source.indexOf(quote);if(occurrence<0)return issue;
+ while(occurrence>=0){
+  const referenced=declarations.filter(d=>d.start>=occurrence&&d.end<=occurrence+quote.length);
+  if(!referenced.some(d=>!d.unit&&Math.abs(d.kg-valueKg)<1e-9))return issue;
+  occurrence=source.indexOf(quote,occurrence+1);
+ }
+ return null;
+}
+
 export function emailCargoEvidence(body: string) {
   const total = body.match(/\btotal[ \t]*[:=]?[ \t]*(\d+)[ \t]*(?:cartons?|packages?|pieces?|pcs|colis|crates?|pkgs?)\b/i)
     ?? body.match(/(?:^|[\r\n])[ \t]*(?:total[ \t]+(?:cartons?|packages?|pieces?|colis|crates?|pkgs?)|(?:cartons?|packages?|pieces?|colis|crates?|pkgs?)[ \t]+(?:total)?)[ \t]*[:=]?[ \t]*(\d+)\b/i)
