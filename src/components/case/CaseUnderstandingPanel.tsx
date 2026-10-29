@@ -248,6 +248,28 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
       ? [...readAirportRoleReservations(rawIntent.location_reservations), ...fromProof] : [];
     const hasUnconfirmedLocation = reservations.some(r => new Set(confirmations.filter(c => c.code === r.code).map(c => c.role)).size !== 1);
     const intent = reserveIntentAirportRoles(rawIntent, reservations, confirmations);
+    // A source-bound canonical rejection also reserves this email's free AI prose.
+    // Do not semantically rewrite a model sentence or mutate the stored intention.
+    // Even a later operator decision cannot certify the historical model summary.
+    const hasWeightReservation = latestEvent.actor_type === "ai" && !!latestEvent.related_email_id && events.some(e =>
+      e.event_type === "case_reasoning_v1" && e.actor_type === "system" &&
+      e.event_data?.kind === "cargo_weight_scope_rejections" && e.event_data.version === 1 &&
+      Array.isArray(e.event_data.proposals) && e.event_data.proposals.some((value: unknown) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+        const proposal = value as Record<string, unknown>;
+        return proposal.fact_key === "cargo.weight_kg" && proposal.reason === "PER_UNIT_WEIGHT_NOT_TOTAL" &&
+          proposal.source_email_id === latestEvent.related_email_id &&
+          typeof proposal.proposed_value === "number" && Number.isFinite(proposal.proposed_value) && proposal.proposed_value > 0;
+      }));
+    const hasOperatorWeight = (currentFacts ?? []).some(f => f.fact_key === "cargo.weight_kg" &&
+      typeof f.value_number === "number" && Number.isFinite(f.value_number) && f.value_number > 0 &&
+      (f.is_validated === true || ["operator", "manual_input", "operator_correction"].includes(f.source_type ?? "")));
+    const weightReservationNote = hasWeightReservation
+      ? "Résumé IA écarté : une proposition de poids total pour ce courriel a été refusée. " +
+        (hasOperatorWeight ? "Le poids retenu dans les faits conserve la décision opérateur ; l’ancien résumé IA reste écarté."
+          : "Consultez les faits et la source pour préciser le poids total.")
+      : null;
+
 
     // Only show V2 sections if we have the enriched fields
     if (!intent["request_summary"] && !intent["transport_mode_hypothesis"]) {
@@ -260,7 +282,8 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
 
     return {
       intentV2: {
-        request_summary: typeof intent["request_summary"] === "string" ? intent["request_summary"] : null,
+        request_summary: !hasWeightReservation && typeof intent["request_summary"] === "string" ? intent["request_summary"] : null,
+        weightReservationNote,
         transport_mode_hypothesis: typeof intent["transport_mode_hypothesis"] === "string"
           ? intent["transport_mode_hypothesis"] : "unknown",
         incoterm_hypothesis: typeof intent["incoterm_hypothesis"] === "string"
@@ -272,7 +295,8 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
         missing_business_questions: Array.isArray(intent["missing_business_questions"])
           ? (intent["missing_business_questions"] as string[]) : [],
         operator_guidance: Array.isArray(intent["operator_guidance"])
-          ? (intent["operator_guidance"] as string[]) : [],
+          ? (intent["operator_guidance"] as unknown[]).filter((line): line is string => typeof line === "string" &&
+            (!hasWeightReservation || !/poids|weight|tonnage|\d[\d.,\s]*\s*(?:kgs?|t|tons?|tonnes?)\b|\bkgs?\b|kilogram|\b(?:tons?|tonnes?)\b/i.test(line))) : [],
         hasLocationReservation: reservations.length > 0,
         hasUnconfirmedLocation,
         confidence: typeof ed["confidence"] === "number"
@@ -569,6 +593,7 @@ export function CaseUnderstandingPanel({ events, openGapKeys, currentFacts }: Ca
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
             {intentV2.hasLocationReservation && <p role="note" className="text-xs text-muted-foreground mb-2">{intentV2.hasUnconfirmedLocation ? "Rôle de l’aéroport à confirmer. Le score classe le courriel ; il ne valide pas le trajet." : "Rôle aéroportuaire confirmé par l’opérateur ; l’ancien résumé IA reste soumis à cette correction."}</p>}
+            {intentV2.weightReservationNote && <p role="note" className="text-xs text-muted-foreground mb-2">{intentV2.weightReservationNote}</p>}
             {intentV2.request_summary && (
               <p className="text-xs text-muted-foreground italic mb-2">{intentV2.request_summary}</p>
             )}
