@@ -1492,6 +1492,11 @@ Deno.serve(async (req) => {
     }
     // If no intent event exists → continue normally (no block)
 
+    // STRUCTURAL_PATCH_ALLOWED: the dedicated AIR plan writer uses sourced lines,
+    // never the legacy import engine. Normal UI opens that same operator panel.
+    if (caseData.request_type === "AIR_CROSS_TRADE") return new Response(JSON.stringify({error:"Utilisez le panneau Parcours aérien pays tiers pour qualifier et calculer ce dossier.",air_cross_trade:true}),
+      {status:409,headers:{...corsHeaders,"Content-Type":"application/json"}});
+
     // Mono-tenant app: all authenticated users can access all cases
     // Ownership check removed — JWT auth is sufficient
 

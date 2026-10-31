@@ -341,3 +341,6 @@ verify_jwt = false
 # Local inactive recovery candidate; Auth/admission enforced in code.
 [functions.manual-intake-recovery]
 verify_jwt = false
+
+[functions.manage-air-cross-trade]
+verify_jwt = false

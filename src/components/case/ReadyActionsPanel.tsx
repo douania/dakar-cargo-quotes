@@ -1,3 +1,4 @@
+import {airClientRequirementFacts} from '@/lib/airCrossTradeApi';
 /**
  * ORCH-ACTION-1 — ReadyActionsPanel
  * Executable action items ordered by priority with inline drafts,
@@ -38,7 +39,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_TITLE, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions } from "@/lib/padGapReview";
+import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_TITLE, PAD_REVIEW_FR, isObsoletePadDraft, isConfirmedClientGapDraftResponse, CLIENT_GAP_LEGACY_NOTICE, CLIENT_GAP_UNCONFIRMED_NOTICE, isRequiredClientGapForCase, isUsableClientGapRequest, latestGapActions } from "@/lib/padGapReview";
 import { PAD_WEIGHT_REVIEW_FR, PAD_WEIGHT_REVIEW_TITLE } from "@/lib/padGapReview";
 import {
   EXPORT_SEA_FREIGHT_PARTNER_GAP_KEY,
@@ -195,7 +196,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         await Promise.all([
           supabase
             .from("quote_cases")
-            .select("status")
+            .select("status, request_type")
             .eq("id", caseId)
             .maybeSingle(),
           supabase
@@ -227,14 +228,16 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
             .limit(1),
           supabase
             .from("quote_facts")
-            .select("fact_key, value_text, value_number")
+            .select("fact_key, value_text, value_number, value_json")
             .eq("case_id", caseId)
             .eq("is_current", true),
         ]);
 
+      const airMeta=await airClientRequirementFacts(caseId,caseRes.data?.request_type);
       const status = caseRes.data?.status ?? "INTAKE";
       const gaps = gapsRes.data ?? [];
       const openGapKeys = new Set(gaps.map((g: any) => g.gap_key));
+      const requiredClientKeys = gaps.filter(g=>isRequiredClientGapForCase(g,{request_type:caseRes.data?.request_type,facts:airMeta})).map(g => g.gap_key);
       // P1-CGR-FINAL: only keep client gaps whose gap_key is still open
       const clientGaps = ((clientGapsRes.data ?? []) as any[]).filter(
         (r: any) => openGapKeys.has(r.gap_key) && r.gap_key !== PAD_REVIEW_GAP_KEY,
@@ -258,7 +261,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
         .limit(10);
 
       const drafts = (draftEvents ?? [])
-        .filter((e: any) => e.event_data?.kind === "reply_draft_v1" && !isObsoletePadDraft(e.event_data))
+        .filter((e: any) => e.event_data?.kind === "reply_draft_v1" && !isObsoletePadDraft(e.event_data, requiredClientKeys))
         .map((e: any) => e.event_data);
 
       // P0-B: detect unapplied reply_analysis facts — same logic as isFactAlreadyApplied() in CaseView
@@ -288,7 +291,7 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       return {
         status,
         gaps,
-        clientGaps: clientGaps.filter(r => isUsableClientGapRequest(r, sourceRes.data ?? [])),
+        clientGaps: clientGaps.filter(r => isUsableClientGapRequest(r, sourceRes.data ?? [], requiredClientKeys)),
         cargoDescription: currentFacts.find(f => f.fact_key === "cargo.description")?.value_text ?? null,
         requests,
         pendingFacts,
@@ -574,9 +577,12 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
 
   /* ── Mutations ── */
 
+  const [clientGapNotice,setClientGapNotice] = useState<{caseId:string;message:string}|null>(null);
+
   async function handleAskClient() {
     if (!caseId || isAskingClient) return;
     setIsAskingClient(true);
+    setClientGapNotice(null);
     try {
       // 1. Sync gap actions
       const { error: syncErr } = await supabase.functions.invoke(
@@ -623,15 +629,21 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       if (draftErr) throw draftErr;
 
       if (draftData?.ok) {
+        if (!isConfirmedClientGapDraftResponse(draftData)) {
+          const message=CLIENT_GAP_LEGACY_NOTICE;
+          setClientGapNotice({caseId,message});toast.info(message);return;
+        }
         toast.success(
           draftData.idempotent
             ? "Brouillon déjà disponible"
             : "Brouillon de demande client généré"
         );
       } else {
+        setClientGapNotice({caseId,message:CLIENT_GAP_UNCONFIRMED_NOTICE});
         toast.error(`Erreur: ${draftData?.error ?? "Génération échouée"}`);
       }
     } catch (e: any) {
+      setClientGapNotice({caseId,message:CLIENT_GAP_UNCONFIRMED_NOTICE});
       toast.error(`Erreur: ${e?.message ?? "unknown"}`);
     } finally {
       setIsAskingClient(false);
@@ -653,7 +665,9 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
       if (!isCurrentClientDraft(scope, current ?? [])) throw new Error("Ce message a changé. Fermez cette fenêtre et vérifiez le brouillon actualisé.");
       const { data: res, error } = await supabase.functions.invoke(
         "mark-client-gap-request-sent",
-        { body: { case_id: caseId, gap_keys: scope.gapKeys } }
+        { body: { case_id: caseId, gap_keys: scope.gapKeys,
+          expected_requests: (current ?? []).map(row => ({ gap_key: row.gap_key, request_id: row.id, source_timeline_event_id: row.source_timeline_event_id })),
+        } }
       );
       if (error) throw error;
       if (!res?.ok) throw new Error("Le marquage n’a pas été confirmé. Vérifiez le suivi avant de réessayer.");
@@ -707,6 +721,8 @@ export function ReadyActionsPanel({ caseId }: { caseId: string }) {
             Actions à exécuter ({actions.length})
           </span>
         </div>
+
+        {clientGapNotice?.caseId === caseId && <p role="status" className="text-sm text-muted-foreground">{clientGapNotice.message}</p>}
 
         {actions.map((action, idx) => (
           <Collapsible

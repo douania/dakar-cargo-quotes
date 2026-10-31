@@ -1,3 +1,5 @@
+import {readAirCrossTradeRequirements} from "../_shared/air-cross-trade-service.ts";
+import { clientGapGuard, sameClientGapScope } from '../_shared/client-gap-scope.ts';
 /**
  * P0-B — Sync gap-based client info request actions
  * 
@@ -11,9 +13,10 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
-import { isObsoletePadDraft, latestGapActions, PAD_REVIEW_GAP_KEY } from "../_shared/pad-gap-review.ts";
+import { isCurrentGapDraft, latestGapActions } from "../_shared/pad-gap-review.ts";
 import {
-  isClientResolvableGap,
+  isRequiredClientGapForCase,
+  CLIENT_QUESTION_POLICY_VERSION,
   normalizeGapKeys,
 } from "../_shared/client-gap-policy.ts";
 
@@ -52,28 +55,38 @@ serve(async (req: Request) => {
   // ── Verify case access (RLS) ──
   const { data: caseRow, error: caseErr } = await userClient
     .from("quote_cases")
-    .select("id")
+    .select("id, request_type")
     .eq("id", caseId)
     .maybeSingle();
   if (caseErr || !caseRow) {
     return errorResponse("Case not found", 404);
   }
 
+  const airRequirementFacts: Array<{fact_key:string;value_json:unknown}> = [];
+  if (caseRow.request_type === "AIR_CROSS_TRADE") {
+    let qualified;try{qualified=await readAirCrossTradeRequirements(auth,caseId,serviceClient);}catch{return errorResponse("AIR_REQUIREMENTS_LOAD_FAILED",503);}
+    if(!qualified)return errorResponse("AIR_QUALIFICATION_STALE",409);
+    airRequirementFacts.push({fact_key:"service.air_cross_trade_requirements",value_json:qualified});
+  }
+  const clientGapContext = {request_type:caseRow.request_type,facts:airRequirementFacts};
+
   // ── Load open gaps ──
   const { data: gaps, error: gapsErr } = await userClient
     .from("quote_gaps")
-    .select("gap_key")
+    .select("id, gap_key, is_blocking")
     .eq("case_id", caseId)
     .eq("status", "open");
 
-  if (gapsErr) {
-    console.error("Failed to load gaps:", gapsErr.message);
+  if (gapsErr || !Array.isArray(gaps)) {
+    console.error("Failed to load gaps:", gapsErr?.message ?? "Unavailable gap rows");
     return errorResponse("Failed to load gaps", 500);
   }
 
+  let scopeGuard;
+  try { scopeGuard = clientGapGuard(gaps); } catch { return errorResponse("CLIENT_GAP_SCOPE_UNAVAILABLE",500); }
+
   // ── Filter client-resolvable gaps ──
-  const clientGaps = (gaps ?? []).filter((g: Record<string, unknown>) =>
-    isClientResolvableGap(g["gap_key"] as string)
+  const clientGaps = (gaps ?? []).filter(g => isRequiredClientGapForCase(g,clientGapContext)
   );
 
   const gapKeys = normalizeGapKeys(
@@ -104,13 +117,13 @@ serve(async (req: Request) => {
     const ed = evt.event_data as Record<string, unknown>;
     if (ed.status !== "open" || !Array.isArray(ed.requested_gap_keys)) continue;
     const keys = ed.requested_gap_keys as string[];
-    if (keys.length && !keys.every(key => openGapKeySet.has(key))) {
+    if (keys.length && (!keys.every(key => openGapKeySet.has(key)) || (ed.client_question_policy_version === CLIENT_QUESTION_POLICY_VERSION && (ed.client_gap_fence_version !== 1 || !sameClientGapScope(ed, scopeGuard.scope))))) {
       const { error } = await serviceClient.from("case_timeline_events").insert({
         case_id: caseId, event_type: "manual_action", actor_type: "system",
         event_data: { ...ed, status: "done", done_at: new Date().toISOString(),
           done_reason: "client_gap_scope_reconciled" },
       });
-      if (error) return errorResponse("Failed to reconcile obsolete action", 500);
+      if (error) return errorResponse(error.code === "PT409" ? "CLIENT_GAP_SCOPE_CHANGED" : "Failed to reconcile obsolete action", error.code === "PT409" ? 409 : 500);
       ed.status = "done";
     }
   }
@@ -121,15 +134,16 @@ serve(async (req: Request) => {
     .select("id, event_data").eq("case_id", caseId).eq("event_type", "output_generated");
   const { data: drafts, error: draftsErr } = await userClient.from("client_gap_requests")
     .select("id, gap_key, source_timeline_event_id").eq("case_id", caseId).eq("status", "drafted");
-  if (outputsErr || draftsErr) return errorResponse("Failed to inspect obsolete drafts", 500);
-  const obsoleteSourceIds = new Set((outputs ?? []).filter(e =>
-    isObsoletePadDraft(e.event_data as Record<string, unknown>)).map(e => e.id));
-  const staleIds = (drafts ?? []).filter(r => r.gap_key === PAD_REVIEW_GAP_KEY ||
-    obsoleteSourceIds.has(r.source_timeline_event_id)).map(r => r.id);
+  if (outputsErr || draftsErr || !Array.isArray(outputs) || !Array.isArray(drafts)) return errorResponse("Failed to inspect obsolete drafts", 500);
+  const sourceById = new Map((outputs ?? []).map(e => [e.id, e.event_data as Record<string, unknown>]));
+  const staleIds = (drafts ?? []).filter(row => {
+    const source = sourceById.get(row.source_timeline_event_id);
+    return !openGapKeySet.has(row.gap_key) || !source || !isCurrentGapDraft(source, gapKeys, scopeGuard.scope);
+  }).map(row => row.id);
   if (staleIds.length) {
     const { error } = await serviceClient.from("client_gap_requests").update({ status: "cancelled" })
       .eq("case_id", caseId).eq("status", "drafted").in("id", staleIds);
-    if (error) return errorResponse("Failed to retire obsolete PAD drafts", 500);
+    if (error) return errorResponse(error.code === "PT409" ? "CLIENT_GAP_SCOPE_CHANGED" : "Failed to retire obsolete PAD drafts", error.code === "PT409" ? 409 : 500);
   }
   if (!clientGaps.length) {
     return jsonResponse({ created: false, reason: "no_client_resolvable_gaps" });
@@ -182,6 +196,8 @@ serve(async (req: Request) => {
       event_data: {
         dedupe_key: dedupeKey,
         action_code: "REQUEST_CLIENT_INFO_FOR_GAPS",
+        client_question_policy_version: CLIENT_QUESTION_POLICY_VERSION,
+        client_gap_guard: scopeGuard,
         status: "open",
         requested_gap_keys: gapKeys,
         title_fr: "Demander les informations manquantes au client",
@@ -191,7 +207,7 @@ serve(async (req: Request) => {
 
   if (insertErr) {
     console.error("Timeline insert failed:", insertErr.message);
-    return errorResponse("Failed to create action", 500);
+    return errorResponse(insertErr.code === "PT409" ? "CLIENT_GAP_SCOPE_CHANGED" : "Failed to create action", insertErr.code === "PT409" ? 409 : 500);
   }
 
   return jsonResponse({

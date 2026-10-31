@@ -58,6 +58,9 @@ interface Options {
   v3Catalog?: boolean;
   incompleteCatalog?: boolean;
   air?: boolean;
+  caseType?: string;
+  caseReadError?: boolean;
+  missingCase?: boolean;
   invalidAuth?: boolean;
   invisible?: boolean;
   staleHash?: boolean;
@@ -167,6 +170,12 @@ async function withTransport(options: Options, check: (h: {
       if (req.method === "HEAD" && path === "/rest/v1/quote_request_lines") {
         assertEquals(url.searchParams.get("case_id"), `eq.${CASE}`);
         return new Response(null, { headers: { "Content-Range": `*/${options.requestLines ?? 1}` } });
+      }
+      if (req.method === "GET" && path === "/rest/v1/quote_cases") {
+        assertEquals(apiKey, "synthetic-service-key");
+        assertEquals(url.searchParams.get("id"), `eq.${CASE}`);
+        if (options.caseReadError) return reply({ message: "Synthetic case read error" }, 400);
+        return reply(options.missingCase ? null : { id: CASE, request_type: options.caseType ?? (options.air ? "AIR_IMPORT" : "SEA_FCL_IMPORT") });
       }
       if (req.method === "GET" && path === "/rest/v1/quote_facts") {
         assertEquals(url.searchParams.get("case_id"), `eq.${CASE}`);
@@ -672,3 +681,38 @@ for (const [dg, blocked] of [["NO", false], ["YES", true]] as const) {
     });
   });
 }
+
+// Cross pricing uses the retained operator plan, never a historical IMPORT scenario.
+Deno.test("AIR scenario guard: current Cross case refuses before engine and ledger", async () => {
+  await withTransport({ air: true, caseType: "AIR_CROSS_TRADE" }, async h => {
+    const result = await h.invoke();
+    assertEquals(result.response.status, 409);
+    assertEquals((result.body.error as Json)?.code, "CONFLICT_INVALID_STATE");
+    assertEquals(h.engineBodies.length, 0);
+    assertEquals(h.rpcBodies.length, 0);
+  });
+});
+Deno.test("AIR scenario guard: current Cross package refuses even with legacy case type", async () => {
+  await withTransport({ air: true, mutate: s => {
+    s.facts.find(f => f.fact_key === "service.package")!.value_text = "AIR_CROSS_TRADE";
+    s.facts.push({ id: "scope", fact_key: "service.overrides", value_json: { add: ["AIR_FREIGHT"], remove: [] } });
+  } }, async h => {
+    assertEquals((await h.invoke()).response.status, 409);
+    assertEquals(h.engineBodies.length, 0);
+    assertEquals(h.rpcBodies.length, 0);
+  });
+});
+Deno.test("AIR scenario guard: normalized package and duplicate current signals cannot hide Cross", async () => {
+  await withTransport({ air: true, mutate: s => s.facts.push({ id: "cross", fact_key: "service.package", value_text: " air_cross_trade " }) }, async h => {
+    assertEquals((await h.invoke()).response.status, 409);
+    assertEquals(h.engineBodies.length, 0);
+    assertEquals(h.rpcBodies.length, 0);
+  });
+});
+for (const kind of ["caseReadError", "missingCase"] as const) Deno.test(`AIR scenario guard: ${kind} fails closed before engine`, async () => {
+  await withTransport({ air: true, [kind]: true }, async h => {
+    assertEquals((await h.invoke()).response.status, 500);
+    assertEquals(h.engineBodies.length, 0);
+    assertEquals(h.rpcBodies.length, 0);
+  });
+});

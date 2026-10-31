@@ -1,3 +1,4 @@
+import {airClientRequirementFacts} from '@/lib/airCrossTradeApi';
 /**
  * P1-A + P2-A — Unified cockpit state hook.
  * Single React Query hook returning counts, flags, booleans.
@@ -5,7 +6,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { PAD_REVIEW_GAP_KEY, isUsableClientGapRequest } from "@/lib/padGapReview";
+import { PAD_REVIEW_GAP_KEY, isRequiredClientGapForCase, isUsableClientGapRequest } from "@/lib/padGapReview";
 import { supabase } from "@/integrations/supabase/client";
 import {
   TERMINAL_STATUSES,
@@ -86,7 +87,7 @@ export function useCockpitState(caseId: string | undefined) {
       ] = await Promise.all([
         supabase
           .from("quote_cases")
-          .select("status")
+          .select("status, request_type")
           .eq("id", caseId!)
           .maybeSingle(),
         supabase
@@ -126,6 +127,7 @@ export function useCockpitState(caseId: string | undefined) {
           .eq("case_id", caseId!),
       ]);
 
+      const airMeta=await airClientRequirementFacts(caseId!,caseRes.data?.request_type);
       const status = (caseRes.data?.status as string) ?? "INTAKE";
       const blockingGapsCount = gapsRes.count ?? 0;
       const padReviewCount = (allOpenGapsRes.data ?? []).filter(g => g.gap_key === PAD_REVIEW_GAP_KEY && g.is_blocking).length;
@@ -138,12 +140,13 @@ export function useCockpitState(caseId: string | undefined) {
       const openGapKeys = new Set(
         (allOpenGapsRes.data ?? []).filter(g => g.gap_key !== PAD_REVIEW_GAP_KEY).map((g: { gap_key: string }) => g.gap_key),
       );
+      const requiredClientKeys = (allOpenGapsRes.data ?? []).filter(g=>isRequiredClientGapForCase(g,{request_type:caseRes.data?.request_type,facts:airMeta})).map(g => g.gap_key);
       const clientGapRows = (clientGapKeyRes.data ?? []) as Array<{ gap_key: string; status: string; source_timeline_event_id: string | null }>;
       const ids = [...new Set(clientGapRows.filter(r => r.status === "drafted").map(r => r.source_timeline_event_id).filter((id): id is string => !!id))];
       const sourceRes = ids.length ? await supabase.from("case_timeline_events").select("id, event_data")
         .eq("case_id", caseId!).eq("event_type", "output_generated").in("id", ids) : { data: [], error: null };
       if (sourceRes.error) throw sourceRes.error;
-      const activeClientGapRows = clientGapRows.filter((r) => openGapKeys.has(r.gap_key) && isUsableClientGapRequest(r, sourceRes.data ?? []));
+      const activeClientGapRows = clientGapRows.filter((r) => openGapKeys.has(r.gap_key) && isUsableClientGapRequest(r, sourceRes.data ?? [], requiredClientKeys));
       const activeClientGaps = activeClientGapRows.length;
       const openClientGaps = activeClientGaps; // aligned: active = gap still open
       const draftedClientGaps = activeClientGapRows.filter(r => r.status === "drafted").length;

@@ -320,6 +320,16 @@ it.each([false,true])('exposes the destination partial action with HS and value 
   expect(screen.getByRole('button',{name:'Calculer le devis confirmé'})).toBeDisabled();
   expect(facts).toEqual(originalFacts);expect(invoke).not.toHaveBeenCalled();
 });
+it.each(['export','transit','unknown'])('does not offer destination import DDP for explicit %s operator scope',async(shipment_type)=>{
+  destinationPartialFixture();timeline[0].actor_type='operator';timeline[0].event_data.shipment_type=shipment_type;
+  const original=structuredClone({facts,timeline});mount();await openQuotePresentation(false);
+  expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();
+  expect({facts,timeline}).toEqual(original);
+});
+it('keeps the destination action available for an explicit import operator scope',async()=>{
+  destinationPartialFixture();timeline[0].actor_type='operator';timeline[0].event_data.shipment_type='import';
+  mount();await openQuotePresentation(false);expect(screen.getByRole('button',{name:partialCta})).toBeEnabled();expect(invoke).not.toHaveBeenCalled();
+});
 it.each(['cargo.weight_kg','routing.destination_city','cargo.imo_goods_scope_confirmation','service.package'])('retains other blocking gap %s',async(key)=>{
   destinationPartialFixture();gaps.push({id:'other',gap_key:key,status:'open',is_blocking:true,question_fr:'Autre contrôle'});
   mount();await openQuotePresentation(false);expect(screen.queryByRole('button',{name:partialCta})).toBeNull();expect(invoke).not.toHaveBeenCalled();

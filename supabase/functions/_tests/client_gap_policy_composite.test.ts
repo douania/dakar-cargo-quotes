@@ -58,7 +58,7 @@ Deno.test("composite case produces bus + medical/other-cargo questions", () => {
   assert(/conteneur additionnel/i.test(joined), "doit couvrir les conteneurs additionnels");
   assert(/par article/i.test(joined), "doit demander le détail par article");
   assert(/non-DGR/i.test(joined), "doit demander la confirmation non-DGR");
-  assert(/packing list/i.test(joined), "doit demander la packing list");
+  assert(!/facture|packing list/i.test(joined), "les informations peuvent être fournies par message, sans document imposé");
 });
 
 // =====================================================================

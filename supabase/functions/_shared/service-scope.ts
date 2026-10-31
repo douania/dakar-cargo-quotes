@@ -11,6 +11,7 @@
 
 // P5: SERVICE_PACKAGES mapping (mirror of src/features/quotation/constants.ts)
 export const SERVICE_PACKAGES: Record<string, string[]> = {
+  AIR_CROSS_TRADE: [], // scope comes exclusively from the retained operator plan
   // HONORAIRES-1 (GO CTO 2026-09-09) : AGENCY inclus d'office dans les packages
   // import conteneur — un devis FCL sans frais d'agence est incomplet.
   DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR', 'AGENCY'],

@@ -41,3 +41,18 @@ Deno.test('partial KG tariff: explicit gross190/net151 independent of dimensions
   }
   assertEquals(partialKgQuantity({ requires_fact_key: 'cargo.weight_kg' }, []).kg, null);
 });
+
+for(const shipment_type of ['export','transit','unknown'])for(const actor_type of ['system','operator'])Deno.test(`partial destination: explicit ${shipment_type} scope cannot authorize import DDP (${actor_type})`,()=>{
+ const event_data={...input.scopeEvent.event_data,shipment_type};const saved=JSON.stringify(event_data);
+ assertEquals(partialDestinationDdpEligible({...input,scopeEvent:{actor_type,event_data}}),false);assertEquals(JSON.stringify(event_data),saved);
+ assertEquals(partialDestinationDdpEligible({...input,scopeEvent:{actor_type,event_data:{scope:event_data}}}),false);
+});
+Deno.test('partial destination: affirmative import scope and historical untyped destination remain compatible',()=>{
+ for(const shipment_type of ['import',' IMPORT '])for(const actor_type of ['system','operator']){
+  assertEquals(partialDestinationDdpEligible({...input,scopeEvent:{actor_type,event_data:{...input.scopeEvent.event_data,shipment_type}}}),true);
+ }
+ assertEquals(partialDestinationDdpEligible(input),true);
+});
+Deno.test('partial destination: malformed declared direction is not an import confirmation',()=>{
+ for(const shipment_type of [null,42,true,'',{},[]])assertEquals(partialDestinationDdpEligible({...input,scopeEvent:{actor_type:'operator',event_data:{...input.scopeEvent.event_data,shipment_type}}}),false);
+});

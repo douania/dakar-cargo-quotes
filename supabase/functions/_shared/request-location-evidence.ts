@@ -164,6 +164,34 @@ export async function assessLocationClaim(client:SupabaseClient,claim:LocationCl
  const origin=claim.key.includes('origin_');
  const role=expected==='sea'?(origin?'port_of_loading':'port_of_discharge'):(origin?'departure_airport':'arrival_airport');
  if(manual(claim))return {...proof,role,status:'accepted',reason:'operator_decision'};
+ // A shipping field is an arrival role only when it names an AIRPORT.
+ // It does not supply an inland city, a shipment direction or a service package.
+ if(expected==='air'&&!origin){
+  const field=/(?:^|[\n;])\s*(?:[-•]\s*)?(Ship\s+to\s*:\s*([^\n;]+))/gi;
+  const shown=[...excerpt.matchAll(field)];
+  const contexts=matches.map(s=>s.text);
+  const declared=contexts.flatMap(text=>[...text.matchAll(field)].map(m=>({m,text})));
+  const uncertain=/[?/]|\b(?:or|ou|and|et|no|not|never|if|whether|possible|possibly|maybe|perhaps|tentative|proposed|transshipment|transhipment|transbordement|may|might|could|should|unless|unconfirmed|pending|TBC|TBD)\b|\b(?:to\s+be\s+confirmed|subject\s+to)\b|\bn['’]est\s+pas\b/i;
+  // Include unlabelled continuations/reservations, stopping at the next field
+  // or blank line. A short model excerpt cannot hide "or ADD" / "not confirmed".
+  const fieldBlock=(text:string,m:RegExpMatchArray)=>{
+   const start=m.index!+m[0].indexOf(m[1]);let end=start+m[1].length;
+   for(const part of text.slice(end).matchAll(/([;\n])([^;\n]*)/g)){
+    if(!part[2].trim()||/^\s*(?:[-•]\s*)?[\p{L}][\p{L}\p{N} _/()-]{0,60}\s*:/u.test(part[2]))break;
+    end=start+m[1].length+part.index!+part[0].length;
+   }
+   return text.slice(start,end);
+  };
+  const airport=new RegExp('^'+regexLiteral(value)+'\\s+airport(?:\\s|$|[,.()])','i');
+  const sameAirport=new RegExp('^'+regexLiteral(value)+'(?:$|[,\\s])','i');
+  const otherArrival=contexts.flatMap(text=>[...text.matchAll(/(?:^|[\n;])\s*(?:[-•]\s*)?((?:Arrival airport|Destination airport|Airport of arrival|Airport of destination)\s*[:=-]?\s*([^\n;]+))/gi)].map(m=>({m,text})));
+  const conflicting=otherArrival.some(({m,text})=>!sameAirport.test(m[2].trim())||uncertain.test(fieldBlock(text,m)));
+  const bound=declared.length===1?fieldBlock(declared[0].text,declared[0].m):'';
+  if(shown.length===1&&declared.length===1&&airport.test(shown[0][2].trim())&&!uncertain.test(bound)&&!conflicting&&
+    normalize(declared[0].m[1]).startsWith(normalize(shown[0][1]))){
+   return {...proof,role,status:'accepted',reason:'explicit_transport_role',excerpt:declared[0].m[1]};
+  }
+ }
  const context=excerpt;
  const prefix=expected==='sea'?(origin?'(?:POL|Port of loading|Loading port|Port d.embarquement)':'(?:POD|Port of discharge|Discharge port|Port de d.chargement)'):
   (origin?'(?:Departure airport|Origin airport|Airport of departure)':'(?:Arrival airport|Destination airport|Airport of arrival|Airport of destination)');

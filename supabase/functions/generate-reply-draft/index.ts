@@ -1,12 +1,15 @@
+import {readAirCrossTradeRequirements} from "../_shared/air-cross-trade-service.ts";
+import { clientGapGuard, type ClientGapScope } from '../_shared/client-gap-scope.ts';
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
-import { hasPadGapReference, isCurrentGapDraft } from "../_shared/pad-gap-review.ts";
+import { hasPadGapReference, isCurrentGapDraft, isObsoletePadDraft } from "../_shared/pad-gap-review.ts";
 import { callAI, parseAIResponse } from "../_shared/ai-client.ts";
 import { extractAndParseJSON } from "../_shared/json-parser.ts";
 import {
-  isClientResolvableGap,
+  isRequiredClientGapForCase,
+  CLIENT_QUESTION_POLICY_VERSION,
   buildClientQuestionsFromGaps,
   normalizeGapKeys,
 } from "../_shared/client-gap-policy.ts";
@@ -58,12 +61,15 @@ serve(async (req: Request) => {
   // ── Verify case access (RLS) ──
   const { data: caseRow, error: caseErr } = await userClient
     .from("quote_cases")
-    .select("id, thread_id")
+    .select("id, thread_id, request_type")
     .eq("id", caseId)
     .maybeSingle();
   if (caseErr || !caseRow) {
     return errorResponse("Case not found", 404);
   }
+
+  const airRequirementFacts: Array<{fact_key:string;value_json:unknown}> = [];
+  const clientGapContext = {request_type:caseRow.request_type,facts:airRequirementFacts};
 
   // ── Find action event by dedupe_key ──
   const { data: actionEvents, error: actionErr } = await userClient
@@ -99,44 +105,118 @@ serve(async (req: Request) => {
   // Fresh eligibility BEFORE cached output lookup. Old PAD and mixed drafts
   // must never bypass reconciliation through an idempotent response.
   let currentClientKeys: string[] = [];
+  let currentScope: ClientGapScope | undefined;
   if (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS") {
+  if (caseRow.request_type === "AIR_CROSS_TRADE") {
+    let qualified;try{qualified=await readAirCrossTradeRequirements(auth,caseId,serviceClient);}catch{return errorResponse("AIR_REQUIREMENTS_LOAD_FAILED",503);}
+    if(!qualified)return errorResponse("AIR_QUALIFICATION_STALE",409);
+    airRequirementFacts.push({fact_key:"service.air_cross_trade_requirements",value_json:qualified});
+  }
     if (actionData?.status !== "open") return jsonResponse({ ok: false, error: "ACTION_NOT_OPEN" }, 200);
     if (hasPadGapReference(actionData.requested_gap_keys, actionDedupeKey)) {
       return jsonResponse({ ok: false, error: "ACTION_REQUIRES_GAP_SYNC" }, 200);
     }
     const requested = new Set(Array.isArray(actionData.requested_gap_keys) ? actionData.requested_gap_keys : []);
     const { data: openGaps, error } = await userClient.from("quote_gaps")
-      .select("gap_key").eq("case_id", caseId).eq("status", "open");
-    if (error) return jsonResponse({ ok: false, error: "GAPS_LOAD_FAILED" }, 200);
-    currentClientKeys = normalizeGapKeys((openGaps ?? []).map(g => g.gap_key)
-      .filter(key => isClientResolvableGap(key) && requested.has(key)));
+      .select("id, gap_key, is_blocking").eq("case_id", caseId).eq("status", "open");
+    if (error || !Array.isArray(openGaps)) return jsonResponse({ ok: false, error: "GAPS_LOAD_FAILED" }, 200);
+    try { currentScope = clientGapGuard(openGaps).scope; } catch { return jsonResponse({ok:false,error:"CLIENT_GAP_SCOPE_UNAVAILABLE"},500); }
+    currentClientKeys = normalizeGapKeys(openGaps.filter(g=>isRequiredClientGapForCase(g,clientGapContext)).map(g => g.gap_key));
     if (!currentClientKeys.length) return jsonResponse({ ok: false, error: "NO_RELEVANT_GAPS" }, 200);
+    if (normalizeGapKeys([...requested] as string[]).join(",") !== currentClientKeys.join(","))
+      return jsonResponse({ ok: false, error: "ACTION_REQUIRES_GAP_SYNC" }, 200);
   }
 
   // ── Idempotence check ──
   const draftDedupeKey = `reply_draft_v1:${actionDedupeKey}` +
-    (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" ? `:client-scope-v2:${currentClientKeys.join(",")}` : "");
+    (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" ? `:client-scope-v${CLIENT_QUESTION_POLICY_VERSION}:${currentClientKeys.join(",")}` : "");
 
-  const { data: existingOutputs } = await userClient
+  const { data: existingOutputs, error: outputsError } = await userClient
     .from("case_timeline_events")
-    .select("event_data")
+    .select("id, event_data")
     .eq("case_id", caseId)
     .eq("event_type", "output_generated")
     .order("created_at", { ascending: false })
     .limit(200);
 
+  let draftOutputs = existingOutputs ?? [];
+  const activeDraftSourceIds = new Set<string>();
+  if (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS") {
+    if (outputsError || !Array.isArray(existingOutputs)) return jsonResponse({ ok: false, error: "OUTPUTS_LOAD_FAILED" }, 200);
+    const { data: activeDrafts, error } = await userClient.from("client_gap_requests")
+      .select("id, source_timeline_event_id").eq("case_id", caseId).eq("status", "drafted");
+    if (error || !Array.isArray(activeDrafts)) return jsonResponse({ ok: false, error: "DRAFTS_LOAD_FAILED" }, 200);
+    const sourceIds = [...new Set((activeDrafts ?? []).map(row => row.source_timeline_event_id).filter((id): id is string => typeof id === "string" && !!id))];
+    sourceIds.forEach(id => activeDraftSourceIds.add(id));
+    const sourceRead = sourceIds.length ? await userClient.from("case_timeline_events")
+      .select("id, event_data").eq("case_id", caseId).eq("event_type", "output_generated").in("id", sourceIds)
+      : { data: [], error: null };
+    if (sourceRead.error || !Array.isArray(sourceRead.data)) return jsonResponse({ ok: false, error: "DRAFT_SOURCES_LOAD_FAILED" }, 200);
+    draftOutputs = [...new Map([...draftOutputs, ...(sourceRead.data ?? [])].map(row => [row.id, row])).values()];
+    const needsSync = (activeDrafts ?? []).some(row => {
+      const source = draftOutputs.find(e => e.id === row.source_timeline_event_id)?.event_data as Record<string, unknown> | undefined;
+      return !source || isObsoletePadDraft(source) || !isCurrentGapDraft(source, currentClientKeys, currentScope);
+    });
+    if (needsSync) return jsonResponse({ ok: false, error: "ACTION_REQUIRES_GAP_SYNC" }, 200);
+  }
+
+  // Verify active tracking before reporting a client-gap draft as usable.
+  // No row/source is overwritten. The existing partial unique index arbitrates
+  // insert races; a transport failure is not proof that an insert did not happen.
+  // This is read-after-write confirmation, NOT an atomic cross-handler fence.
+  async function confirmClientRequestBindings(eventId: string, draft: { subject: string; body: string }): Promise<string | null> {
+    for (const gapKey of currentClientKeys) {
+      const readActive = () => userClient.from("client_gap_requests")
+        .select("id, status, source_timeline_event_id").eq("case_id", caseId).eq("gap_key", gapKey)
+        .in("status", ["drafted", "sent", "answered"]).maybeSingle();
+      try {
+        let active = await readActive();
+        if (active.error) return "CLIENT_GAP_BINDING_UNCONFIRMED";
+        if (!active.data) {
+          const inserted = await serviceClient.from("client_gap_requests").insert({
+            case_id: caseId, gap_key: gapKey, source_timeline_event_id: eventId,
+            draft_subject: draft.subject, draft_body: draft.body, status: "drafted", created_by: auth.user.id,
+          });
+          // Re-read even on23505 or an uncertain response; never blindly repeat an insert.
+          if (inserted.error?.code === "PT409") return "CLIENT_GAP_SCOPE_CHANGED";
+          active = await readActive();
+          if (active.error || !active.data) return "CLIENT_GAP_BINDING_UNCONFIRMED";
+          if (inserted.error && active.data.source_timeline_event_id !== eventId)
+            return inserted.error.code === "23505" ? "CLIENT_GAP_BINDING_CONFLICT" : "CLIENT_GAP_BINDING_UNCONFIRMED";
+        }
+        if (active.data.status === "sent" || active.data.status === "answered")
+          return "CLIENT_GAP_ALREADY_FOLLOWED";
+        if (active.data.status !== "drafted" || active.data.source_timeline_event_id !== eventId)
+          return "CLIENT_GAP_BINDING_CONFLICT";
+      } catch {
+        return "CLIENT_GAP_BINDING_UNCONFIRMED";
+      }
+    }
+    return null;
+  }
+
   // Micro-ajustement #2: match both dedupe_key AND kind
-  const existingDraft = (existingOutputs ?? []).find((e: any) => {
+  const candidateDrafts = draftOutputs.filter((e: any) => {
     const ed = e.event_data as Record<string, unknown> | null;
     return ed?.dedupe_key === draftDedupeKey && ed?.kind === "reply_draft_v1" &&
-      (actionCode !== "REQUEST_CLIENT_INFO_FOR_GAPS" || isCurrentGapDraft(ed, currentClientKeys));
+      (actionCode !== "REQUEST_CLIENT_INFO_FOR_GAPS" || isCurrentGapDraft(ed, currentClientKeys, currentScope));
   });
 
+  // A later unbound concurrent output must not mask the already linked source.
+  const existingDraft = candidateDrafts.find(e => activeDraftSourceIds.has(e.id)) ?? candidateDrafts[0];
   if (existingDraft) {
     const ed = existingDraft.event_data as Record<string, unknown>;
+    if (actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS") {
+      const draft = ed.draft_reply as { subject?: unknown; body?: unknown } | undefined;
+      if (!draft || typeof draft.subject !== "string" || typeof draft.body !== "string")
+        return jsonResponse({ ok: false, error: "INVALID_SAVED_CLIENT_DRAFT" }, 200);
+      const bindingError = await confirmClientRequestBindings(existingDraft.id, {subject:draft.subject,body:draft.body});
+      if (bindingError) return jsonResponse({ok:false,error:bindingError},bindingError === "CLIENT_GAP_SCOPE_CHANGED" ? 409 : 200);
+    }
     return jsonResponse({
       ok: true,
       idempotent: true,
+      ...(actionCode === "REQUEST_CLIENT_INFO_FOR_GAPS" ? {client_question_policy_version:CLIENT_QUESTION_POLICY_VERSION,client_gap_fence_version:1} : {}),
       draft: ed.draft_reply,
       dedupe_key: draftDedupeKey,
     });
@@ -207,22 +287,22 @@ serve(async (req: Request) => {
     const draftBody = customerLanguage === "en"
       ? `Hello,
 
-To finalize your logistics quotation, we need a few additional details:
+To prepare your quotation, could you clarify the following points?
 
 ${questions.map((q) => "- " + q).join("\n")}
 
-As soon as we receive this information, we will be able to finalize your quote promptly.
+You can reply directly to this message. Thank you.
 
 Best regards,
 Quotation Team
 SODATRA`
       : `Bonjour,
 
-Afin de finaliser votre cotation logistique, nous avons besoin de quelques informations complémentaires :
+Pour préparer votre cotation, pouvez-vous préciser les points suivants ?
 
 ${questions.map((q) => "- " + q).join("\n")}
 
-Dès réception de ces informations, nous pourrons finaliser votre devis rapidement.
+Vous pouvez répondre directement à ce message. Merci.
 
 Cordialement,
 Service Cotation
@@ -244,55 +324,25 @@ SODATRA`;
           kind: "reply_draft_v1",
           draft_reply: draft,
           requested_gap_keys: normalizedKeys,
+          client_question_policy_version: CLIENT_QUESTION_POLICY_VERSION,
+          client_gap_guard: {version:1,scope:currentScope},
           deterministic: true,
           customer_language: customerLanguage,
           language_source: languageSource,
         },
       })
-      .select("id")
+      .select("id, event_data")
       .single();
 
     if (insertErr || !insertedEvent) {
       console.error("Timeline insert failed:", insertErr?.message);
-      return jsonResponse({ ok: false, error: "TIMELINE_INSERT_FAILED" }, 200);
+      return jsonResponse({ ok: false, error: insertErr?.code === "PT409" ? "CLIENT_GAP_SCOPE_CHANGED" : "TIMELINE_INSERT_FAILED" }, insertErr?.code === "PT409" ? 409 : 200);
     }
 
-    // ── CL1: Create client_gap_requests for each gap (insert-if-not-exists) ──
-    const timelineEventId = insertedEvent.id;
-    for (const gapKey of normalizedKeys) {
-      try {
-        // Check if active row already exists
-        const { data: existingRow, error: checkErr } = await serviceClient
-          .from("client_gap_requests")
-          .select("id")
-          .eq("case_id", caseId)
-          .eq("gap_key", gapKey)
-          .in("status", ["drafted", "sent", "answered"])
-          .maybeSingle();
-
-        if (checkErr) {
-          console.warn(`[CL1] client_gap_requests check failed for ${gapKey}:`, checkErr.message);
-          continue;
-        }
-
-        if (!existingRow) {
-          const { error: insertErr2 } = await serviceClient.from("client_gap_requests").insert({
-            case_id: caseId,
-            gap_key: gapKey,
-            source_timeline_event_id: timelineEventId,
-            draft_subject: draft.subject,
-            draft_body: draft.body,
-            status: "drafted",
-            created_by: auth.user.id,
-          });
-          if (insertErr2) {
-            console.warn(`[CL1] client_gap_requests insert failed for ${gapKey}:`, insertErr2.message);
-          }
-        }
-      } catch (gapErr) {
-        console.warn(`[CL1] client_gap_requests insert failed for ${gapKey}:`, (gapErr as Error).message);
-      }
-    }
+    if ((insertedEvent.event_data as Record<string,unknown>)?.client_gap_fence_version !== 1)
+      return jsonResponse({ok:false,error:"CLIENT_GAP_FENCE_NOT_INSTALLED"},503);
+    const bindingError = await confirmClientRequestBindings(insertedEvent.id, draft);
+    if (bindingError) return jsonResponse({ok:false,error:bindingError},bindingError === "CLIENT_GAP_SCOPE_CHANGED" ? 409 : 200);
 
     return jsonResponse({
       ok: true,
@@ -300,6 +350,8 @@ SODATRA`;
       draft,
       dedupe_key: draftDedupeKey,
       deterministic: true,
+      client_question_policy_version:CLIENT_QUESTION_POLICY_VERSION,
+      client_gap_fence_version:1,
     });
   }
 
@@ -421,7 +473,7 @@ Aucun texte avant ou après le JSON.`;
 
     if (insertErr) {
       console.error("Timeline insert failed:", insertErr.message);
-      return jsonResponse({ ok: false, error: "TIMELINE_INSERT_FAILED" }, 200);
+      return jsonResponse({ ok: false, error: insertErr?.code === "PT409" ? "CLIENT_GAP_SCOPE_CHANGED" : "TIMELINE_INSERT_FAILED" }, insertErr?.code === "PT409" ? 409 : 200);
     }
 
     return jsonResponse({

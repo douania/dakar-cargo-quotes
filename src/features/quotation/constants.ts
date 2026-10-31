@@ -52,6 +52,7 @@ export const serviceTemplates = [
  * Utilisé par l'overlay M3.6 pour pré-remplir les lignes de service
  */
 export const SERVICE_PACKAGES: Record<string, string[]> = {
+  AIR_CROSS_TRADE: [], // scope comes exclusively from the retained operator plan
   // HONORAIRES-1 : AGENCY inclus d'office dans les packages import conteneur (parité _shared/service-scope.ts).
   DAP_PROJECT_IMPORT: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'EMPTY_RETURN', 'CUSTOMS_DAKAR', 'AGENCY'],
   TRANSIT_GAMBIA_ALL_IN: ['PORT_DAKAR_HANDLING', 'DTHC', 'TRUCKING', 'BORDER_FEES', 'AGENCY'],

@@ -262,7 +262,7 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     serviceClient = getServiceClient();
-    const [scenarioResult, factsResult, linksResult, linesCountResult, selectionResult] =
+    const [scenarioResult, factsResult, linksResult, linesCountResult, selectionResult, caseResult] =
       await Promise.all([
         serviceClient.from("quote_scenarios")
           .select("id,case_id,status,scope_hash,scope_snapshot,open_points")
@@ -282,6 +282,10 @@ async function handleRequest(req: Request): Promise<Response> {
           .select("scenario_id")
           .eq("case_id", request.case_id)
           .is("released_at", null)
+          .maybeSingle(),
+        serviceClient.from("quote_cases")
+          .select("id,request_type")
+          .eq("id", request.case_id)
           .maybeSingle(),
       ]);
 
@@ -308,6 +312,19 @@ async function handleRequest(req: Request): Promise<Response> {
     }
     if (factsResult.error || linksResult.error || linesCountResult.error || selectionResult.error) {
       throw new Error("Lecture cohérente du scénario impossible");
+    }
+
+    if (caseResult.error || !caseResult.data || caseResult.data.id !== request.case_id) {
+      throw new Error("Lecture du contexte courant du dossier impossible");
+    }
+    // Historical IMPORT scenarios cannot override the retained Cross workflow.
+    // Check raw current facts before an assumption overlay can hide the package.
+    if (caseResult.data.request_type === "AIR_CROSS_TRADE" || (factsResult.data ?? []).some(fact =>
+      fact.fact_key === "service.package" &&
+      String(fact.value_text ?? (typeof fact.value_json === "string" ? fact.value_json : "")).trim().toUpperCase() === "AIR_CROSS_TRADE"
+    )) {
+      return respondError({ code: "CONFLICT_INVALID_STATE",
+        message: "Utilisez le plan aérien pays tiers ; le moteur de scénarios import ne peut pas calculer ce dossier.", correlationId });
     }
 
     const links = linksResult.data ?? [];

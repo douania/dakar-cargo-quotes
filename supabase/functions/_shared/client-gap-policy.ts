@@ -1,3 +1,4 @@
+import { readAirRequirements,AIR_CLIENT_DATA_KEYS } from "./air-cross-trade-requirements.ts";
 /**
  * P0-A — Deterministic client-resolvable gap policy
  * 
@@ -29,16 +30,35 @@ export const CLIENT_RESOLVABLE_GAP_KEYS = new Set<string>([
   "cargo.mixed_scope_confirmation",
 ]);
 
+export const CLIENT_QUESTION_POLICY_VERSION = 4;
+
+/** Only already identified blocking customer needs are included; this does not infer necessity. */
+export function isRequiredClientGap(gap: { gap_key: string; is_blocking?: unknown }): boolean {
+  return gap.is_blocking === true && isClientResolvableGap(gap.gap_key);
+}
+
+export interface ClientGapCaseContext {request_type?:string|null;facts?:Array<{fact_key:string;value_text?:string|null;value_json?:unknown;is_current?:boolean}>}
+export function isRequiredClientGapForCase(gap:{gap_key:string;is_blocking?:unknown},context:ClientGapCaseContext):boolean {
+ const cross=context.request_type==="AIR_CROSS_TRADE"||context.facts?.some(f=>f.fact_key==="service.package"&&f.value_text==="AIR_CROSS_TRADE");
+ if(!cross)return isRequiredClientGap(gap);
+ const requirements=readAirRequirements(context.facts??[]);
+ return !!requirements&&gap.is_blocking===true&&AIR_CLIENT_DATA_KEYS.has(gap.gap_key)&&requirements.client_data_keys.includes(gap.gap_key);
+}
+
 export function isClientResolvableGap(gapKey: string): boolean {
   return CLIENT_RESOLVABLE_GAP_KEYS.has(gapKey);
 }
 
 const GAP_QUESTION_MAP: Record<string, string> = {
+  "routing.destination_airport":"Quel est l’aéroport d’arrivée souhaité ?",
+  "cargo.dimensions":"Quelles sont les dimensions des colis et leur unité (cm ou m), en précisant combien de colis correspondent à chaque dimension ?",
+  "cargo.weight_net_kg":"Quel est le poids net total de la marchandise (en kg) ?",
+  "cargo.packaging_type":"Comment la marchandise est-elle emballée ?",
   "cargo.description": "Pouvez-vous préciser la désignation exacte de la marchandise ?",
   "cargo.value": "Quelle est la valeur commerciale totale de la marchandise ?",
   "cargo.weight_kg": "Quel est le poids total brut de la marchandise (en kg) ?",
   "cargo.volume_cbm": "Quel est le volume total de la marchandise (m³) ?",
-  "cargo.hs_code": "Disposez-vous du code douanier (HS code, 10 chiffres) de la marchandise ? À défaut, merci de fournir les documents permettant de le déterminer (facture commerciale, fiche technique, draft B/L).",
+  "cargo.hs_code": "Connaissez-vous le code douanier (HS code) ? Sinon, précisez simplement la nature, la composition et l’usage de la marchandise dans votre réponse.",
   "cargo.pieces_count": "Quelle est la quantité exacte de colis/pièces ?",
   "routing.origin_port": "Quel est le port ou aéroport de départ ?",
   "routing.destination_port": "Quel est le port ou aéroport de destination ?",
@@ -52,19 +72,23 @@ const GAP_QUESTION_MAP: Record<string, string> = {
   "cargo.pieces_count_conflict":
     "Concernant les bus : pouvez-vous confirmer le nombre total de bus à coter, le nombre exact de conteneurs 40'FR utilisés, et s'il s'agit bien d'un bus par 40'FR ? Merci d'indiquer, pour chaque bus, le numéro de châssis et la valeur déclarée (en précisant la devise).",
   "cargo.weight_total_confirmation":
-    "Le poids dont nous disposons semble être un poids unitaire (par bus). Pouvez-vous confirmer le poids total brut de la cargaison, ou bien le poids unitaire et le nombre exact d'unités ?",
+    "Pouvez-vous préciser le poids brut total, ou le poids par pièce et le nombre de pièces ?",
   "cargo.value_conflict":
-    "Quelle est la valeur marchandise déclarée (valeur commerciale / CIF) à retenir, et dans quelle devise ? Merci de joindre la facture commerciale et la packing list. Un montant issu d'un calcul de droits et taxes ne peut pas servir de valeur déclarée.",
+    "Quelle valeur de marchandise et quelle devise faut-il retenir ? Vous pouvez répondre directement dans ce message.",
   "cargo.mixed_scope_confirmation":
-    "Votre envoi semble combiner des bus et un ou plusieurs conteneurs additionnels. Pouvez-vous préciser le contenu exact de chaque conteneur additionnel (20' et 40') ? Pour toute marchandise autre que les bus, merci de fournir, par article : désignation, quantité, poids net/brut, valeur et devise, code HS, ainsi que la facture et la packing list, et de confirmer l'absence de marchandises dangereuses (non-DGR) pour chaque conteneur. Le contenu du conteneur 20' n'est pas présumé identique à celui du 40'. À ce stade, toute marchandise autre que les bus ne peut pas être chiffrée tant que ces informations ne sont pas fournies.",
+    "Que contient chaque conteneur additionnel (20' et 40') ? Pour les marchandises autres que les bus, indiquez par article : désignation, quantité, poids net/brut, valeur et devise, code HS si connu, et précisez si elles sont non dangereuses (non-DGR). Vous pouvez répondre dans ce message. Le contenu du conteneur 20' n'est pas présumé identique à celui du 40'.",
 };
 
 const GAP_QUESTION_MAP_EN: Record<string, string> = {
+  "routing.destination_airport":"Which arrival airport is requested?",
+  "cargo.dimensions":"What are the package dimensions and their units (cm or m), and how many packages have each size?",
+  "cargo.weight_net_kg":"What is the total net weight of the goods in kg?",
+  "cargo.packaging_type":"How are the goods packed?",
   "cargo.description": "Could you please specify the exact description of the goods?",
   "cargo.value": "What is the total commercial value of the goods?",
   "cargo.weight_kg": "What is the total gross weight of the goods (in kg)?",
   "cargo.volume_cbm": "What is the total volume of the goods (CBM)?",
-  "cargo.hs_code": "Do you have the customs tariff code (HS code, 10 digits) for the goods? Otherwise, please provide the documents needed to determine it (commercial invoice, technical datasheet, draft B/L).",
+  "cargo.hs_code": "Do you know the customs tariff code (HS code)? If not, simply describe the goods, their composition and their use in your reply.",
   "cargo.pieces_count": "What is the exact number of packages/pieces?",
   "routing.origin_port": "What is the port or airport of departure?",
   "routing.destination_port": "What is the port or airport of destination?",
@@ -77,11 +101,11 @@ const GAP_QUESTION_MAP_EN: Record<string, string> = {
   "cargo.pieces_count_conflict":
     "Regarding the buses: could you confirm the total number of buses to quote, the exact number of 40'FR containers used, and whether it is one bus per 40'FR? For each bus, please provide the chassis number and the declared value (specifying the currency).",
   "cargo.weight_total_confirmation":
-    "The weight we have appears to be a per-unit weight (per bus). Could you confirm the total gross cargo weight, or the unit weight and the exact number of units?",
+    "Could you specify the total gross weight, or the weight per piece and the number of pieces?",
   "cargo.value_conflict":
-    "What is the declared goods value (commercial / CIF value) to use, and in which currency? Please attach the commercial invoice and the packing list. An amount taken from a duty-and-tax computation cannot be used as the declared value.",
+    "Which goods value and currency should we use? You can reply directly in this message.",
   "cargo.mixed_scope_confirmation":
-    "Your shipment appears to combine buses and one or more additional containers. Could you specify the exact contents of each additional container (20' and 40')? For any goods other than the buses, please provide, per item: description, quantity, net/gross weight, value and currency, HS code, as well as the invoice and packing list, and confirm the absence of dangerous goods (non-DGR) for each container. The contents of the 20' container are not presumed identical to those of the 40'. At this stage, any goods other than the buses cannot be priced until this information is provided.",
+    "What does each additional container (20' and 40') contain? For goods other than the buses, give per item: description, quantity, net/gross weight, value and currency, HS code if known, and whether they are non-dangerous (non-DGR). You can reply in this message. The contents of the 20' container are not presumed identical to those of the 40'.",
 };
 
 /**
@@ -98,6 +122,7 @@ export function buildClientQuestionsFromGaps(
   const questions: string[] = [];
 
   for (const key of uniqueKeys) {
+    if (key === "cargo.weight_kg" && uniqueKeys.includes("cargo.weight_total_confirmation")) continue;
     const q = map[key];
     if (q) questions.push(q);
   }

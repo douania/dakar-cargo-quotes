@@ -1,3 +1,5 @@
+import { normalizeCountryToISO } from "../_shared/request-country.ts";
+import { readAirCrossTrade } from "../_shared/air-cross-trade-service.ts";
 import {inspectContainerText,normalizeContainerDesignation,normalizeContainerInventory} from '../_shared/container-designation.ts';
 import { prepareRevisionGroups, reprocessEquipment, writeEmailFactRevisions } from '../_shared/email-fact-revisions.ts';
 import { assessLocationClaim, bindAcceptedLocationProof, unresolvedAirportRoles, isLocationKey, validateLineLocations, replaceRequestLinesWithEvidence, type LocationSource, type LocationProof } from '../_shared/request-location-evidence.ts';
@@ -273,6 +275,7 @@ const MANDATORY_FACTS: Record<string, string[]> = {
     "cargo.volume_cbm",
     "contacts.client_email",
   ],
+  AIR_CROSS_TRADE: ["routing.origin_country", "routing.destination_country", "routing.destination_airport", "cargo.description"],
   AIR_IMPORT: [
     "routing.destination_city",
     "cargo.weight_kg",
@@ -4000,60 +4003,6 @@ function normalizeLocationKey(value: string): string {
 }
 
 // FLOW-FIX-1: Normalize country names to ISO 2-letter codes
-const COUNTRY_NAME_TO_ISO: Record<string, string> = {
-  'SENEGAL': 'SN', 'SÉNÉGAL': 'SN',
-  'INDIA': 'IN', 'INDE': 'IN',
-  'FRANCE': 'FR',
-  'CHINA': 'CN', 'CHINE': 'CN',
-  'TURKEY': 'TR', 'TURQUIE': 'TR', 'TÜRKIYE': 'TR',
-  'GAMBIA': 'GM', 'GAMBIE': 'GM',
-  'MALI': 'ML',
-  'GUINEA': 'GN', 'GUINÉE': 'GN', 'GUINEE': 'GN',
-  'IVORY COAST': 'CI', "CÔTE D'IVOIRE": 'CI', 'COTE D\'IVOIRE': 'CI',
-  'GHANA': 'GH',
-  'NIGERIA': 'NG', 'NIGÉRIA': 'NG',
-  'EGYPT': 'EG', 'EGYPTE': 'EG', 'ÉGYPTE': 'EG',
-  'BURKINA FASO': 'BF',
-  'NIGER': 'NE',
-  'MAURITANIA': 'MR', 'MAURITANIE': 'MR',
-  'GERMANY': 'DE', 'ALLEMAGNE': 'DE',
-  'NETHERLANDS': 'NL', 'PAYS-BAS': 'NL',
-  'BELGIUM': 'BE', 'BELGIQUE': 'BE',
-  'UNITED ARAB EMIRATES': 'AE', 'UAE': 'AE',
-  'SAUDI ARABIA': 'SA', 'ARABIE SAOUDITE': 'SA',
-  'BANGLADESH': 'BD',
-  'SRI LANKA': 'LK',
-  'GUINEA-BISSAU': 'GW', 'GUINÉE-BISSAU': 'GW',
-  'TOGO': 'TG',
-  'BENIN': 'BJ', 'BÉNIN': 'BJ',
-  'UNITED KINGDOM': 'GB', 'ROYAUME-UNI': 'GB', 'UK': 'GB',
-  'UNITED STATES': 'US', 'USA': 'US', 'ÉTATS-UNIS': 'US',
-  'SPAIN': 'ES', 'ESPAGNE': 'ES',
-  'ITALY': 'IT', 'ITALIE': 'IT',
-  'PORTUGAL': 'PT',
-  'MOROCCO': 'MA', 'MAROC': 'MA',
-  'SOUTH KOREA': 'KR', 'CORÉE DU SUD': 'KR',
-  'JAPAN': 'JP', 'JAPON': 'JP',
-  'BRAZIL': 'BR', 'BRÉSIL': 'BR',
-  'PAKISTAN': 'PK',
-  'THAILAND': 'TH', 'THAÏLANDE': 'TH',
-  'VIETNAM': 'VN', 'VIÊT NAM': 'VN',
-  'INDONESIA': 'ID', 'INDONÉSIE': 'ID',
-  'MALAYSIA': 'MY', 'MALAISIE': 'MY',
-  'SINGAPORE': 'SG', 'SINGAPOUR': 'SG',
-  'CAMEROON': 'CM', 'CAMEROUN': 'CM',
-  'CONGO': 'CG',
-  'SIERRA LEONE': 'SL',
-  'LIBERIA': 'LR', 'LIBÉRIA': 'LR',
-};
-
-function normalizeCountryToISO(raw: string): string {
-  if (!raw) return '';
-  const upper = raw.toUpperCase().trim();
-  // Already ISO 2-letter code
-  if (upper.length === 2) return upper;
-  return COUNTRY_NAME_TO_ISO[upper] || upper;
-}
 
 async function resolveCountry(
   serviceClient: any,
@@ -4188,6 +4137,8 @@ export async function applyAssumptionRules(
   requestType?: string
 ): Promise<{ added: number; skipped: number; flowType: string }> {
   const result = { added: 0, skipped: 0, flowType: 'UNKNOWN' };
+  // STRUCTURAL_PATCH_ALLOWED: a third-country AIR plan has no import/DPI/package defaults.
+  if (requestType === 'AIR_CROSS_TRADE') return {...result, flowType:'AIR_CROSS_TRADE'};
 
   // Step 1: Load existing facts
   const { data: facts } = await serviceClient
@@ -5572,7 +5523,8 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     // 8. Detect request type from content (include attachment text for Intake cases)
     const fullDetectionContext = [inboundThreadContext, fullAttachmentContext].filter(Boolean).join("\n\n");
     const detectionResult = detectRequestType(fullDetectionContext, extractedFacts);
-    let detectedType = detectionResult.type;
+    // An explicit operator plan is never silently reclassified into import by a reanalysis.
+    let detectedType = caseData.request_type === "AIR_CROSS_TRADE" ? "AIR_CROSS_TRADE" : detectionResult.type;
     const isAmbiguousLclFcl = detectionResult.ambiguous_lcl_fcl;
 
     // Action 4: Post-detection coherence guard
@@ -7329,7 +7281,12 @@ export const buildCasePuzzleHandler = async (req: Request) => {
     }
 
     // 10. Identify gaps
-    const mandatoryFacts = MANDATORY_FACTS[gapProfileType] || MANDATORY_FACTS.UNKNOWN;
+    let mandatoryFacts = MANDATORY_FACTS[gapProfileType] || MANDATORY_FACTS.UNKNOWN;
+    if (gapProfileType === "AIR_CROSS_TRADE") {
+      try { const qualified=await readAirCrossTrade({user:userData.user,token},case_id,null,serviceClient);
+        if(qualified.requirements) mandatoryFacts=qualified.requirements.required_fact_keys;
+      } catch { /* Base sourced facts only; the current-plan readiness gate stays pending. */ }
+    }
     const extractedKeys = extractedFacts.map((f) => f.key);
     
     // gapsIdentified already initialized above (before doc-regex block)
@@ -8347,9 +8304,14 @@ export const buildCasePuzzleHandler = async (req: Request) => {
         }
 
         const criticalFactKeys = new Set((criticalFacts || []).map((f: any) => f.fact_key));
-        if (!criticalFactKeys.has("service.package")) ambiguitySignals.push("NO_SERVICE_PACKAGE");
+        if (detectedType === "AIR_CROSS_TRADE") {
+          try {
+            const qualified = await readAirCrossTrade({user:userData.user,token},case_id,null,serviceClient);
+            if (!qualified.evaluation?.ready_to_price) ambiguitySignals.push("AIR_CROSS_TRADE_PLAN_REQUIRED");
+          } catch { ambiguitySignals.push("AIR_CROSS_TRADE_QUALIFICATION_UNAVAILABLE"); }
+        } else if (!criticalFactKeys.has("service.package")) ambiguitySignals.push("NO_SERVICE_PACKAGE");
         // STRUCTURAL_PATCH_ALLOWED: P4 must not certify a sourced unresolved airport role.
-        for (const code of unresolvedAirportRoles(locationSources, locationProofs, criticalFacts || [])) {
+        for (const code of detectedType === "AIR_CROSS_TRADE" ? [] : unresolvedAirportRoles(locationSources, locationProofs, criticalFacts || [])) {
           ambiguitySignals.push("AMBIGUOUS_AIRPORT_ROLE:" + code);
         }
 
@@ -9000,6 +8962,13 @@ export function hasCargoLclSignal(context: string): boolean {
     || /\bpart\s+of\s+(?:(?:a|the|one)\s+)?(?:(?:20|40|45)\s*(?:['’′]|ft)?\s*(?:hc|hq|gp|dv)?\s*)?(?:container|tc)\b/i.test(context);
 }
 
+export function airGeographyRequestType(facts: ExtractedFact[]): string {
+  const country=(key:string)=>{const f=facts.find(x=>x.key===key);return f && !f.isAssumption && !/assumption|system/.test(f.sourceType) &&
+    (f.sourceEmailId||f.sourceAttachmentId||/operator|manual|human/.test(f.sourceType)) ? normalizeCountryToISO(String(f.value)) : "";};
+  const origin=country("routing.origin_country"),destination=country("routing.destination_country");
+  return /^[A-Z]{2}$/.test(origin)&&/^[A-Z]{2}$/.test(destination)&&origin!==destination&&origin!=="SN"&&destination!=="SN" ? "AIR_CROSS_TRADE" : "AIR_IMPORT";
+}
+
 export function detectRequestType(context: string, facts: ExtractedFact[]): { type: string; ambiguous_lcl_fcl: boolean } {
   const lowerContext = context.toLowerCase();
 
@@ -9034,13 +9003,13 @@ export function detectRequestType(context: string, facts: ExtractedFact[]): { ty
       console.log(`[Detection] WARNING: Explicit AIR pattern found WITH maritime signals. Respecting explicit AIR.`);
     }
     console.log(`[Detection] AIR_IMPORT (explicit air pattern)`);
-    return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
+    return { type: airGeographyRequestType(facts), ambiguous_lcl_fcl: false };
   }
 
   // Step 1b: Airport fact — ONLY if no strong maritime signal (Action 1)
   if (facts.some(f => f.key === "routing.origin_airport") && !maritimeSignal) {
     console.log(`[Detection] AIR_IMPORT (airport fact, no maritime conflict)`);
-    return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
+    return { type: airGeographyRequestType(facts), ambiguous_lcl_fcl: false };
   }
   if (facts.some(f => f.key === "routing.origin_airport") && maritimeSignal) {
     console.log(`[Detection] Airport fact IGNORED — strong maritime signals present`);
@@ -9123,7 +9092,7 @@ export function detectRequestType(context: string, facts: ExtractedFact[]): { ty
       // At least one must be a known airport
       if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
         console.log(`[Detection] AIR_IMPORT (IATA codes: ${code1}-${code2})`);
-        return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
+        return { type: airGeographyRequestType(facts), ambiguous_lcl_fcl: false };
       }
     }
 
@@ -9135,7 +9104,7 @@ export function detectRequestType(context: string, facts: ExtractedFact[]): { ty
       if (INCOTERM_CODES.has(code1) || INCOTERM_CODES.has(code2)) continue;
       if (KNOWN_AIRPORTS.has(code1) || KNOWN_AIRPORTS.has(code2)) {
         console.log(`[Detection] AIR_IMPORT (IATA from-to: ${code1}-${code2})`);
-        return { type: "AIR_IMPORT", ambiguous_lcl_fcl: false };
+        return { type: airGeographyRequestType(facts), ambiguous_lcl_fcl: false };
       }
     }
   } else {

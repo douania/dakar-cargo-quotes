@@ -1,3 +1,4 @@
+import { readAirCrossTradeBasis, airCrossTradeMissingCoverage } from "./air-cross-trade-snapshot.ts";
 import { readCustomsBasisSnapshot } from './customs-basis.ts';
 import type { CommercialPreparation } from './commercial-preparation.ts';
 import { commercialFeeTotals } from './commercial-fee-totals.ts';
@@ -59,12 +60,14 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
   });
   const calculated = commercialFeeTotals(subtotal,fees);
   if (![subtotal,fees,calculated.totalPayable].every(number)) throw new Error('Total commercial hors limites');
+  const airCrossTradeBasis = readAirCrossTradeBasis(source.air_cross_trade);
+  const airScopeReduced = airCrossTradeMissingCoverage(airCrossTradeBasis, lines).length > 0;
   const customsBasis=readCustomsBasisSnapshot(source.customs_basis);
-  return {...(customsBasis?{customs_basis:customsBasis}:{}),inputs:source.inputs,client:source.client,...(source.operator_basis ? {operator_basis:source.operator_basis} : {}),
+  return {...(airCrossTradeBasis ? {air_cross_trade:airCrossTradeBasis} : {}),...(customsBasis?{customs_basis:customsBasis}:{}),inputs:source.inputs,client:source.client,...(source.operator_basis ? {operator_basis:source.operator_basis} : {}),
     meta:{...row(source.meta),version_id:null,version_number:null,created_at:null,
       commercial_revision_id:revisionId,commercial_source_version_id:draft.source_version_id,
-      quoteQualification:{level:unknown ? 'partial' : 'provisional',firmTotalPolicy:unknown ? 'excludes_reserved_items' : 'all_included',
-        reasons:[...(Array.isArray(row(row(source.meta).quoteQualification).reasons) ? row(row(source.meta).quoteQualification).reasons as unknown[] : []),{code:'COMMERCIAL_OPERATOR_REVISION',message:'Montants retenus par l’opérateur ; estimations révisables, postes inconnus exclus.'}]}},
+      quoteQualification:{level:unknown || airScopeReduced ? 'partial' : 'provisional',firmTotalPolicy:unknown || airScopeReduced ? 'excludes_reserved_items' : 'all_included',
+        reasons:[...(Array.isArray(row(row(source.meta).quoteQualification).reasons) ? row(row(source.meta).quoteQualification).reasons as unknown[] : []),...(airScopeReduced ? [{code:'AIR_CROSS_TRADE_SCOPE_REDUCED',message:'Périmètre aérien réduit : le montant ne couvre pas le parcours complet.'}] : []),{code:'COMMERCIAL_OPERATOR_REVISION',message:'Montants retenus par l’opérateur ; estimations révisables, postes inconnus exclus.'}]}},
     lines,raw_lines:structuredClone(lines),sources:[],
     totals:{currency:'XOF',commercial_amounts:true,total_ht:priced ? subtotal : null,total_ttc:priced ? calculated.totalPayable : null,
       subtotal_before_sodatra_vat:priced ? subtotal : null,total_payable:priced ? calculated.totalPayable : null,

@@ -1,0 +1,20 @@
+import {assertEquals,assertThrows} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {serverFixture} from "./air-cross-trade-loader_test.ts";
+import {deriveAirRequirements,readAirRequirements} from "./air-cross-trade-requirements.ts";
+import {mapAirSources,mapAirRequest} from "./air-cross-trade-loader.ts";
+import {evaluateAirCrossTrade} from "./air-cross-trade.ts";
+import {isRequiredClientGapForCase} from "./client-gap-policy.ts";
+Deno.test("AIR requirements: only selected qualified conditions and unit basis, no city/doc blanket",async()=>{
+ const f=serverFixture(),loaded=await mapAirSources(f.state,f.operator);
+ const assessment=evaluateAirCrossTrade({request:mapAirRequest(f.state,f.operator),retained:null,context_fingerprint:"ctx1",...loaded,as_of:"2026-10-30"});
+ const req=deriveAirRequirements(f.operator,loaded.sources,assessment);
+ assertEquals(req.required_fact_keys.includes("cargo.weight_kg"),true);assertEquals(req.required_fact_keys.includes("routing.destination_city"),false);assertEquals(req.required_fact_keys.some(k=>k.startsWith("documents.")),false);
+ f.operator.client_data_keys=["routing.destination_city"];assertThrows(()=>deriveAirRequirements(f.operator,loaded.sources,assessment));
+ f.operator.client_data_keys=["cargo.weight_kg"];const selected=deriveAirRequirements(f.operator,loaded.sources,assessment);assertEquals(selected.client_data_keys.includes("cargo.weight_kg"),true);
+ const facts=[{fact_key:"service.air_cross_trade_requirements",value_json:{plan_id:"plan",...selected}}];
+ assertEquals(isRequiredClientGapForCase({gap_key:"cargo.weight_kg",is_blocking:true},{request_type:"AIR_CROSS_TRADE",facts}),true);
+ assertEquals(isRequiredClientGapForCase({gap_key:"routing.destination_city",is_blocking:true},{request_type:"AIR_CROSS_TRADE",facts}),false);
+ assertEquals(isRequiredClientGapForCase({gap_key:"cargo.weight_kg",is_blocking:true},{request_type:"AIR_CROSS_TRADE",facts:[]}),false);
+ assertEquals(isRequiredClientGapForCase({gap_key:"routing.destination_city",is_blocking:true},{request_type:"AIR_IMPORT",facts:[]}),true);
+ assertEquals(readAirRequirements([{...facts[0],is_current:false}]),null);
+});

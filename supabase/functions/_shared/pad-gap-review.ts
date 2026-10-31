@@ -1,3 +1,5 @@
+import { hasClientGapGuard, sameClientGapScope, type ClientGapScope } from './client-gap-scope.ts';
+import { CLIENT_QUESTION_POLICY_VERSION } from "./client-gap-policy.ts";
 /** PAD is an operator classification task, not evidence of a missing cargo description.
  * Missing/ambiguous client facts keep their own gaps. No classification or pricing here.
  */
@@ -12,8 +14,21 @@ export function hasPadGapReference(keys: unknown, sourceKey?: unknown): boolean 
 }
 
 /** Entire mixed drafts are stale: removing a key does not remove its question from the body. */
-export function isObsoletePadDraft(data: Record<string, unknown> | null | undefined): boolean {
-  return !!data && hasPadGapReference(data.requested_gap_keys, data.source_action_dedupe_key ?? data.dedupe_key);
+export function isObsoletePadDraft(data: Record<string, unknown> | null | undefined, currentKeys?: string[]): boolean {
+  if (!data) return false;
+  const sourceKey = data.source_action_dedupe_key ?? data.dedupe_key;
+  const clientBody = data.kind === "reply_draft_v1" &&
+    ((Array.isArray(data.requested_gap_keys) && data.requested_gap_keys.length > 0) ||
+      (typeof sourceKey === "string" && sourceKey.startsWith("REQUEST_CLIENT_INFO_FOR_GAPS:")));
+  // Historical API name retained for all existing UI/mark-sent readers. Retire
+  // whole outdated customer bodies, never generic replies or sent/answered history.
+  if (hasPadGapReference(data.requested_gap_keys, sourceKey)) return true;
+  if (!clientBody) return false;
+  if (data.client_question_policy_version !== CLIENT_QUESTION_POLICY_VERSION || !hasClientGapGuard(data)) return true;
+  if (currentKeys === undefined) return false;
+  if (!Array.isArray(data.requested_gap_keys)) return true;
+  const old = [...new Set(data.requested_gap_keys)].sort(), current = [...new Set(currentKeys)].sort();
+  return !current.length || old.length !== current.length || old.some((key, i) => key !== current[i]);
 }
 
 /** Append-only action histories must be reduced BEFORE checking for an open action. */
@@ -28,8 +43,9 @@ export function latestGapActions<T extends { event_data: unknown }>(events: T[])
   });
 }
 
-export function isCurrentGapDraft(data: Record<string, unknown> | null, keys: string[]): boolean {
-  if (!data || isObsoletePadDraft(data) || !Array.isArray(data.requested_gap_keys)) return false;
+export function isCurrentGapDraft(data: Record<string, unknown> | null, keys: string[], scope?: ClientGapScope): boolean {
+  if (!data || data.kind !== "reply_draft_v1" || data.client_question_policy_version !== CLIENT_QUESTION_POLICY_VERSION || isObsoletePadDraft(data) || !Array.isArray(data.requested_gap_keys)) return false;
+  if (scope && !sameClientGapScope(data, scope)) return false;
   const old = [...new Set(data.requested_gap_keys)].sort();
   const current = [...new Set(keys)].sort();
   return current.length > 0 && old.length === current.length && old.every((key, i) => key === current[i]);
@@ -38,12 +54,13 @@ export function isCurrentGapDraft(data: Record<string, unknown> | null, keys: st
 export function isUsableClientGapRequest(
   row: { gap_key: string; status: string; source_timeline_event_id?: string | null },
   sources: Array<{ id: string; event_data: unknown }>,
+  currentKeys?: string[],
 ): boolean {
   if (row.gap_key === PAD_REVIEW_GAP_KEY) return false;
   // Sent/answered legitimate questions still need follow-up. No old body is
   // offered for sending; only an unsent draft needs proof of a clean source.
   if (row.status !== "drafted") return true;
   const source = sources.find(e => e.id === row.source_timeline_event_id)?.event_data as Record<string, unknown> | undefined;
-  return !!source && source.kind === "reply_draft_v1" && !isObsoletePadDraft(source) &&
+  return !!source && source.kind === "reply_draft_v1" && !isObsoletePadDraft(source, currentKeys) &&
     Array.isArray(source.requested_gap_keys) && source.requested_gap_keys.includes(row.gap_key);
 }

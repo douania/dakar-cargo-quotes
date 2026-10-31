@@ -108,3 +108,27 @@ it('a genuinely missing description retains its client action',async()=>{
   mount();expect(await screen.findByRole('button',{name:'Générer brouillon client'})).toBeInTheDocument();
   expect(screen.getByText('Client')).toBeInTheDocument();expect(io.invoke).not.toHaveBeenCalled();
 });
+
+it('does not offer a current-version mixed body BEFORE sync when one question becomes optional',async()=>{
+ db.quote_gaps=[{id:'weight',case_id:'c',gap_key:weight,status:'open',is_blocking:true,question_fr:'Poids total ?'},{id:'value',case_id:'c',gap_key:'cargo.value',status:'open',is_blocking:false}];
+ db.client_gap_requests=[{id:'r',case_id:'c',gap_key:weight,status:'drafted',source_timeline_event_id:'mixed',draft_body:'STALE OPTIONAL VALUE QUESTION'}];
+ db.case_timeline_events=[{id:'mixed',case_id:'c',event_type:'output_generated',created_at:1,event_data:{kind:'reply_draft_v1',client_question_policy_version:4,requested_gap_keys:[weight,'cargo.value'],draft_reply:{subject:'old',body:'STALE OPTIONAL VALUE QUESTION'}}}];
+ mount();await screen.findByRole('button',{name:'Générer brouillon client'});
+ expect(screen.queryByText('STALE OPTIONAL VALUE QUESTION')).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'Marquer envoyé'})).not.toBeInTheDocument();expect(io.invoke).not.toHaveBeenCalled();
+});
+
+it('an old server response leaves an explicit case-scoped notice and never loops a mutation',async()=>{
+ db.quote_gaps=[{id:'weight',case_id:'c',gap_key:weight,status:'open',is_blocking:true,question_fr:'Poids synthétique à préciser'}];
+ db.case_timeline_events=[{id:'a',case_id:'c',event_type:'manual_action',created_at:1,event_data:{action_code:'REQUEST_CLIENT_INFO_FOR_GAPS',status:'open',dedupe_key:'legacy-key',requested_gap_keys:[weight]}}];
+ io.invoke.mockImplementation(async(name:string)=>name==='generate-reply-draft'?{data:{ok:true,draft:{subject:'Synthetic',body:'Legacy only'}},error:null}:{data:{created:false},error:null});
+ mount();const trigger=await screen.findByRole('button',{name:/Poids synthétique à préciser/});if(!screen.queryByRole('button',{name:'Générer brouillon client'}))await userEvent.click(trigger);await userEvent.click(screen.getByRole('button',{name:'Générer brouillon client'}));
+ expect(await screen.findByRole('status')).toHaveTextContent('Ancien brouillon conservé');expect(io.invoke).toHaveBeenCalledTimes(2);
+ expect(db.quote_gaps[0].is_blocking).toBe(true);expect(db.client_gap_requests).toHaveLength(0);
+});
+it('a refused or uncertain sync preserves input and asks for state verification without automatic retry',async()=>{
+ db.quote_gaps=[{id:'weight',case_id:'c',gap_key:weight,status:'open',is_blocking:true,question_fr:'Poids synthétique à préciser'}];
+ io.invoke.mockResolvedValue({data:null,error:new Error('Synthetic scoped conflict')});mount();
+ const trigger=await screen.findByRole('button',{name:/Poids synthétique à préciser/});if(!screen.queryByRole('button',{name:'Générer brouillon client'}))await userEvent.click(trigger);await userEvent.click(screen.getByRole('button',{name:'Générer brouillon client'}));
+ expect(await screen.findByRole('status')).toHaveTextContent('La préparation n’est pas confirmée');expect(io.invoke).toHaveBeenCalledTimes(1);
+ expect(screen.getByRole('button',{name:'Générer brouillon client'})).toBeEnabled();expect(db.quote_gaps[0].is_blocking).toBe(true);
+});

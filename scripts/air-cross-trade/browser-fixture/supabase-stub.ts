@@ -1,0 +1,1 @@
+export const supabase={functions:{invoke:async()=>{throw new Error('Réseau distant interdit sur ce banc');}},auth:{}};

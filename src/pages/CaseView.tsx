@@ -1,3 +1,7 @@
+import {airClientRequirementFacts} from '@/lib/airCrossTradeApi';
+import { AirCrossTradeWorkspace } from "@/components/case/AirCrossTradeWorkspace";
+import { mayPrepareAirCrossTrade } from "@/lib/airCrossTradeDraft";
+import { ClientGapDraftHistory } from '@/components/case/ClientGapDraftHistory';
 import { useQuoteRequestCargoBasis } from "@/hooks/useQuoteRequestCargoBasis";
 import { quotationCargoBasisText } from "../../supabase/functions/_shared/quotation-cargo-basis";
 import { partialDestinationDdpEligible, PARTIAL_CUSTOMS_GAP_KEYS } from "../../supabase/functions/_shared/partial-destination-quote";
@@ -7,7 +11,7 @@ import { createPortal } from "react-dom";
 import { PadGroupConfirmationsPanel } from "@/components/case/PadGroupConfirmationsPanel";
 import { AirHandlingPanel } from "@/components/case/AirHandlingPanel";
 import { LotConfirmationsPanel } from "@/components/case/LotConfirmationsPanel";
-import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
+import { PAD_REVIEW_GAP_KEY, PAD_REVIEW_FR, isConfirmedClientGapDraftResponse, CLIENT_GAP_LEGACY_NOTICE, CLIENT_GAP_UNCONFIRMED_NOTICE, isObsoletePadDraft, isRequiredClientGapForCase, isUsableClientGapRequest, latestGapActions, needsPadReview, refreshGapActionQueries } from "@/lib/padGapReview";
 import { PAD_WEIGHT_REVIEW_FR } from "@/lib/padGapReview";
 import { useParams, useNavigate } from "react-router-dom";
 import { CaseDocumentPreparationError, confirmedDocumentAnalysis, prepareCaseDocuments } from '@/lib/documentExtraction';
@@ -480,9 +484,12 @@ export default function CaseView() {
     staleTime: 30000,
   });
 
+  const {data:airClientMeta=[]}=useQuery({queryKey:['air-client-requirements',caseId,caseData?.request_type,facts],enabled:!!caseId&&caseData?.request_type==='AIR_CROSS_TRADE',queryFn:()=>airClientRequirementFacts(caseId!,caseData?.request_type),staleTime:0,retry:false});
+  const requiredClientKeys = useMemo(() => gaps.filter(g=>isRequiredClientGapForCase(g,{request_type:caseData?.request_type,facts:caseData?.request_type==='AIR_CROSS_TRADE'?airClientMeta:facts})).map(g => g.gap_key).sort(), [gaps,caseData?.request_type,facts,airClientMeta]);
+
   // ── CL1: Fetch client_gap_requests ──
   const { data: clientGapRequests = [], refetch: refetchGapRequests } = useQuery({
-    queryKey: ["client-gap-requests", caseId],
+    queryKey: ["client-gap-requests", caseId, requiredClientKeys],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("client_gap_requests" as any)
@@ -496,7 +503,7 @@ export default function CaseView() {
       const sourceRes = ids.length ? await supabase.from("case_timeline_events").select("id, event_data")
         .eq("case_id", caseId!).eq("event_type", "output_generated").in("id", ids) : { data: [], error: null };
       if (sourceRes.error) throw sourceRes.error;
-      return rows.filter(r => isUsableClientGapRequest(r, sourceRes.data ?? []));
+      return rows.filter(r => isUsableClientGapRequest(r, sourceRes.data ?? [], requiredClientKeys));
     },
     enabled: !!caseId,
     staleTime: 30000,
@@ -630,18 +637,22 @@ export default function CaseView() {
     setIsMarkingSent(true);
     try {
       const { data, error } = await supabase.functions.invoke("mark-client-gap-request-sent", {
-        body: { case_id: caseId, gap_keys: keysToSend },
+        body: { case_id: caseId, gap_keys: keysToSend,
+          expected_requests: clientGapRequests.filter(r => r.status === "drafted" && keysToSend.includes(r.gap_key))
+            .map(r => ({ gap_key: r.gap_key, request_id: r.id, source_timeline_event_id: r.source_timeline_event_id })),
+        },
       });
       if (error) throw error;
-      if (data?.ok) {
+      if (data?.ok && data.updated === keysToSend.length && (data.skipped ?? 0) === 0) {
         toast.success(`${data.updated} clarification(s) marquée(s) comme envoyée(s)`);
-        refetchGapRequests();
       } else {
         toast.error("Erreur lors du marquage");
       }
     } catch (e: any) {
       toast.error(`Erreur: ${e?.message ?? "unknown"}`);
     } finally {
+      // A multi-gap acknowledgement may have persisted only part of the batch.
+      void refetchGapRequests();
       setIsMarkingSent(false);
     }
   }
@@ -925,7 +936,7 @@ export default function CaseView() {
       if (e.event_type !== "output_generated") continue;
       const ed = e.event_data as Record<string, unknown> | null;
       if (ed?.["kind"] !== "reply_draft_v1") continue;
-      if (isObsoletePadDraft(ed)) continue;
+      if (isObsoletePadDraft(ed, requiredClientKeys)) continue;
       const sourceKey = ed?.["source_action_dedupe_key"] as string | undefined;
       const draft = ed?.["draft_reply"] as { subject: string; body: string } | undefined;
       const requestedGapKeys = Array.isArray(ed?.["requested_gap_keys"])
@@ -936,7 +947,7 @@ export default function CaseView() {
       }
     }
    return map;
-  }, [events]);
+  }, [events, requiredClientKeys]);
 
    // ── All drafts — filter out client-gap drafts whose gaps are all resolved ──
   const openGapKeySet = useMemo(() => {
@@ -945,7 +956,7 @@ export default function CaseView() {
 
   const allDrafts = useMemo(() => {
     return (events ?? [])
-      .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1" && !isObsoletePadDraft(e.event_data as Record<string, unknown>))
+      .filter(e => e.event_type === "output_generated" && (e.event_data as any)?.kind === "reply_draft_v1" && !isObsoletePadDraft(e.event_data as Record<string, unknown>, requiredClientKeys))
       .map(e => {
         const ed = e.event_data as Record<string, unknown>;
         const draftReply = (ed["draft_reply"] as any) ?? null;
@@ -966,7 +977,7 @@ export default function CaseView() {
         return d!.requestedGapKeys.some(k => openGapKeySet.has(k));
       })
       .sort((a, b) => String(b!.createdAt).localeCompare(String(a!.createdAt))) as { id: string; draft: { subject: string; body: string }; createdAt: string; sourceLabel: string; requestedGapKeys: string[] }[];
-  }, [events, openGapKeySet]);
+  }, [events, openGapKeySet, requiredClientKeys]);
 
   async function closeAction(dedupeKey: string) {
     if (!caseId) return;
@@ -1011,9 +1022,12 @@ export default function CaseView() {
   }
 
   // ── P1: Ask client for all open client-resolvable gaps ──
+  const [clientGapNotice, setClientGapNotice] = React.useState<{caseId:string;message:string}|null>(null);
+
   async function askClientForGaps() {
     if (!caseId || askingClientForGaps) return;
     setAskingClientForGaps(true);
+    setClientGapNotice(null);
     try {
       // 1. Sync gap-based action (idempotent)
       const { error: syncErr } = await supabase.functions.invoke("sync-gap-client-actions", {
@@ -1058,12 +1072,18 @@ export default function CaseView() {
       if (draftErr) throw draftErr;
 
       if (draftData?.ok) {
+        if (!isConfirmedClientGapDraftResponse(draftData)) {
+          const message=CLIENT_GAP_LEGACY_NOTICE;
+          setClientGapNotice({caseId,message});toast.info(message);refetchEvents();return;
+        }
         toast.success(draftData.idempotent ? "Brouillon déjà disponible" : "Brouillon de demande client généré");
         refetchEvents();
       } else {
+        setClientGapNotice({caseId,message:CLIENT_GAP_UNCONFIRMED_NOTICE});
         toast.error(`Erreur: ${draftData?.error ?? "Génération échouée"}`);
       }
     } catch (e: any) {
+      setClientGapNotice({caseId,message:CLIENT_GAP_UNCONFIRMED_NOTICE});
       toast.error(`Erreur demande client: ${e?.message ?? "unknown"}`);
     } finally {
       setAskingClientForGaps(false);
@@ -1321,8 +1341,9 @@ export default function CaseView() {
   const servicePackageFact = facts.find(
     (f) => f.fact_key === "service.package" && f.is_current
   );
-  const servicePackageLabel =
-    typeof servicePackageFact?.value_text === "string" && servicePackageFact.value_text.trim()
+  const servicePackageLabel = mayPrepareAirCrossTrade(caseData?.request_type,facts)
+    ? caseData?.request_type === 'AIR_CROSS_TRADE' ? 'Aérien pays tiers — plan opérateur' : 'Aérien pays tiers à qualifier'
+    : typeof servicePackageFact?.value_text === "string" && servicePackageFact.value_text.trim()
       ? formatPackageLabel(servicePackageFact.value_text)
       : null;
   const pilotage = cockpitState ? buildPilotageViewModel({
@@ -1656,6 +1677,7 @@ export default function CaseView() {
           // Lot 4.1: hoisted out of the gate so canProvisionalDdp can drive rendering
           const prechecks: PricingPrecheck[] = [];
           const currentFacts = facts.filter(f => f.is_current);
+          if (caseId && mayPrepareAirCrossTrade(caseData.request_type,currentFacts)) return <div id="section-pricing"><AirCrossTradeWorkspace caseId={caseId} isLocked={!!isLocked || caseData.status === 'PRICING_RUNNING'} onChanged={handlePricingComplete}/></div>;
           const packageKey = String(currentFacts.find(f => f.fact_key === "service.package")?.value_text ?? "").trim().toUpperCase();
 
           if (!isMultiLot) {
@@ -2657,6 +2679,8 @@ export default function CaseView() {
         })()}
         </div>
 
+        {clientGapNotice?.caseId === caseId && <p role="status" className="mb-3 text-sm text-muted-foreground">{clientGapNotice.message}</p>}
+        <ClientGapDraftHistory caseId={caseId!} events={events ?? []} currentKeys={requiredClientKeys} />
         {allDrafts.length > 0 && (
           <details id="section-reply-drafts" className="mb-4 rounded-lg border p-3">
             <summary className="cursor-pointer text-sm font-medium">Brouillons de réponse ({allDrafts.length})</summary>

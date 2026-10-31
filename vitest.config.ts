@@ -5,6 +5,9 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   test: {
+    // Bound jsdom CPU contention: 23 default forks on the 24-core desktop caused
+    // reproducible 5s timeouts; two workers pass with unchanged expectations.
+    maxWorkers: 2,
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],

@@ -1,3 +1,4 @@
+import { readAirCrossTradeBasis, type AirCrossTradeBasis } from "../_shared/air-cross-trade-snapshot.ts";
 import { readCustomsBasisSnapshot, type CustomsBasisSnapshot } from '../_shared/customs-basis.ts';
 import { buildPricingCargoBasis, type QuotationCargoBasis } from "../_shared/quotation-cargo-basis.ts";
 import { readOperatorBasis, type OperatorQuotationBasis } from "../_shared/operator-quotation-basis.ts";
@@ -76,6 +77,7 @@ interface VersionSnapshotLot {
 }
 
 interface VersionSnapshot {
+  air_cross_trade?: AirCrossTradeBasis;
   customs_basis?: CustomsBasisSnapshot;
   operator_basis?: OperatorQuotationBasis;
   meta: {
@@ -324,6 +326,7 @@ Deno.serve(async (req) => {
     const outputsJson = pricingRun.outputs_json as Record<string, any> | null;
     const outputTotals = outputsJson?.totals as Record<string, any> | undefined;
 
+    const airCrossTradeBasis = readAirCrossTradeBasis(outputsJson?.air_cross_trade);
     const customsBasis = readCustomsBasisSnapshot(outputsJson?.customs_basis);
     const operatorBasis = readOperatorBasis(outputsJson?.operator_basis);
     const cargoBasis = operatorBasis ? null : buildPricingCargoBasis(pricingRun);
@@ -331,6 +334,7 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
 
     const snapshot: VersionSnapshot = {
+      ...(airCrossTradeBasis ? { air_cross_trade: airCrossTradeBasis } : {}),
       ...(customsBasis ? {customs_basis:customsBasis} : {}),
       ...(operatorBasis ? { operator_basis: operatorBasis } : {}),
       meta: {

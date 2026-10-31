@@ -1,3 +1,4 @@
+const guard={version:1,scope:[{id:'scope-weight',key:'cargo.weight_kg',blocking:true}]};
 import { describe, expect, it } from 'vitest';
 import { buildClientQuestionsFromGaps, isClientResolvableGap } from '../../supabase/functions/_shared/client-gap-policy';
 import { hasPadGapReference, isCurrentGapDraft, isObsoletePadDraft, isUsableClientGapRequest, latestGapActions } from './padGapReview';
@@ -24,7 +25,7 @@ describe('PAD review policy, without pricing or fact promotion', () => {
     expect(isObsoletePadDraft(null)).toBe(false);
   });
   it('never reuses a partial, mixed, closed-scope or unkeyed draft',()=>{
-    expect(isCurrentGapDraft({requested_gap_keys:['cargo.weight_kg']},['cargo.weight_kg'])).toBe(true);
+    expect(isCurrentGapDraft({kind:'reply_draft_v1',client_question_policy_version:4,client_gap_fence_version:1,client_gap_guard:guard,requested_gap_keys:['cargo.weight_kg']},['cargo.weight_kg'])).toBe(true);
     expect(isCurrentGapDraft({requested_gap_keys:['cargo.description','cargo.weight_kg']},['cargo.weight_kg'])).toBe(false);
     expect(isCurrentGapDraft({requested_gap_keys:['cargo.weight_kg','pricing.pad_category']},['cargo.weight_kg'])).toBe(false);
     expect(isCurrentGapDraft({requested_gap_keys:['cargo.weight_kg']},[])).toBe(false);
@@ -42,6 +43,14 @@ describe('PAD review policy, without pricing or fact promotion', () => {
     expect(isUsableClientGapRequest(row,mixed)).toBe(false);
     for(const status of ['sent','answered'])expect(isUsableClientGapRequest({...row,status},mixed)).toBe(true);
     expect(isUsableClientGapRequest({...row,gap_key:'pricing.pad_category',status:'answered'},mixed)).toBe(false);
-    expect(isUsableClientGapRequest(row,[{id:'old',event_data:{kind:'reply_draft_v1',requested_gap_keys:['cargo.weight_kg']}}])).toBe(true);
+    expect(isUsableClientGapRequest(row,[{id:'old',event_data:{kind:'reply_draft_v1',client_question_policy_version:4,client_gap_fence_version:1,client_gap_guard:guard,requested_gap_keys:['cargo.weight_kg']}}])).toBe(true);
   });
+});
+
+it('version and exact current scope protect client drafts without retiring generic replies',()=>{
+ const client={kind:'reply_draft_v1',requested_gap_keys:['cargo.weight_kg'],client_question_policy_version:4,client_gap_fence_version:1,client_gap_guard:guard};
+ expect(isObsoletePadDraft(client,['cargo.weight_kg'])).toBe(false);expect(isObsoletePadDraft(client,[])).toBe(true);
+ expect(isObsoletePadDraft({...client,requested_gap_keys:['cargo.weight_kg','cargo.value']},['cargo.weight_kg'])).toBe(true);
+ expect(isObsoletePadDraft({...client,client_question_policy_version:undefined},['cargo.weight_kg'])).toBe(true);
+ expect(isObsoletePadDraft({kind:'reply_draft_v1',requested_gap_keys:[],source_action_dedupe_key:'PREPARE_CLIENT_REPLY_DRAFT:case'},[])).toBe(false);
 });

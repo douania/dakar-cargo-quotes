@@ -17,6 +17,12 @@ export function partialDestinationDdpEligible(input: { allowProvisional: boolean
     || input.serviceKeys.includes('AIR_FREIGHT') || !input.serviceKeys.includes('CUSTOMS_DAKAR')) return false;
   const scope = readServiceScopeEvent(input.scopeEvent?.event_data);
   if (!scope || scope.freight_scope !== false || scope.customs_scope === false) return false;
+  // This exception is for import destination services only. An explicit
+  // export/transit/unknown declaration cannot inherit it from a legacy type or
+  // package name, including after a human scope decision. Untyped historical
+  // destination evidence keeps its existing eligibility contract.
+  if (Object.prototype.hasOwnProperty.call(scope, 'shipment_type') &&
+    (typeof scope.shipment_type !== 'string' || scope.shipment_type.trim().toLowerCase() !== 'import')) return false;
   const evidence = scope.request_evidence as { mode?: unknown } | undefined;
   return input.scopeEvent?.actor_type === 'operator' || evidence?.mode === 'destination';
 }

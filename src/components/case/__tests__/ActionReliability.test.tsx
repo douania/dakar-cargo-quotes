@@ -109,7 +109,7 @@ it('client: explicit confirmation marks only the displayed message, with a synch
   fireEvent.click(confirm);
   fireEvent.click(confirm);
   await waitFor(() => expect(mocks.invoke).toHaveBeenCalledTimes(1));
-  expect(mocks.invoke).toHaveBeenCalledWith('mark-client-gap-request-sent', { body: { case_id: 'case-test', gap_keys: ['cargo.weight_kg'] } });
+  expect(mocks.invoke).toHaveBeenCalledWith('mark-client-gap-request-sent', { body: { case_id: 'case-test', gap_keys: ['cargo.weight_kg'], expected_requests: [{ gap_key: 'cargo.weight_kg', request_id: 'r1', source_timeline_event_id: 'source-a' }] } });
   finish({ data: { ok: true, updated: 1, skipped: 0 }, error: null });
   await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
 });

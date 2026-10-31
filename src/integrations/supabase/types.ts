@@ -9600,6 +9600,7 @@ export type Database = {
         | "SEA_LCL_IMPORT"
         | "SEA_BREAKBULK_IMPORT"
         | "AIR_IMPORT"
+        | "AIR_CROSS_TRADE"
         | "ROAD_IMPORT"
         | "MULTIMODAL_IMPORT"
     }
@@ -9755,6 +9756,7 @@ export const Constants = {
         "SEA_LCL_IMPORT",
         "SEA_BREAKBULK_IMPORT",
         "AIR_IMPORT",
+        "AIR_CROSS_TRADE",
         "ROAD_IMPORT",
         "MULTIMODAL_IMPORT",
       ],
