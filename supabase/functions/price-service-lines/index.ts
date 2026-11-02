@@ -25,7 +25,7 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { partialKgQuantity, partialDestinationDdpEligible, partialAirDeliveryCardApplicable, type PartialQuoteFact } from '../_shared/partial-destination-quote.ts';
 import { selectedTariffReference } from '../_shared/selected-tariff-reference.ts';
 import { loadAirHandling } from '../_shared/air-handling-store.ts';
-import { readOverridesFromFacts, resolveEffectiveServiceKeys } from '../_shared/service-scope.ts';
+import { PACKAGE_SERVICE_DEFAULT_UNITS, readOverridesFromFacts, resolveEffectiveServiceKeys } from '../_shared/service-scope.ts';
 import { handleCors } from "../_shared/cors.ts";
 import { collectFeeLineCodes, isInternalFeeServiceKey } from "../_shared/internal-fees.ts";
 import {
@@ -58,6 +58,10 @@ import {
   LOCAL_TRANSPORT_DEBOURS_ACCOUNTING,
   type LocalTransportDeboursAccounting,
 } from "../_shared/local-transport-debours.ts";
+
+import { PAD_SCOPE_SERVICE_KEYS } from '../_shared/pad-scope-blocker.ts';
+import { projectPartialInputRead, type QuantityPrerequisite } from '../_shared/partial-pricing-input-read.ts';
+import { computeCanonicalHash } from '../_shared/canonical-hash.ts';
 
 const FUNCTION_NAME = "price-service-lines";
 
@@ -916,6 +920,8 @@ Deno.serve(async (req) => {
 
   const correlationId = getCorrelationId(req);
   const t0 = Date.now();
+  let readOnly = false;
+  const diagnosticDay = new Date().toISOString().slice(0,10);
 
   try {
     // ═══ Phase S0: Unified auth guard ═══
@@ -935,16 +941,20 @@ Deno.serve(async (req) => {
 
     // ═══ Parse & validate input ═══
     const body = await req.json();
-    const { case_id, service_lines, active_modifiers, pricing_context_override, provisional_destination_quote } = body as {
+    readOnly = body.action === 'read_input_diagnostic';
+    if (readOnly && Object.keys(body).some(k => !['action', 'case_id'].includes(k))) return respondError({ code: 'VALIDATION_FAILED', message: 'Read-only diagnostic accepts only case_id', correlationId });
+    const input = body as {
       case_id: string;
       service_lines: ServiceLineInput[];
       active_modifiers?: string[];
       pricing_context_override?: Partial<PricingContext>;
       provisional_destination_quote?: boolean;
     };
+    const { case_id, active_modifiers, pricing_context_override } = input;
+    let { service_lines, provisional_destination_quote } = input;
     const activeModifierCodes = new Set(active_modifiers || []);
 
-    if (!case_id || !Array.isArray(service_lines) || service_lines.length === 0) {
+    if (!case_id || (!readOnly && (!Array.isArray(service_lines) || service_lines.length === 0))) {
       return respondError({
         code: "VALIDATION_FAILED",
         message: "case_id and non-empty service_lines required",
@@ -973,11 +983,10 @@ Deno.serve(async (req) => {
     const isLCL = /LCL/i.test(requestType);
 
     // ═══ Load facts for pricing context (JWT client, RLS) ═══
-    const { data: facts, error: factsError } = await jwtClient
-      .from("quote_facts")
-      .select("fact_key, value_text, value_json, value_number, source_type, is_validated")
-      .eq("case_id", case_id)
-      .eq("is_current", true);
+    const factsRead = readOnly
+      ? await jwtClient.from('quote_facts').select('id, fact_key, value_text, value_json, value_number, source_type, is_validated', {count:'exact'}).eq('case_id',case_id).eq('is_current',true)
+      : await jwtClient.from('quote_facts').select('fact_key, value_text, value_json, value_number, source_type, is_validated').eq('case_id',case_id).eq('is_current',true);
+    const { data: facts, error: factsError, count: factsCount } = factsRead;
 
     const factsMap = new Map(
       (facts || []).map((f: { fact_key: string; value_text: string | null; value_json: unknown; value_number: number | null }) => [f.fact_key, f])
@@ -991,24 +1000,48 @@ Deno.serve(async (req) => {
     // This internal switch is never trusted from pricing_context_override.
     delete pricingCtx.partial_kg_facts;
     let partialDestination = false;
+    const readScope = async () => {
+      const lots = jwtClient.from('quote_request_lines').select('id', { count: 'exact', head: true }).eq('case_id', case_id);
+      if (!readOnly) return await Promise.all([
+        jwtClient.from('case_timeline_events').select('actor_type, event_data').eq('case_id', case_id)
+          .eq('event_type', 'service_scope_v1').order('created_at', { ascending: false }).limit(1).maybeSingle(), lots,
+      ]);
+      const [heads, lotRead] = await Promise.all([
+        jwtClient.from('case_timeline_events').select('id, created_at, actor_type, event_data').eq('case_id',case_id)
+          .eq('event_type','service_scope_v1').order('created_at',{ascending:false}).limit(2), lots,
+      ]);
+      const tied = heads.data && heads.data.length>1 && heads.data[0].created_at===heads.data[1].created_at;
+      return [{...heads,data:heads.data?.[0]??null,error:heads.error || (tied ? {message:'Ambiguous scope head'} : null)},lotRead] as const;
+    };
+    let initialScope: unknown = null;
+    let initialLotCount: number | null = null;
+    let diagnosticEligibility: Parameters<typeof partialDestinationDdpEligible>[0] | null = null;
+    if (readOnly) provisional_destination_quote = true;
     if (provisional_destination_quote === true) {
       if (factsError) throw new Error('Partial destination facts verification failed');
-      const [scopeRead, lotRead] = await Promise.all([
-        jwtClient.from('case_timeline_events').select('actor_type, event_data').eq('case_id', case_id)
-          .eq('event_type', 'service_scope_v1').order('created_at', { ascending: false }).limit(1).maybeSingle(),
-        jwtClient.from('quote_request_lines').select('id', { count: 'exact', head: true }).eq('case_id', case_id),
-      ]);
+      if (readOnly && (!Array.isArray(facts) || factsCount !== facts.length)) return respondError({code:'UPSTREAM_DB_ERROR',message:'Diagnostic facts unavailable',correlationId});
+      const [scopeRead, lotRead] = await readScope();
       if (scopeRead.error || lotRead.error) throw new Error('Partial destination scope verification failed');
       const packageKey = factsMap.get('service.package')?.value_text?.trim().toUpperCase() ?? '';
       partialDestination = pricing_context_override?.lot_weight_strict !== true && partialDestinationDdpEligible({
         allowProvisional: true, packageKey, requestType: String(requestType).toUpperCase(), lotCount: lotRead.count,
         scopeEvent: scopeRead.data, serviceKeys: resolveEffectiveServiceKeys(packageKey, readOverridesFromFacts(facts || [])),
       });
+      if (readOnly) {
+        if (!partialDestination) return respondError({ code: 'VALIDATION_FAILED', message: 'Outside existing partial destination contract', correlationId });
+        initialScope = scopeRead.data; initialLotCount = lotRead.count;
+        diagnosticEligibility = { allowProvisional: true, packageKey, requestType: String(requestType).toUpperCase(),
+          lotCount: lotRead.count, scopeEvent: scopeRead.data, serviceKeys: resolveEffectiveServiceKeys(packageKey, readOverridesFromFacts(facts || [])) };
+        // Same canonical package services/default units/XOF as provisional run-pricing.
+        // No browser-supplied source, rule, quantity, modifiers or pricing context.
+        service_lines = diagnosticEligibility.serviceKeys.filter(service => !PAD_SCOPE_SERVICE_KEYS.has(String(service).trim().toUpperCase())).map(service => ({id: service, service,
+          unit: PACKAGE_SERVICE_DEFAULT_UNITS[service] || 'forfait', quantity: 1, currency: 'XOF'}));
+      }
       if (!partialDestination) throw new Error('Partial destination service mode outside authorized scope');
     }
     if (partialDestination) pricingCtx.partial_kg_facts = facts || [];
     // Lot 1.2: preuve de réception clientCode dans le contexte effectif (post-merge override)
-    console.log(`[LOT1.2][price-service-lines] effective pricingCtx.client_code=${JSON.stringify((pricingCtx as { client_code?: string | null }).client_code ?? null)}`);
+    if (!readOnly) console.log(`[LOT1.2][price-service-lines] effective pricingCtx.client_code=${JSON.stringify((pricingCtx as { client_code?: string | null }).client_code ?? null)}`);
 
     // ═══ H2-c : contexte du résolveur d'honoraires, dérivé des faits ═══
     // Le fait « marchandise dangereuse » n'existe pas encore (DG-1) : inconnu.
@@ -1035,40 +1068,43 @@ Deno.serve(async (req) => {
     });
 
     // ═══ T3: Load service_quantity_rules + unit_conversions ═══
-    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult, dthcTariffsResult, feeLinesResult, feeRulesResult] = await Promise.all([
-      serviceClient.from("service_quantity_rules").select("*"),
-      serviceClient.from("unit_conversions").select("key, factor").eq("conversion_type", "CONTAINER_TO_EVP"),
+    const loadLookupInputs = () => Promise.all([
+      serviceClient.from("service_quantity_rules").select("*", readOnly ? {count:"exact"} : undefined),
+      serviceClient.from("unit_conversions").select("key, factor", readOnly ? {count:"exact"} : undefined).eq("conversion_type", "CONTAINER_TO_EVP"),
       // [LOT3-A] Provenance filter: only consume rate cards with status='active'.
       // Lines with status='to_confirm' (35 as of LOT3-A preflight) must not be served.
       serviceClient
         .from("pricing_rate_cards")
-        .select("*")
+        .select("*", readOnly ? {count:"exact"} : undefined)
         .eq("status", "active")
         .or("effective_from.is.null,effective_from.lte." + new Date().toISOString().split("T")[0])
         .or("effective_to.is.null,effective_to.gte." + new Date().toISOString().split("T")[0]),
-      serviceClient.from("pricing_service_catalogue").select("*").eq("active", true),
-      serviceClient.from("pricing_modifiers").select("*").eq("active", true),
+      serviceClient.from("pricing_service_catalogue").select("*", readOnly ? {count:"exact"} : undefined).eq("active", true),
+      serviceClient.from("pricing_modifiers").select("*", readOnly ? {count:"exact"} : undefined).eq("active", true),
       // Phase PRICING V2: Load customs duty tiers
-      serviceClient.from("pricing_customs_tiers").select("*").eq("active", true),
+      serviceClient.from("pricing_customs_tiers").select("*", readOnly ? {count:"exact"} : undefined).eq("active", true),
       // Phase PRICING V3.2: Load client overrides
-      serviceClient.from("pricing_client_overrides").select("*").eq("active", true),
+      serviceClient.from("pricing_client_overrides").select("*", readOnly ? {count:"exact"} : undefined).eq("active", true),
       // Phase V4.1: Preload local transport rates (avoid N+1 queries)
-      serviceClient.from("local_transport_rates").select("*").eq("is_active", true).in("evidence_level", ["official", "validated_internal"]),
+      serviceClient.from("local_transport_rates").select("*", readOnly ? {count:"exact"} : undefined).eq("is_active", true).in("evidence_level", ["official", "validated_internal"]),
       // DTHC-1 : grille DP World. Requête large et non ordonnée (ni `.limit()`,
       // ni `.order()`, ni `ilike`) — la sélection appartient au résolveur pur.
       serviceClient
         .from("port_tariffs")
-        .select("*")
+        .select("*", readOnly ? {count:"exact"} : undefined)
         .in("provider", [...DPW_DTHC_PROVIDERS])
         .eq("is_active", true)
         .in("evidence_level", [...DPW_DTHC_EVIDENCE_WHITELIST]),
       // H2-c : lignes et règles d'honoraires paramétrables (source unique des
       // honoraires internes). Sélection large ; la validité, le scope client et
       // l'unicité appartiennent au résolveur pur.
-      serviceClient.from("fee_lines").select("*").eq("is_active", true),
-      serviceClient.from("fee_rules").select("*").eq("is_active", true),
+      serviceClient.from("fee_lines").select("*", readOnly ? {count:"exact"} : undefined).eq("is_active", true),
+      serviceClient.from("fee_rules").select("*", readOnly ? {count:"exact"} : undefined).eq("is_active", true),
     ]);
 
+    const lookupInputs = await loadLookupInputs();
+    const [rulesResult, conversionsResult, rateCardsResult, catalogueResult, modifiersResult, customsTiersResult, clientOverridesResult, transportRatesResult, dthcTariffsResult, feeLinesResult, feeRulesResult] = lookupInputs;
+    if (readOnly && lookupInputs.some(result => result.error || !Array.isArray(result.data) || result.count !== result.data.length)) return respondError({ code: 'UPSTREAM_DB_ERROR', message: 'Diagnostic lookup unavailable', correlationId });
     const feeLines = (feeLinesResult.data || []) as FeeLineRow[];
     if (partialDestination && rulesResult.error) return respondError({ code: 'UPSTREAM_DB_ERROR', message: 'Partial destination tariff quantity rules unavailable', correlationId });
     const feeRules = (feeRulesResult.data || []) as FeeRuleRow[];
@@ -1118,7 +1154,7 @@ Deno.serve(async (req) => {
     // DTHC-1 : une erreur de chargement laisse la grille vide, donc TO_CONFIRM
     // plutôt qu'un montant. Tracée pour ne pas être muette.
     if (dthcTariffsResult.error) {
-      structuredLog({
+      if (!readOnly) structuredLog({
         level: "error", service: FUNCTION_NAME, op: "load_dthc_tariffs",
         correlationId, errorCode: "UPSTREAM_DB_ERROR",
       });
@@ -1126,11 +1162,11 @@ Deno.serve(async (req) => {
     const preloadedDthcTariffs = (dthcTariffsResult.data || []) as DpwDthcTariffRow[];
 
     if (rateCardsResult.error) {
-      structuredLog({ level: "error", service: FUNCTION_NAME, op: "load_rate_cards", correlationId, errorCode: "UPSTREAM_DB_ERROR" });
+      if (!readOnly) structuredLog({ level: "error", service: FUNCTION_NAME, op: "load_rate_cards", correlationId, errorCode: "UPSTREAM_DB_ERROR" });
       return respondError({ code: "UPSTREAM_DB_ERROR", message: "Failed to load rate cards", correlationId });
     }
 
-    structuredLog({
+    if (!readOnly) structuredLog({
       level: "info",
       service: FUNCTION_NAME,
       op: "pricing_context",
@@ -1157,6 +1193,7 @@ Deno.serve(async (req) => {
     // ═══ Price each line ═══
     const pricedLines: PricedLine[] = [];
     const missing: string[] = [];
+    const quantityPrerequisites: QuantityPrerequisite[] = [];
 
     for (const line of service_lines) {
       if (line.service === 'AIR_HANDLING' && airHandling) {
@@ -1170,7 +1207,7 @@ Deno.serve(async (req) => {
       }
       const serviceKey = line.service;
       if (!VALID_SERVICE_KEYS.has(serviceKey) && !feeLineCodes.has(serviceKey)) {
-        structuredLog({ level: "warn", service: FUNCTION_NAME, op: "unknown_service_key", correlationId, meta: { service_key: serviceKey } });
+        if (!readOnly) structuredLog({ level: "warn", service: FUNCTION_NAME, op: "unknown_service_key", correlationId, meta: { service_key: serviceKey } });
         missing.push(serviceKey);
         pricedLines.push({
           id: line.id, rate: null, currency: "XOF", source: "unknown_service",
@@ -1239,6 +1276,33 @@ Deno.serve(async (req) => {
         : computeQuantity(serviceKey, rule, pricingCtx, evpConversions, isAirMode, isLCL);
       const lineUnit = normalizeUnit(computed.unit_used || line.unit);
 
+      function catalogueConditions() {
+        const catalogueEntry = catalogue.get(serviceKey);
+        const transportMode = isAirMode ? "AIR" : (pricingCtx.scope === "export" ? "SEA" : "SEA");
+        const scopeOk = !catalogueEntry?.mode_scope || catalogueEntry.mode_scope === transportMode;
+        // CTO R1: UNIT_RATE with base_price=0 → fallback; FIXED with 0 → accepted
+        const priceOk = catalogueEntry?.pricing_mode === "UNIT_RATE"
+          ? catalogueEntry.base_price > 0
+          : true;
+        // CTO R2: UNIT_RATE needs valid quantity
+        const qtyOk = catalogueEntry?.pricing_mode === "UNIT_RATE"
+          ? (computed.quantity_used != null && computed.quantity_used > 0)
+          : true;
+
+        // ═══ Lot 1-B : détection placeholder catalogue export ═══
+        // Une entrée catalogue FIXED à 0 XOF avec description "Tarif à confirmer"
+        // n'est pas un forfait gratuit volontaire : c'est un placeholder explicite.
+        // On la fait tomber dans la branche fallback Lot 1 (TO_CONFIRM).
+        // Conditions strictes cumulées (toute défaillance → comportement catalogue inchangé).
+        const isCatalogPlaceholder =
+          pricingCtx.scope === "export" &&
+          EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey) &&
+          catalogueEntry?.pricing_mode === "FIXED" &&
+          catalogueEntry?.base_price === 0 &&
+          isTarifAConfirmer(catalogueEntry?.description);
+        return {catalogueEntry,scopeOk,priceOk,qtyOk,isCatalogPlaceholder};
+      }
+
       // ═══ V4.1.6: Business rule — EMPTY_RETURN = 0 for import Senegal ═══
       if (serviceKey === "EMPTY_RETURN") {
         const destCountry = (pricingCtx.destination_country || "").toUpperCase();
@@ -1257,6 +1321,16 @@ Deno.serve(async (req) => {
 
       // A1: If quantity_used is null (missing weight for KG basis), skip pricing
       if (computed.quantity_used === null || computed.quantity_used === undefined) {
+        // Read-only evidence of a prerequisite, never a selected tariff. These bounded
+        // AIR services reach catalogue after the guards above, without customs/SEA priorities.
+        if (readOnly && partialDestination && isAirMode && pricingCtx.scope==='import' && ['AIR_HANDLING','TRUCKING','ON_CARRIAGE'].includes(serviceKey) &&
+            !validQuantityOverride && !isInternalFeeServiceKey(serviceKey,feeLineCodes) && rule?.quantity_basis==='KG' && lineUnit==='KG') {
+          const condition=catalogueConditions();
+          if(condition.catalogueEntry?.pricing_mode==='UNIT_RATE' && normalizeUnit(condition.catalogueEntry.unit_type||'')==='KG' &&
+             condition.scopeOk && condition.priceOk && !condition.isCatalogPlaceholder) {
+            quantityPrerequisites.push({service_key:serviceKey,rule_id:rule.id,kind:'applicable_catalogue_unit_rate_kg'});
+          }
+        }
         pricedLines.push({
           id: line.id, rate: null, currency, source: "missing_quantity",
           confidence: 0, explanation: `Cannot price ${serviceKey}: ${computed.conversion_used}`,
@@ -1503,7 +1577,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        console.log(
+        if (!readOnly) console.log(
           `[DTHC-1] not served: reason=${dthc.reason}, family=${dthc.family ?? "?"}, evp=${dthc.evpQuantity ?? "?"}, matches=${dthc.matchCount}`,
         );
         pricedLines.push({
@@ -1642,29 +1716,7 @@ Deno.serve(async (req) => {
       }
 
       // ═══ Phase PRICING V1: Catalogue resolver (priority over rate cards) ═══
-      const catalogueEntry = catalogue.get(serviceKey);
-      const transportMode = isAirMode ? "AIR" : (pricingCtx.scope === "export" ? "SEA" : "SEA");
-      const scopeOk = !catalogueEntry?.mode_scope || catalogueEntry.mode_scope === transportMode;
-      // CTO R1: UNIT_RATE with base_price=0 → fallback; FIXED with 0 → accepted
-      const priceOk = catalogueEntry?.pricing_mode === "UNIT_RATE"
-        ? catalogueEntry.base_price > 0
-        : true;
-      // CTO R2: UNIT_RATE needs valid quantity
-      const qtyOk = catalogueEntry?.pricing_mode === "UNIT_RATE"
-        ? (computed.quantity_used != null && computed.quantity_used > 0)
-        : true;
-
-      // ═══ Lot 1-B : détection placeholder catalogue export ═══
-      // Une entrée catalogue FIXED à 0 XOF avec description "Tarif à confirmer"
-      // n'est pas un forfait gratuit volontaire : c'est un placeholder explicite.
-      // On la fait tomber dans la branche fallback Lot 1 (TO_CONFIRM).
-      // Conditions strictes cumulées (toute défaillance → comportement catalogue inchangé).
-      const isCatalogPlaceholder =
-        pricingCtx.scope === "export" &&
-        EXPORT_PLACEHOLDER_SERVICE_KEYS.has(serviceKey) &&
-        catalogueEntry?.pricing_mode === "FIXED" &&
-        catalogueEntry?.base_price === 0 &&
-        isTarifAConfirmer(catalogueEntry?.description);
+      const {catalogueEntry,scopeOk,priceOk,qtyOk,isCatalogPlaceholder}=catalogueConditions();
 
       if (catalogueEntry && scopeOk && priceOk && qtyOk && !isCatalogPlaceholder && !singleSourceInternalFee) {
         // Calculate lineTotal based on pricing_mode
@@ -1787,6 +1839,47 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Explicit read-only mode: the production loop above is unchanged. Exit BEFORE
+    // audit/runtime writes and verbose price explanations; never return amounts/raw tables.
+    if (readOnly && diagnosticEligibility) {
+      const authAgain = await requireUser(req);
+      if (authAgain instanceof Response) return authAgain;
+      if (authAgain.user.id !== user.id) return respondError({code:'FORBIDDEN_OWNER',message:'Diagnostic access changed',correlationId});
+      const [caseAgain, factsAgain, scopeAgain, lookupAgain] = await Promise.all([
+        jwtClient.from('quote_cases').select('id, status, request_type').eq('id',case_id).single(),
+        jwtClient.from('quote_facts').select('id, fact_key, value_text, value_json, value_number, source_type, is_validated',{count:'exact'}).eq('case_id',case_id).eq('is_current',true),
+        readScope(), loadLookupInputs(),
+      ]);
+      if (caseAgain.error || !caseAgain.data) return respondError({code:'FORBIDDEN_OWNER',message:'Diagnostic access changed',correlationId});
+      if (!Array.isArray(factsAgain.data) || factsAgain.count !== factsAgain.data.length || factsAgain.error || scopeAgain.some(r=>r.error) || lookupAgain.some(r=>r.error || !Array.isArray(r.data) || r.count !== r.data.length)) return respondError({code:'UPSTREAM_DB_ERROR',message:'Diagnostic verification unavailable',correlationId});
+      const context = {date:diagnosticDay,case:caseData,facts,scope:initialScope,lot_count:initialLotCount};
+      const contextAgain = {date:new Date().toISOString().slice(0,10),case:caseAgain.data,facts:factsAgain.data,scope:scopeAgain[0].data,lot_count:scopeAgain[1].count};
+      // Bracket reads detect observed concurrent changes; they are NOT a SQL snapshot.
+      if (JSON.stringify(context) !== JSON.stringify(contextAgain) ||
+          JSON.stringify(lookupInputs.map(r=>r.data)) !== JSON.stringify(lookupAgain.map(r=>r.data))) {
+        return respondError({code:'CONFLICT_INVALID_STATE',message:'Diagnostic inputs changed during read',correlationId});
+      }
+      const duplicate = (rows: Array<Record<string, unknown>>, key: string, value: unknown) => rows.filter(r=>r[key]===value).length>1;
+      const ambiguous = (service: string, selected: Pick<PricedLine, 'tariff_reference'>) => {
+        if (duplicate(rulesResult.data || [],'service_key',service) || duplicate(catalogueResult.data || [],'service_code',service)) return true;
+        if (pricingCtx.client_code && ['AIR','*'].some(mode=>clientOverrides.filter(r=>r.client_code===pricingCtx.client_code&&r.service_code===service&&(r.mode_scope??'*')===mode).length>1)) return true;
+        if (selected.tariff_reference?.table === 'pricing_rate_cards') {
+          const matched = allCards.find(c=>c.id===selected.tariff_reference!.id);
+          if (!matched) return true;
+          const candidates = ['TRUCKING','ON_CARRIAGE'].includes(service) && normalizeUnit(matched.unit)==='FORFAIT'
+            ? allCards.filter(c=>partialAirDeliveryCardApplicable(c,pricingCtx,'XOF')) : allCards;
+          const scores = candidates.flatMap(c=>{const match=findBestRateCard([c],service,pricingCtx,normalizeUnit(matched.unit),'XOF',isAirMode,isLCL);return match?[match.score]:[];});
+          const best=Math.max(...scores);return scores.filter(score=>score===best).length>1;
+        }
+        return false;
+      };
+      const result = projectPartialInputRead({case_id,request_type:requestType,eligibility:diagnosticEligibility,
+        checked_at:new Date().toISOString(),context_hash:await computeCanonicalHash(context),
+        tariff_hash:await computeCanonicalHash(lookupInputs.map(r=>r.data)),facts:facts || [],
+        lines:service_lines,selected:pricedLines,rules:rulesResult.data || [],quantity_prerequisites:quantityPrerequisites,ambiguous});
+      const response=respondOk(result,correlationId);response.headers.set('Cache-Control','no-store');return response;
+    }
+
     // ═══ Normalise source for CHECK constraint ═══
     function normalizeSourceForAudit(source: string): string {
       // Lot 1: TO_CONFIRM est un signal runtime uniquement (lu par cockpit/PDF/email
@@ -1901,7 +1994,7 @@ Deno.serve(async (req) => {
         pl.explanation = 'Livraison locale AIR à confirmer : base applicable et tarif non documentés ; la règle maritime par conteneur est inapplicable. Aucun forfait ni voyage présumé.';
       }
       // Log the technical detail for debugging
-      structuredLog({ level: "debug", service: FUNCTION_NAME, op: "human_explanation", correlationId,
+      if (!readOnly) structuredLog({ level: "debug", service: FUNCTION_NAME, op: "human_explanation", correlationId,
         meta: { id: pl.id, source: pl.source, human: pl.explanation, debug: debugExplanation } });
     }
 
@@ -1925,7 +2018,7 @@ Deno.serve(async (req) => {
         .upsert(auditRows, { onConflict: "case_id,service_line_id" });
 
       if (auditError) {
-        structuredLog({ level: "warn", service: FUNCTION_NAME, op: "audit_write_failed", correlationId, meta: { error: String(auditError.message) } });
+        if (!readOnly) structuredLog({ level: "warn", service: FUNCTION_NAME, op: "audit_write_failed", correlationId, meta: { error: String(auditError.message) } });
       }
     }
 
@@ -1956,7 +2049,7 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     const durationMs = Date.now() - t0;
-    structuredLog({
+    if (!readOnly) structuredLog({
       level: "error",
       service: FUNCTION_NAME,
       op: "unhandled",

@@ -689,3 +689,155 @@ for(const mode of ['partial','standard','customs','unavailable'])Deno.test('sour
  assertEquals(result.status,mode==='unavailable'?503:409,JSON.stringify(result.body));assertEquals(result.body.blocked_by_source_revisions,true);
  assertEquals(JSON.stringify(state.tables),original);assertEquals(state.engineCalls,0);
 }));
+
+
+// Read-only mode executes the SAME production selector, at a synthetic HTTP boundary only.
+const diagnosticBody={action:'read_input_diagnostic',case_id:'fixture-case'};
+function kgDelivery(state:State){
+ Object.assign(state.tables.service_quantity_rules.find(r=>r.service_key==='TRUCKING')!,{quantity_basis:'KG',default_unit:'kg',requires_fact_key:'cargo.weight_kg'});
+ Object.assign(state.tables.pricing_service_catalogue.find(r=>r.service_code==='TRUCKING')!,{pricing_mode:'UNIT_RATE',unit_type:'KG'});
+}
+function diagnosticSelection(result:Row,key='TRUCKING'){return result.body.data.selections.find((s:Row)=>s.service_key===key);}
+function assertReadOnly(state:State,before:string){
+ assertEquals(JSON.stringify(state.tables),before,'Read-only diagnostic changed synthetic tables');
+ assert(!state.calls.some(c=>/^(POST|PATCH|DELETE) \/rest\/v1\/(?!rpc\/)/.test(c)),JSON.stringify(state.calls));
+ assertEquals(state.engineCalls,0);assert(!state.calls.some(c=>c.includes('/functions/v1/')));
+}
+Deno.test('input diagnostic: exact selected catalogue/rule, no amounts/raw rows/writes/logged context, normal price unchanged',async()=>fixture(async state=>{
+ kgDelivery(state);Object.assign(state.tables.service_quantity_rules.find(r=>r.service_key==='TRUCKING')!,{notes:'PRIVATE_RULE_NOTE',unexpected_internal_column:'NEVER_RETURN'});const before=JSON.stringify(state.tables),logs:unknown[][]=[];const previous=console.log;console.log=(...args)=>{logs.push(args);};
+ let result:Row;try{result=await state.invoke('price-service-lines',diagnosticBody);}finally{console.log=previous;}
+ assertEquals(result!.status,200,JSON.stringify(result!.body));assertEquals(logs,[]);assertReadOnly(state,before);
+ const d=diagnosticSelection(result!);assertEquals(d.source,{table:'pricing_service_catalogue',id:'TRUCKING'});assertEquals(d.quantity_rule.id,'TRUCKING');assertEquals(d.state,'selected_kg');
+ const need=result!.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(need.state,'provided');assertEquals(need.observations[0].value_number,190);
+ assert(need.source.conditions.some((s:string)=>s.includes('Règle de quantité : TRUCKING')));
+ for(const forbidden of ['base_price','priced_lines','suggested_rate','"rate":','"snapshot":','"amount":','PRIVATE_RULE_NOTE','NEVER_RETURN','unexpected_internal_column'])assert(!JSON.stringify(result!.body).includes(forbidden),forbidden);
+ const normal=await state.invoke('price-service-lines',{case_id:'fixture-case',service_lines:[{id:'TRUCKING',service:'TRUCKING',unit:'voyage',quantity:1,currency:'XOF'}],provisional_destination_quote:true});
+ const priced=normal.body.data.priced_lines[0];assertEquals(priced.tariff_reference.id,d.source.id);assertEquals(priced.rule_id,d.quantity_rule.id);assertEquals(priced.quantity_used,190);assertEquals(priced.rate,38000);
+}));
+Deno.test('input diagnostic: missing quantity is before source selection, never fabricate a retained tariff/customer question',async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!=='cargo.weight_kg');
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200,JSON.stringify(r.body));
+ const d=diagnosticSelection(r);assertEquals(d.source,null);assertEquals(d.state,'quantity_prerequisite');assertEquals(d.quantity_rule.requires_fact_key,'cargo.weight_kg');
+ const n=r.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(n.label,'Poids brut total');assertEquals(n.state,'missing');assertEquals(n.owner,'client');assertEquals(n.source,null);assertStringIncludes(n.why,'Le tarif n’a pas encore été sélectionné');assertEquals(r.body.data.report.automatic_question,false);assertReadOnly(state,before);
+}));
+Deno.test('input diagnostic: no tariff and a genuine forfait remain outside KG, no false missing client input',async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.pricing_service_catalogue=state.tables.pricing_service_catalogue.filter(r=>r.service_code!=='TRUCKING');
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200);assertEquals(diagnosticSelection(r).state,'not_evaluated');assertEquals(diagnosticSelection(r).source,null);
+ assertEquals(diagnosticSelection(r,'AGENCY').state,'not_evaluated');assertReadOnly(state,before);
+}));
+for(const table of ['service_quantity_rules','pricing_service_catalogue'])Deno.test(`input diagnostic: ambiguous ${table} does not qualify a last-wins selection`,async()=>fixture(async state=>{
+ kgDelivery(state);const row=state.tables[table].find(r=>(r.service_key??r.service_code)==='TRUCKING')!;state.tables[table].push({...row,id:'competing'});
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200,JSON.stringify(r.body));assertEquals(diagnosticSelection(r).state,'ambiguous');
+ assertEquals(r.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING').state,'contradiction');assertReadOnly(state,before);
+}));
+Deno.test('input diagnostic: tied rate-card scores remain ambiguous, unique actual winner is reused without browser rules',async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.pricing_service_catalogue=state.tables.pricing_service_catalogue.filter(r=>r.service_code!=='TRUCKING');
+ state.tables.pricing_rate_cards=['first','second'].map(id=>({id,service_key:'TRUCKING',unit:'KG',currency:'XOF',scope:'import',status:'active',value:12,confidence:1,container_type:null}));
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200,JSON.stringify(r.body));assertEquals(diagnosticSelection(r).state,'ambiguous');assertEquals(diagnosticSelection(r).source.id,'first');assertReadOnly(state,before);
+ state.tables.pricing_rate_cards.pop();const unique=await state.invoke('price-service-lines',diagnosticBody);assertEquals(diagnosticSelection(unique).state,'selected_kg');assertEquals(diagnosticSelection(unique).source.id,'first');
+}));
+for(const table of ['pricing_service_catalogue','service_quantity_rules','quote_facts','case_timeline_events'])Deno.test(`input diagnostic: observed concurrent ${table} change returns conflict without report or writes`,async()=>fixture(async state=>{
+ kgDelivery(state);const fetch=globalThis.fetch;let reads=0;
+ globalThis.fetch=(input,init)=>{const u=new URL(input instanceof Request?input.url:String(input));if(u.pathname===`/rest/v1/${table}`&&++reads===2){
+  if(table==='pricing_service_catalogue')state.tables[table].find(r=>r.service_code==='TRUCKING')!.base_price++;
+  else if(table==='service_quantity_rules')state.tables[table].find(r=>r.service_key==='TRUCKING')!.requires_fact_key='cargo.weight_net_kg';
+  else if(table==='quote_facts')state.tables[table].find(r=>r.fact_key==='cargo.weight_kg')!.value_number++;
+  else state.tables[table][0].event_data.shipment_type='export';
+ }return fetch(input,init);};
+ const r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,409,JSON.stringify(r.body));assertEquals(r.body.data,undefined);assertEquals(state.tables.quote_service_pricing,[]);assertEquals(state.tables.runtime_events,[]);
+}));
+Deno.test('input diagnostic: changed tariff between reads gets a new fingerprint and source id',async()=>fixture(async state=>{
+ kgDelivery(state);const first=await state.invoke('price-service-lines',diagnosticBody);state.tables.pricing_service_catalogue.find(r=>r.service_code==='TRUCKING')!.id='revised-source';
+ const second=await state.invoke('price-service-lines',diagnosticBody);assertEquals(first.status,200);assertEquals(second.status,200);assert(first.body.data.tariff_hash!==second.body.data.tariff_hash);assertEquals(diagnosticSelection(second).source.id,'revised-source');assertEquals(state.tables.quote_service_pricing,[]);
+}));
+for(const boundary of ['workspace','case','facts','lookup','truncated'])Deno.test(`input diagnostic: ${boundary} denial/incomplete read fails closed without rows or audit`,async()=>fixture(async state=>{
+ kgDelivery(state);const before=JSON.stringify(state.tables),fetch=globalThis.fetch;let admitted=0;
+ if(boundary==='case')state.failTable='quote_cases';if(boundary==='facts')state.failTable='quote_facts';if(boundary==='lookup')state.failTable='pricing_client_overrides';
+ globalThis.fetch=async(input,init)=>{const u=new URL(input instanceof Request?input.url:String(input));
+  if(boundary==='workspace'&&u.pathname.endsWith('/rpc/has_workspace_access')&&++admitted===2)return new Response('false',{headers:{'Content-Type':'application/json'}});
+  const res=await fetch(input,init);
+  if(boundary==='truncated'&&u.pathname==='/rest/v1/pricing_service_catalogue'){const headers=new Headers(res.headers);headers.set('Content-Range','0-3/4000');return new Response(await res.text(),{status:res.status,headers});}return res;};
+ const r=await state.invoke('price-service-lines',diagnosticBody);assert([400,403,500].includes(r.status),JSON.stringify(r.body));assertEquals(r.body.data,undefined);assertReadOnly(state,before);
+}));
+Deno.test('input diagnostic: unsupported DAP/export/multilot and extra pricing inputs are never priced',async()=>fixture(async state=>{
+ for(const extra of [{service_lines:[]},{pricing_context_override:{}},{active_modifiers:[]},{provisional_destination_quote:true}]){
+  const r=await state.invoke('price-service-lines',{...diagnosticBody,...extra});assertEquals(r.status,400);assertEquals(r.body.data,undefined);
+ }
+ for(const change of [()=>state.tables.quote_facts[0].value_text='AIR_IMPORT_DAP',()=>{state.tables.quote_facts[0].value_text='AIR_IMPORT_DDP';state.tables.case_timeline_events[0].event_data.shipment_type='export';},()=>{delete state.tables.case_timeline_events[0].event_data.shipment_type;state.tables.quote_request_lines.push({id:'1',case_id:'fixture-case'},{id:'2',case_id:'fixture-case'});}]){
+  change();const r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,400,JSON.stringify(r.body));assertEquals(r.body.data,undefined);
+ }
+ assertEquals(state.tables.quote_service_pricing,[]);assertEquals(state.tables.runtime_events,[]);
+}));
+Deno.test('input diagnostic: tied scope heads are not treated as a stable current contract',async()=>fixture(async state=>{
+ state.tables.case_timeline_events.push({...state.tables.case_timeline_events[0],id:'other-scope',event_data:{freight_scope:true,customs_scope:false}});
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,500);assertEquals(r.body.data,undefined);assertReadOnly(state,before);
+}));
+
+
+Deno.test('quantity prerequisite: missing gross then supplied gross reaches the same real catalogue without changing normal price',async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!=='cargo.weight_kg');
+ const before=JSON.stringify(state.tables),missing=await state.invoke('price-service-lines',diagnosticBody);assertEquals(missing.status,200);assertReadOnly(state,before);
+ assertEquals(diagnosticSelection(missing).source,null);assertEquals(diagnosticSelection(missing).state,'quantity_prerequisite');
+ const n=missing.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(n.state,'missing');assertEquals(n.owner,'client');assertEquals(n.source,null);
+ assertStringIncludes(n.next_step,'informations déjà reçues');assertStringIncludes(n.why,'règle TRUCKING');assertEquals(missing.body.data.report.automatic_question,false);
+ state.tables.quote_facts.push(fact('cargo.weight_kg',190));const suppliedBefore=JSON.stringify(state.tables),provided=await state.invoke('price-service-lines',diagnosticBody);assertReadOnly(state,suppliedBefore);
+ assertEquals(diagnosticSelection(provided).state,'selected_kg');assertEquals(diagnosticSelection(provided).source,{table:'pricing_service_catalogue',id:'TRUCKING'});
+ const normal=await state.invoke('price-service-lines',{case_id:'fixture-case',service_lines:[{id:'delivery',service:'TRUCKING',unit:'voyage',quantity:1,currency:'XOF'}],provisional_destination_quote:true});
+ assertEquals(normal.body.data.priced_lines[0].rate,38000);assertEquals(normal.body.data.priced_lines[0].quantity_used,190);
+}));
+for(const key of ['cargo.weight_net_kg','cargo.chargeable_weight_kg'])Deno.test(`quantity prerequisite: ${key} is explicit and not substituted by gross`,async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.service_quantity_rules.find(r=>r.service_key==='TRUCKING')!.requires_fact_key=key;state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!==key);
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200);assertReadOnly(state,before);
+ const n=r.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(n.state,'missing');assertEquals(n.owner,key==='cargo.chargeable_weight_kg'?'operator':'client');assertEquals(n.fact_ids,[]);assertEquals(n.source,null);
+ assertEquals(diagnosticSelection(r).source,null);assertEquals(diagnosticSelection(r).quantity_rule.requires_fact_key,key);
+ if(key==='cargo.chargeable_weight_kg')assertStringIncludes(n.next_step,'besoin interne');
+}));
+Deno.test('quantity prerequisite: unknown weight basis is a reference task, not a customer data request',async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.service_quantity_rules.find(r=>r.service_key==='TRUCKING')!.requires_fact_key=null;
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200);assertReadOnly(state,before);
+ const n=r.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(n.state,'unqualified');assertEquals(n.owner,'reference');assertEquals(n.source,null);assertStringIncludes(n.next_step,'aucune demande de poids');assertEquals(diagnosticSelection(r).source,null);
+}));
+for(const variant of ['missing-tariff','sea-catalogue','direction-conflict','zero-unit-rate','card-only','override-unit-rate','fixed-catalogue','fixed-override','internal-fee'])Deno.test(`quantity prerequisite: ${variant} does not invent a required client weight`,async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!=='cargo.weight_kg');const cat=state.tables.pricing_service_catalogue.find(r=>r.service_code==='TRUCKING')!;
+ if(variant==='missing-tariff'||variant==='card-only')state.tables.pricing_service_catalogue=state.tables.pricing_service_catalogue.filter(r=>r.service_code!=='TRUCKING');
+ if(variant==='direction-conflict')state.tables.quote_facts.push(fact('service.flow_type','EXPORT'));
+ if(variant==='sea-catalogue')cat.mode_scope='SEA';if(variant==='zero-unit-rate')cat.base_price=0;
+ if(variant==='card-only')state.tables.pricing_rate_cards.push({id:'kg-card',service_key:'TRUCKING',unit:'KG',currency:'XOF',scope:'import',status:'active',value:12,confidence:1,container_type:null});
+ if(variant==='fixed-catalogue')Object.assign(cat,{pricing_mode:'FIXED',unit_type:'forfait'});
+ if(variant.includes('override')){state.tables.quote_facts.push(fact('client.code','SYNTHETIC'));state.tables.pricing_client_overrides.push({id:'override',client_code:'SYNTHETIC',service_code:'TRUCKING',mode_scope:'AIR',active:true,pricing_mode:variant==='fixed-override'?'FIXED':'UNIT_RATE',base_price:123,min_price:0,currency:'XOF'});}
+ if(variant==='internal-fee')state.tables.fee_lines.push({id:'fee-trucking',code:'TRUCKING',label_fr:'Synthetic internal fee',is_active:true});
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200,JSON.stringify(r.body));assertReadOnly(state,before);
+ const d=diagnosticSelection(r),n=r.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(d.state,'not_evaluated');assert(n.state!=='missing');assertEquals(n.owner,'reference');
+ assertEquals(r.body.data.report.automatic_question,false);
+}));
+Deno.test('quantity prerequisite: explicit 2AS selection never becomes a generic catalogue-weight request',async()=>fixture(async state=>{
+ selectSyntheticAirProfile(state);state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!=='cargo.chargeable_weight_kg');
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200);assertReadOnly(state,before);
+ assertEquals(diagnosticSelection(r,'AIR_HANDLING').state,'not_evaluated');assertEquals(r.body.data.report.needs.find((n:Row)=>n.service_key==='AIR_HANDLING').owner,'reference');
+}));
+for(const variant of ['duplicate-rule','duplicate-catalogue','duplicate-fact','invalid','dimensions'])Deno.test(`quantity prerequisite: ${variant} remains an ambiguity/operator task, never an automatic client request`,async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!=='cargo.weight_kg');
+ if(variant==='duplicate-rule'){const rule=state.tables.service_quantity_rules.find(r=>r.service_key==='TRUCKING')!;state.tables.service_quantity_rules.push({...rule,id:'competing'});}
+ if(variant==='duplicate-catalogue'){const cat=state.tables.pricing_service_catalogue.find(r=>r.service_code==='TRUCKING')!;state.tables.pricing_service_catalogue.push({...cat,id:'competing'});}
+ if(variant==='duplicate-fact')state.tables.quote_facts.push(fact('cargo.weight_kg',0),{...fact('cargo.weight_kg',190),id:'second-current'});
+ if(variant==='invalid')state.tables.quote_facts.push(fact('cargo.weight_kg',-1));
+ if(variant==='dimensions'){state.tables.service_quantity_rules.find(r=>r.service_key==='TRUCKING')!.requires_fact_key='cargo.chargeable_weight_kg';state.tables.quote_facts.push(fact('cargo.chargeable_weight_kg',220,'deterministic_calc'));}
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200);assertReadOnly(state,before);
+ const n=r.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(n.state,variant==='invalid'?'invalid':'contradiction');assert(n.owner!=='client');assertEquals(n.source,null);assertEquals(diagnosticSelection(r).source,null);
+}));
+Deno.test('quantity prerequisite: a visible gross assumption is reused by the normal path, never promoted or replaced',async()=>fixture(async state=>{
+ kgDelivery(state);const weight=state.tables.quote_facts.find(f=>f.fact_key==='cargo.weight_kg')!;Object.assign(weight,{value_number:104,source_type:'scenario_assumption',is_validated:false});
+ const before=JSON.stringify(state.tables),r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,200);assertReadOnly(state,before);
+ const n=r.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING');assertEquals(n.state,'assumption');assertEquals(n.owner,'operator');assertEquals(n.observations[0].is_validated,false);assertEquals(n.observations[0].value_number,104);assertEquals(diagnosticSelection(r).state,'selected_kg');
+}));
+Deno.test('quantity prerequisite: a concurrent catalogue change to forfait refuses stale need, then fresh read has no missing client weight',async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!=='cargo.weight_kg');const original=globalThis.fetch;let reads=0;
+ globalThis.fetch=(input,init)=>{const u=new URL(input instanceof Request?input.url:String(input));if(u.pathname==='/rest/v1/pricing_service_catalogue'&&++reads===2)state.tables.pricing_service_catalogue.find(r=>r.service_code==='TRUCKING')!.pricing_mode='FIXED';return original(input,init);};
+ const conflict=await state.invoke('price-service-lines',diagnosticBody);assertEquals(conflict.status,409);assertEquals(conflict.body.data,undefined);
+ const before=JSON.stringify(state.tables),fresh=await state.invoke('price-service-lines',diagnosticBody);assertEquals(fresh.status,200);assertReadOnly(state,before);assertEquals(diagnosticSelection(fresh).state,'not_evaluated');assert(fresh.body.data.report.needs.find((n:Row)=>n.service_key==='TRUCKING').state!=='missing');
+}));
+Deno.test('quantity prerequisite: revocation after collection prevents returning the missing-weight diagnosis',async()=>fixture(async state=>{
+ kgDelivery(state);state.tables.quote_facts=state.tables.quote_facts.filter(f=>f.fact_key!=='cargo.weight_kg');const before=JSON.stringify(state.tables),original=globalThis.fetch;let access=0;
+ globalThis.fetch=(input,init)=>{const u=new URL(input instanceof Request?input.url:String(input));if(u.pathname.endsWith('/rpc/has_workspace_access')&&++access===2)return Promise.resolve(new Response('false',{headers:{'Content-Type':'application/json'}}));return original(input,init);};
+ const r=await state.invoke('price-service-lines',diagnosticBody);assertEquals(r.status,403);assertEquals(r.body.data,undefined);assertReadOnly(state,before);
+}));
