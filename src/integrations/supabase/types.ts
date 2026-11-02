@@ -14,6 +14,118 @@ export type Database = {
   }
   public: {
     Tables: {
+      air_cross_trade_plans: {
+        Row: {
+          case_id: string
+          context_hash: string
+          created_at: string
+          created_by: string
+          id: string
+          parent_id: string | null
+          plan: Json
+          request: Json
+          request_context_hash: string
+          revision: number
+          source_snapshot: Json
+        }
+        Insert: {
+          case_id: string
+          context_hash: string
+          created_at?: string
+          created_by: string
+          id: string
+          parent_id?: string | null
+          plan: Json
+          request: Json
+          request_context_hash: string
+          revision: number
+          source_snapshot: Json
+        }
+        Update: {
+          case_id?: string
+          context_hash?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          parent_id?: string | null
+          plan?: Json
+          request?: Json
+          request_context_hash?: string
+          revision?: number
+          source_snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_cross_trade_plans_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_cross_trade_plans_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "air_cross_trade_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      air_cross_trade_pricing_receipts: {
+        Row: {
+          case_id: string
+          context_hash: string
+          created_at: string
+          created_by: string
+          id: string
+          plan_id: string
+          pricing_run_id: string
+          source_snapshot: Json
+        }
+        Insert: {
+          case_id: string
+          context_hash: string
+          created_at?: string
+          created_by: string
+          id: string
+          plan_id: string
+          pricing_run_id: string
+          source_snapshot: Json
+        }
+        Update: {
+          case_id?: string
+          context_hash?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          plan_id?: string
+          pricing_run_id?: string
+          source_snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "air_cross_trade_pricing_receipts_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "quote_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_cross_trade_pricing_receipts_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "air_cross_trade_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "air_cross_trade_pricing_receipts_pricing_run_id_fkey"
+            columns: ["pricing_run_id"]
+            isOneToOne: true
+            referencedRelation: "pricing_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       air_handling_profiles: {
         Row: {
           airport: string
@@ -8770,6 +8882,32 @@ export type Database = {
       }
     }
     Functions: {
+      _air_cross_trade_actor: {
+        Args: { p_actor: string; p_case: string; p_write: boolean }
+        Returns: undefined
+      }
+      _air_cross_trade_assert_legacy_scenario: {
+        Args: { p_case: string }
+        Returns: undefined
+      }
+      _air_cross_trade_bound: {
+        Args: { p_end: boolean; p_text: string }
+        Returns: string
+      }
+      _air_cross_trade_context: { Args: { p_case: string }; Returns: Json }
+      _air_cross_trade_lock: {
+        Args: { p_actor: string; p_case: string; p_request: Json }
+        Returns: undefined
+      }
+      _air_cross_trade_lock_sources: {
+        Args: { p_case: string; p_request: Json }
+        Returns: undefined
+      }
+      _air_cross_trade_requirements: { Args: { p_case: string }; Returns: Json }
+      _air_cross_trade_sources: {
+        Args: { p_case: string; p_request: Json }
+        Returns: Json
+      }
       adopt_operator_quotation_basis: {
         Args: {
           p_actor_user_id: string
@@ -8778,6 +8916,48 @@ export type Database = {
           p_idempotency_key: string
           p_scenario_id: string
           p_scenario_pricing_run_id: string
+        }
+        Returns: Json
+      }
+      air_cross_trade_commit_pricing: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_context: string
+          p_id: string
+          p_plan: string
+          p_pricing: Json
+          p_sources: string
+        }
+        Returns: Json
+      }
+      air_cross_trade_operation: {
+        Args: { p_actor: string; p_case: string; p_id: string }
+        Returns: Json
+      }
+      air_cross_trade_read: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_query?: string
+          p_request?: Json
+        }
+        Returns: Json
+      }
+      air_cross_trade_requirements_read: {
+        Args: { p_actor: string; p_case: string }
+        Returns: Json
+      }
+      air_cross_trade_store_plan: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_context: string
+          p_id: string
+          p_parent: string
+          p_plan: Json
+          p_request: Json
+          p_sources: string
         }
         Returns: Json
       }
@@ -8944,6 +9124,16 @@ export type Database = {
         Args: { p_attachment_id: string; p_claim_ts: string }
         Returns: string
       }
+      client_gap_current_guard_v1: {
+        Args: { p_case: string; p_data: Json }
+        Returns: boolean
+      }
+      client_gap_lock_v1: { Args: { p_case: string }; Returns: undefined }
+      client_gap_scope_matches_v1: {
+        Args: { p_case: string; p_data: Json }
+        Returns: boolean
+      }
+      client_gap_snapshot_v1: { Args: { p_case: string }; Returns: Json }
       commercial_actor_guard: {
         Args: { p_actor: string; p_case: string }
         Returns: undefined
@@ -9600,9 +9790,9 @@ export type Database = {
         | "SEA_LCL_IMPORT"
         | "SEA_BREAKBULK_IMPORT"
         | "AIR_IMPORT"
-        | "AIR_CROSS_TRADE"
         | "ROAD_IMPORT"
         | "MULTIMODAL_IMPORT"
+        | "AIR_CROSS_TRADE"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -9756,9 +9946,9 @@ export const Constants = {
         "SEA_LCL_IMPORT",
         "SEA_BREAKBULK_IMPORT",
         "AIR_IMPORT",
-        "AIR_CROSS_TRADE",
         "ROAD_IMPORT",
         "MULTIMODAL_IMPORT",
+        "AIR_CROSS_TRADE",
       ],
     },
   },
