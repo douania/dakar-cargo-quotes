@@ -98,6 +98,7 @@ import { DecisionSupportPanel } from "@/components/puzzle/DecisionSupportPanel";
 import { ExternalRequestsPanel } from "@/components/puzzle/ExternalRequestsPanel";
 import { PricingCommWarnings } from "@/components/puzzle/PricingCommWarnings";
 import { PricingReadinessCard } from "@/components/puzzle/PricingReadinessCard";
+import { CurrentPricingInputDiagnostics } from "@/components/puzzle/CurrentPricingInputDiagnostics";
 import { PartnerCollectionReadinessCard } from "@/components/puzzle/PartnerCollectionReadinessCard";
 import { PartnerRequestsSummary } from "@/components/puzzle/PartnerRequestsSummary";
 import { PartnerRequestsDetailView } from "@/components/puzzle/PartnerRequestsDetailView";
@@ -395,7 +396,7 @@ export default function CaseView() {
   });
 
   // ── Fetch quote_facts (current only) ──
-  const { data: facts = [], refetch: refetchFacts, isFetching: factsFetching, error: factsError } = useQuery({
+  const { data: facts = [], refetch: refetchFacts, isFetching: factsFetching, error: factsError, dataUpdatedAt: factsUpdatedAt = 0 } = useQuery({
     queryKey: ["case-facts", caseId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -412,7 +413,7 @@ export default function CaseView() {
   });
 
   // ── Fetch timeline events ──
-  const { data: events = [], refetch: refetchEvents, isFetching: eventsFetching, error: eventsError } = useQuery({
+  const { data: events = [], refetch: refetchEvents, isFetching: eventsFetching, error: eventsError, dataUpdatedAt: eventsUpdatedAt = 0 } = useQuery({
     queryKey: ["case-timeline", caseId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -510,7 +511,7 @@ export default function CaseView() {
   });
 
   // P1a — Multi-lot line count (lightweight count query)
-  const { data: multiLotLineCount, isFetching: lotCountFetching, error: lotCountError } = useQuery({
+  const { data: multiLotLineCount, isFetching: lotCountFetching, error: lotCountError, dataUpdatedAt: lotCountUpdatedAt = 0 } = useQuery({
     queryKey: ["quote-request-lines-count", caseId],
     queryFn: async () => {
       const { count, error } = await supabase
@@ -1649,6 +1650,12 @@ export default function CaseView() {
               onAction={focusPilotageAction} onOpen={openGuidedSection} />
           </TabsContent>
           <TabsContent value="devis" forceMount hidden={activeTab !== "devis"} aria-labelledby={guided ? "guided-nav-devis" : undefined} className="mt-4 print:block">
+        {caseId && <CurrentPricingInputDiagnostics caseId={caseId} requestType={String(caseData.request_type??'')}
+          packageKey={String(facts.find(f=>f.is_current&&f.fact_key==='service.package')?.value_text??'').trim().toUpperCase()}
+          serviceKeys={resolveEffectiveServiceKeys(String(facts.find(f=>f.is_current&&f.fact_key==='service.package')?.value_text??'').trim().toUpperCase(),readOverridesFromFacts(facts.filter(f=>f.is_current)))}
+          revisionKey={[factsUpdatedAt,eventsUpdatedAt,lotCountUpdatedAt,caseData.status].join(':')}
+          scopeEvent={[...events].filter(e=>e.event_type==='service_scope_v1').sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0]?.event_data}
+          active={activeTab==='devis'} upstream={factsError||eventsError||lotCountError?'error':factsFetching||eventsFetching||lotCountFetching||multiLotLineCount==null?'loading':'ready'}/>}
         {(hasAirPreparation || hasCommercialPreparation) && <section id="section-quote-preparation" tabIndex={-1} aria-labelledby="quote-preparation-heading" className="mb-6 space-y-3">
           <h2 id="quote-preparation-heading" className="text-lg font-semibold">Préparation des montants</h2>
           <p className="text-sm text-muted-foreground">Relisez les bases et les montants client. Les anciens calculs, versions et PDF restent conservés.</p>
