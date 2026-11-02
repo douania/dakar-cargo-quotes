@@ -1,3 +1,4 @@
+import { zoneComplexityFactor } from "../_shared/delivery-zone-resolution.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { CUSTOMS_CODE_REFERENCE, getLegalContextForRegime, analyzeRegimeAppropriateness } from "../_shared/customs-code-reference.ts";
@@ -52,7 +53,7 @@ interface SuggestedFee {
 interface SodatraFeeSuggestion {
   fees: SuggestedFee[];
   total_suggested: number;
-  complexity_factor: number;
+  complexity_factor?: number;
   complexity_reasons: string[];
   transport_mode: string;
   can_calculate_commission: boolean;
@@ -2683,6 +2684,7 @@ Réponds en JSON:
     if (quotationEngineResult?.success) {
       // Build sodatraFeesSuggestion from quotation-engine output
       const honorairesLines = quotationEngineResult.lines?.filter((l: any) => l.bloc === 'honoraires') || [];
+      const zoneFactor = zoneComplexityFactor(quotationEngineResult.metadata);
       sodatraFeesSuggestion = {
         fees: honorairesLines.map((l: any) => ({
           key: l.id,
@@ -2696,8 +2698,9 @@ Réponds en JSON:
           factors_applied: l.notes ? [l.notes] : ['Standard'],
         })),
         total_suggested: quotationEngineResult.totals?.honoraires || 0,
-        complexity_factor: quotationEngineResult.metadata?.zone?.multiplier || 1.0,
-        complexity_reasons: quotationEngineResult.warnings || [],
+        complexity_factor: zoneFactor,
+        complexity_reasons: [...(quotationEngineResult.warnings || []),
+          ...(zoneFactor === undefined ? ["Zone de livraison à confirmer : facteur de complexité indéterminé."] : [])],
         transport_mode: aiExtracted.transport_mode,
         can_calculate_commission: true,
         commission_note: undefined,

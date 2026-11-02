@@ -31,6 +31,9 @@ export function SodatraFeesEditor({ suggestion, onFeesConfirmed, isCompact = fal
   const [editedFees, setEditedFees] = useState<Record<string, number>>({});
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [tempValue, setTempValue] = useState<string>('');
+  const factor = suggestion.complexity_factor;
+  const factorKnown = typeof factor === 'number' && Number.isFinite(factor) && factor > 0;
+  const complexityLabel = factorKnown ? `×${factor.toFixed(2)} complexité` : 'Facteur de zone à confirmer';
 
   // Initialize edited fees from suggestion
   useEffect(() => {
@@ -111,6 +114,7 @@ export function SodatraFeesEditor({ suggestion, onFeesConfirmed, isCompact = fal
             {totalEdited.toLocaleString('fr-FR')} FCFA
           </span>
         </div>
+        {!factorKnown && <Badge variant="outline" className="text-xs">{complexityLabel}</Badge>}
         {suggestion.complexity_reasons.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {suggestion.complexity_reasons.slice(0, 2).map((reason, idx) => (
@@ -138,7 +142,7 @@ export function SodatraFeesEditor({ suggestion, onFeesConfirmed, isCompact = fal
             Honoraires SODATRA (suggérés)
           </CardTitle>
           <Badge variant="outline" className="text-xs">
-            ×{suggestion.complexity_factor.toFixed(2)} complexité
+            {complexityLabel}
           </Badge>
         </div>
         

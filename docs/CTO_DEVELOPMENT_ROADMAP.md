@@ -4180,3 +4180,18 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Serveur127.0.0.1:50178/PID10584 fermé, processus absent/0listener vérifiés ; onglet fermé, viewport restauré, aucun conteneur/maintien éveillé. Pas de donnée réelle, d’IA ou de crédit Lovable ajouté ; sélecteur éprouvé séparément en Deno, pas de preuve connectée par le banc.
 - Cinq fichiers code/tests modifiés : price-service-lines, partial-pricing-input-read, pricing-input-diagnostic, partial_destination_recipe_test et CurrentPricingInputDiagnostics.test, plus cette note. Copie/empreintes/CI/parité/banc : C:/Users/DELL/Documents/Codex/2026-10-22/task-2/pricing-ddp-prerequisites-local-20261102/.
 - Statut local borné : diagnostic du préalable utile, pas tarif homologué, brouillon client, devis ni V1 acceptée. Publication/activation/recette réelle restent non exécutées ; vérifier un vrai dossier éligible et son catalogue effectif avant une mise en service ciblée sous GO distinct. Aucun effet sur Railway, R02 ou Bissau-Bruxelles.
+
+### 2 novembre 2026 — DELIVERY-ZONE-METADATA-1, correction locale autorisée
+- GO Ramzi du 02/11 à 17:29 UTC : exception FROZEN ciblée quotation-engine et consommateurs ; préparation/tests locaux uniquement.
+- Base work/b0a201a inchangée ; résolution exacte code/nom/exemples normalisés, inconnus/ambiguïtés sans zone/facteur arbitraire.
+- Catalogue DB ou fallback statique existant explicitement tracé ; résolveur tarifaire, barèmes et formules inchangés.
+- Consommateur legacy et écrans : facteur indéterminé explicite, pas de reprise silencieuse d’un ancien facteur ; nombres historiques préservés.
+- Neuf fixtures du vrai handler HTTP avant/après : lignes, réserves, devises, sources, totaux, suggestions et I/O identiques ; métadonnée/alertes seules changées.
+- CI finale npm run ci exit 0 : 1574 Vitest, 3023 Deno, 0 échec/6 ignorés ; types/config/bundles/build PASS, dettes types/lint sans aggravation.
+- 45 tests ciblés résolveur/handler et 11 UI ; navigateur synthétique clavier/375 px/historique PASS ; audit UI 116 constats préexistants identiques.
+- Aucun dossier réel, calcul Cloud, version/PDF, IA, envoi, migration, commit/push ou déploiement ; aucune version historique réécrite.
+- Limites : matcher historique statique distinct conservé ; couverture armateur/assurance/IT-Orbus/tracking/escorte à qualifier, aucun tarif ajouté ; backlog dédié.
+- Contre-revue indépendante PASS_WITH_BASELINE : 143 Deno + 11 UI contre-exécutés, 12 empreintes et 9 comparaisons vérifiées ; aucun BLOQUANT, aucune correction requise.
+- Publication sous GO distinct : guards frontend chargés par les clients actifs, puis generate-response avant quotation-engine ; conserver les guards UI en rollback.
+- Preuves, patch et préconditions : task/zone-local/{verification,counter-review,publication-preconditions}.json ; aucune activation ni recette réelle implicite.
+- GO Ramzi du 02/11 à 17:56 UTC : commit/push/CI/synchronisation autorisés ; activation generate-response puis quotation-engine seulement après preuve des clients actifs corrigés, sinon STOP avant activation ; aucune recette réelle.

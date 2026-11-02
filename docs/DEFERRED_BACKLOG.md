@@ -8,6 +8,17 @@ Source de vérité unique de tous les sujets volontairement reportés, laissés 
 
 > **Sujets ouverts restants** : `MAPPING-TAX-CHAIN-0` reste **OUVERT** pour arbitrage CTO (voir note d'audit V2 conservée plus bas dans ce header). `EMAIL-INGEST-SECURITY-1` reste **OUVERT** — contient deux items de gravité élevée (S0, S1) volontairement différés par décision CTO du 2026-09-11. `TRANSPORT-SPECIAL-CASE-1` reste **OUVERT** — le barème de livraison sature au tarif 40 pieds et ne sait pas exprimer un convoi exceptionnel.
 
+### DELIVERY-ZONE-METADATA-1 — CORRIGÉ LOCAL / RUNTIME OUVERT — 2 novembre 2026
+
+- GO spécifique du 02/11 à 17:29 UTC : exception FROZEN limitée à la métadonnée de zone et ses consommateurs ; aucun changement de tarif/formule ou de donnée métier réelle.
+- Code/nom/exemples exacts normalisés ; inconnus et ambiguïtés explicites, pas de Thiès/première ligne/facteur 1.0 arbitraire ; provenance DB/fallback statique visible. Contrats legacy et UI adaptés, anciens nombres conservés.
+- Neuf fixtures avant/après du vrai handler : données monétaires et réserves/I-O identiques. CI finale 1574 Vitest, 3023 Deno/6 ignorés ; 45 ciblés et 11 UI PASS ; navigateur synthétique mobile/clavier/historique PASS, 116 constats UI préexistants inchangés.
+- Contre-revue indépendante PASS_WITH_BASELINE : 143 Deno + 11 UI contre-exécutés, 12 empreintes et 9 comparaisons conformes ; aucun BLOQUANT et aucune correction requise.
+- Runtime non activé ; GO de publication du 02/11 à 17:56 UTC reçu, activation conditionnée à la preuve des clients actifs corrigés. Guards frontend et actualisation des clients avant generate-response puis quotation-engine ; conserver les guards UI en rollback pour les résultats déjà enregistrés. Aucun recalcul de dossier ni réécriture de version/PDF ; inverse du seul delta local avec contrôle des empreintes.
+- Limite distincte conservée : identifyZone du matcher historique utilise encore sa logique ancienne ; il ne résout pas cette métadonnée et n’a pas été modifié afin de préserver ce flux. Ne pas conclure à une correction globale de tous les rapprochements géographiques.
+- Couverture à qualifier dans le calcul observé : frais armateur, assurance, IT/Orbus, tracking note et escorte sans ligne distincte/inclusion démontrée ; storage/demurrage/retour à vide réservés. Cela ne prouve pas l’absence globale de toute capacité DCQ. Sources, applicabilité, unités, devises, TVA et absence de doubles comptes à établir avant extension ; aucun prix comparatif injecté, aucun tarif inventé.
+- Preuves privées : task/zone-local/verification.json et patch ; détail des postes dans task/scenario-validation-local/coverage-gaps-and-contracts.json.
+
 ### KNOWLEDGE-AI-APPROVAL-1 — CORRIGÉ LOCAL / RUNTIME OUVERT — 26 octobre 2026
 
 - R02/P05 a montré poids total/cartons/portée dimensions inférés, puis learned_knowledge validée par confiance seule. Roadmap §2.54 : import-thread local protège l'approbation et les connaissances/résumés existants ; données conservées comme candidates, preuve littérale liée à la source ou inferred/unknown, concurrence et provenance testées.

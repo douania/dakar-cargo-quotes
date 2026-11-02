@@ -97,6 +97,8 @@ export function QuotationCostBreakdown({
   currency = 'FCFA',
   isCompact = false,
 }: QuotationCostBreakdownProps) {
+  const zoneFactorUnknown = !!sodatraFees && (typeof sodatraFees.complexity_factor !== 'number' ||
+    !Number.isFinite(sodatraFees.complexity_factor) || sodatraFees.complexity_factor <= 0);
   const [expandedBlocs, setExpandedBlocs] = useState<Record<string, boolean>>({
     operationnel: true,
     honoraires: true,
@@ -137,6 +139,7 @@ export function QuotationCostBreakdown({
             </Badge>
           </div>
           
+          {zoneFactorUnknown && <Badge variant="outline" className="text-xs">Facteur de zone à confirmer</Badge>}
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="flex justify-between items-center p-2 rounded bg-blue-500/10">
               <span className="text-muted-foreground">Opérationnel</span>
@@ -257,7 +260,10 @@ export function QuotationCostBreakdown({
                 <CardTitle className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
                   <Building2 className="h-4 w-4" />
                   BLOC 2 - HONORAIRES SODATRA
-                  {costStructure?.bloc_honoraires.complexity_factor && 
+                  {zoneFactorUnknown && (
+                    <Badge variant="outline" className="text-xs ml-2">Facteur de zone à confirmer</Badge>
+                  )}
+                  {!zoneFactorUnknown && costStructure?.bloc_honoraires.complexity_factor &&
                    costStructure.bloc_honoraires.complexity_factor > 1 && (
                     <Badge variant="outline" className="text-xs ml-2">
                       ×{costStructure.bloc_honoraires.complexity_factor.toFixed(2)}
@@ -566,7 +572,7 @@ export function QuotationCostBreakdown({
             💡 Cotation {offerType === 'full_quotation' ? 'complète' : 
                         offerType === 'indicative_dap' ? 'DAP indicative' :
                         offerType === 'rate_only' ? 'tarifs seuls' : 'informative'}
-            {costStructure?.bloc_honoraires.complexity_factor && 
+            {!zoneFactorUnknown && costStructure?.bloc_honoraires.complexity_factor &&
              costStructure.bloc_honoraires.complexity_factor > 1 && 
               ` • Facteur complexité: ×${costStructure.bloc_honoraires.complexity_factor.toFixed(2)}`}
           </p>

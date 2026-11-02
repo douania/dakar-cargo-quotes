@@ -1,3 +1,4 @@
+import { deliveryZoneMetadata, deliveryZoneWarnings, type ZoneCatalogSource } from "../_shared/delivery-zone-resolution.ts";
 import { loadCustomsBasis, assertCustomsRequest, type CustomsBasisSnapshot } from '../_shared/customs-basis.ts';
 import { partialDestinationDdpEligible } from "../_shared/partial-destination-quote.ts";
 import { readOverridesFromFacts, resolveEffectiveServiceKeys } from "../_shared/service-scope.ts";
@@ -127,7 +128,7 @@ async function loadIncotermsFromDB(supabase: any): Promise<Record<string, Incote
 }
 
 /** Load delivery zones from DB, fallback to hardcoded DELIVERY_ZONES */
-async function loadDeliveryZonesFromDB(supabase: any): Promise<Record<string, ZoneConfig>> {
+async function loadDeliveryZonesFromDB(supabase: any): Promise<{ zones: Record<string, ZoneConfig>; source: ZoneCatalogSource }> {
   try {
     const { data, error } = await supabase
       .from('delivery_zones')
@@ -136,7 +137,7 @@ async function loadDeliveryZonesFromDB(supabase: any): Promise<Record<string, Zo
     
     if (error || !data || data.length === 0) {
       console.log('[M1.3] delivery_zones query failed or empty, using hardcoded fallback');
-      return DELIVERY_ZONES;
+      return { zones: DELIVERY_ZONES, source: "static_fallback" };
     }
     
     const zones: Record<string, ZoneConfig> = {};
@@ -153,29 +154,11 @@ async function loadDeliveryZonesFromDB(supabase: any): Promise<Record<string, Zo
     }
     
     console.log(`[M1.3] Loaded ${Object.keys(zones).length} delivery zones from DB`);
-    return zones;
+    return { zones, source: "delivery_zones" };
   } catch (e) {
     console.error('[M1.3] Error loading delivery zones from DB:', e);
-    return DELIVERY_ZONES;
+    return { zones: DELIVERY_ZONES, source: "static_fallback" };
   }
-}
-
-/** Identify zone using DB-loaded zones, with same matching logic as hardcoded version */
-function identifyZoneFromDB(destination: string, zones: Record<string, ZoneConfig>): ZoneConfig {
-  const destinationLower = destination.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  
-  for (const [_code, zone] of Object.entries(zones)) {
-    if (destinationLower.includes(zone.name.toLowerCase())) {
-      return zone;
-    }
-    for (const example of zone.examples) {
-      if (destinationLower.includes(example.toLowerCase())) {
-        return zone;
-      }
-    }
-  }
-  
-  return zones['THIES_REGION'] || Object.values(zones)[0];
 }
 
 /** Fetch operational costs for exceptional transport (M1.3.4) */
@@ -1419,7 +1402,7 @@ export async function generateQuotationLines(
   // =====================================================
   // 0. LOAD DB-BACKED RULES (M1.3)
   // =====================================================
-  const [dbZones, tariffCategoryRules] = await Promise.all([
+  const [, tariffCategoryRules] = await Promise.all([
     loadDeliveryZonesFromDB(supabase),
     loadTariffCategoryRules(supabase),
   ]);
@@ -1431,7 +1414,6 @@ export async function generateQuotationLines(
   const transitCountry = detectTransitCountry(request.finalDestination);
   const isTransit = request.isTransit || transitCountry !== null;
   const effectiveOperationType = isTransit ? 'TRANSIT' : 'IMPORT';
-  const zone = identifyZoneFromDB(request.finalDestination, dbZones);
   
   console.log(`Quotation context: isTransit=${isTransit}, transitCountry=${transitCountry}, operationType=${effectiveOperationType}`);
   
@@ -2918,8 +2900,9 @@ export async function handleRequest(req: Request): Promise<Response> {
         const dbIncotermsMeta = await loadIncotermsFromDB(supabase);
         const dbZonesMeta = await loadDeliveryZonesFromDB(supabase);
         const incotermRule = dbIncotermsMeta[normalizedIncoterm];
-        const zone = identifyZoneFromDB(request.finalDestination, dbZonesMeta);
         const transitCountry = detectTransitCountry(request.finalDestination);
+        const zoneMetadata = deliveryZoneMetadata(request.finalDestination, dbZonesMeta.zones, dbZonesMeta.source, transitCountry);
+        warnings.push(...deliveryZoneWarnings(zoneMetadata.zone_resolution.status));
         const exceptional = request.dimensions ? checkExceptionalTransport(request.dimensions) : { isExceptional: false, reasons: [] };
         // P0 CAF strict: recalcul freightFCFA pour metadata (resolution DB centralisee)
         let freightFCFA: number | undefined = undefined;
@@ -2965,13 +2948,7 @@ export async function handleRequest(req: Request): Promise<Response> {
               description: incotermRule?.description || '',
               sellerPays: incotermRule?.sellerPays || {}
             },
-            zone: {
-              code: zone.code,
-              name: zone.name,
-              multiplier: zone.multiplier,
-              distanceKm: zone.distanceKm,
-              country: transitCountry || undefined
-            },
+            ...zoneMetadata,
             exceptional,
             ...(servicesOnly ? { estimate_mode: 'DAP_SERVICES_ONLY', totals_scope: 'PRICED_SERVICES_ONLY', duties_excluded: true } : {}),
             caf: caf ? {

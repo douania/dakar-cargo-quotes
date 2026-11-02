@@ -34,7 +34,7 @@ export interface SuggestedFee {
 export interface SodatraFeeSuggestion {
   fees: SuggestedFee[];
   total_suggested: number;
-  complexity_factor: number;
+  complexity_factor?: number;
   complexity_reasons: string[];
   transport_mode: string;
   can_calculate_commission: boolean;
