@@ -1,3 +1,4 @@
+import { selectGenerationFees } from '@/lib/generationZoneContract';
 import { useState, useEffect, useMemo, forwardRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -116,7 +117,8 @@ export const QuotationProcessorWithPuzzle = forwardRef<HTMLDivElement, Props>(({
     };
   }, [result, puzzle]);
 
-  const sodatraFees = useSodatraFees(sodatraFeeParams);
+  const localOrHistoricalFees = useSodatraFees(sodatraFeeParams);
+  const sodatraFees = selectGenerationFees(result?.serverPricing, localOrHistoricalFees);
 
   // Build cost structure from available data
   const costStructure = useMemo<CostStructure>(() => {

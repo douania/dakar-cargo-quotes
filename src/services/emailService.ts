@@ -1,3 +1,4 @@
+import { OPTIONAL_ZONE_REPLY_CONTRACT, generationErrorMessage, readServerGenerationPricing, type ServerGenerationPricing } from '@/lib/generationZoneContract';
 import { supabase } from '@/integrations/supabase/client';
 import type { EmailConfig, Email, EmailDraft } from '@/types';
 
@@ -103,21 +104,17 @@ export async function generateEmailResponse(
   expertStyle: ExpertStyle = 'auto',
   replyLanguageOverride: ReplyLanguageOverride = 'AUTO'
 ) {
-  // Phase 14: Correlation header
-  const correlationId = crypto.randomUUID();
+  return await invokeGeneratedResponse({ emailId, customInstructions, expertStyle, reply_language_override: replyLanguageOverride }, { 'x-correlation-id': crypto.randomUUID() });
+}
 
+// One request only: compatibility refusals must not automatically repeat generation.
+async function invokeGeneratedResponse(body: Record<string, unknown>, headers?: Record<string, string>) {
   const { data, error } = await supabase.functions.invoke('generate-response', {
-    body: { emailId, customInstructions, expertStyle, reply_language_override: replyLanguageOverride },
-    headers: { 'x-correlation-id': correlationId }
+    body: { ...body, zone_reply_contract: OPTIONAL_ZONE_REPLY_CONTRACT }, headers,
   });
-  
-  if (error) throw error;
-  
-  // Phase 14: Handle new response format
-  if (data?.ok === false) {
-    throw new Error(data.error?.message || 'Generation failed');
-  }
-  
+  if (error) throw new Error(await generationErrorMessage(error));
+  if (data?.ok === false) throw new Error(data.error?.message || 'Erreur de génération');
+  if (typeof data?.error === 'string') throw new Error(data.error);
   return data?.data || data;
 }
 
@@ -353,6 +350,7 @@ export interface QuotationProcessResult {
   // C1 Convergence: case/puzzle pipeline fields
   caseId?: string;
   pipelineUsed?: 'case-puzzle' | 'generate-response-fallback';
+  serverPricing?: ServerGenerationPricing;
   puzzleStatus?: 'ready' | 'processing' | 'failed';
   warning?: string;
 }
@@ -507,12 +505,8 @@ export async function processQuotationRequest(
 
 /** Legacy generate-response path (preserved for fallback / feature flag OFF) */
 async function _legacyGenerateResponse(emailId: string, email: any): Promise<QuotationProcessResult> {
-  const { data: responseData, error: responseError } = await supabase.functions.invoke('generate-response', {
-    body: { emailId },
-  });
-  
-  if (responseError) throw responseError;
-  if (responseData.error) throw new Error(responseData.error);
+  const responseData = await invokeGeneratedResponse({ emailId });
+  const serverPricing = readServerGenerationPricing(responseData);
   
   const draft = responseData.draft || {};
   
@@ -548,5 +542,6 @@ async function _legacyGenerateResponse(emailId: string, email: any): Promise<Quo
     transportMode: responseData.transport_mode,
     transportModeEvidence: responseData.transport_mode_evidence,
     pipelineUsed: 'generate-response-fallback',
+    serverPricing,
   };
 }

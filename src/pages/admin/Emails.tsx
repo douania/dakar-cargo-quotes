@@ -21,7 +21,7 @@ import { EmailSearchImport } from '@/components/EmailSearchImport';
 import { EmailAttachments } from '@/components/EmailAttachments';
 import { LearnedKnowledge } from '@/components/LearnedKnowledge';
 import { ResponseGuidanceDialog, type ExpertStyle } from '@/components/ResponseGuidanceDialog';
-import type { ReplyLanguageOverride } from '@/services/emailService';
+import { generateEmailResponse, type ReplyLanguageOverride } from '@/services/emailService';
 import { ThreadParticipants, ThreadParticipantsSummary, type ParticipantWithRole } from '@/components/ThreadParticipants';
 import { CreateTenderFromEmailButton } from '@/components/tenders/CreateTenderFromEmailButton';
 import { ComplexityBadge } from '@/components/ComplexityBadge';
@@ -406,17 +406,13 @@ export default function Emails() {
 
   const generateResponse = async (emailId: string, customInstructions?: string, expertStyle: ExpertStyle = 'auto') => {
     try {
-      const { data, error } = await supabase.functions.invoke('generate-response', {
-        body: { emailId, customInstructions, expertStyle, reply_language_override: replyLanguage }
-      });
-
-      if (error) throw error;
+      await generateEmailResponse(emailId, customInstructions, expertStyle, replyLanguage);
 
       toast.success('Brouillon généré');
       loadData();
     } catch (error) {
       console.error('Generate error:', error);
-      toast.error('Erreur de génération');
+      toast.error(error instanceof Error ? error.message : 'Erreur de génération');
     }
   };
 

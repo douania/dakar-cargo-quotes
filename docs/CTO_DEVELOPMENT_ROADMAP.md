@@ -4195,3 +4195,18 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Publication sous GO distinct : guards frontend chargés par les clients actifs, puis generate-response avant quotation-engine ; conserver les guards UI en rollback.
 - Preuves, patch et préconditions : task/zone-local/{verification,counter-review,publication-preconditions}.json ; aucune activation ni recette réelle implicite.
 - GO Ramzi du 02/11 à 17:56 UTC : commit/push/CI/synchronisation autorisés ; activation generate-response puis quotation-engine seulement après preuve des clients actifs corrigés, sinon STOP avant activation ; aucune recette réelle.
+
+
+### 3 novembre 2026 - DELIVERY-ZONE-TRANSITION-1, intégration locale compatible
+- Reprise après reconnexion : work/829f975 intact, fsck sans corruption ; travaux antérieurs et processus non identifiés préservés. Aucun nouveau GO de publication.
+- GO local/FROZEN existant : transition intégrée dans 11 fichiers code/tests, plus roadmap/backlog ; aucune migration, tarif ni formule modifiés.
+- Contrat optionnel optional_factor_v1 : ancien client connu conserve son nombre ; inconnu/ambigu ancien reçoit409 sans brouillon, client compatible reçoit facteur absent et clarification.
+- Gate generate-response sur toute demande cotable : destination absente409 ; moteur ancien/indisponible503 ; aucun repli cotable arbitraire. Flux information-only conservé.
+- Service frais exige les honoraires serveur, sans substitut Dakar local ; historique distinct conservé. Admin affiche le refus structuré ; ancien admin peut conserver une erreur générique.
+- Contre-revue indépendante : 47 Deno + 14 frontend PASS, trois défauts initiaux corrigés et contre-exécutés ; 11 empreintes concordantes.
+- CI complète locale exit0 : 1588 Vitest, 3070 Deno/6 ignorés ; types Deno49/5, lint709/16 sans aggravation ; config/bundles/build PASS. Corpus local inclut travaux antérieurs non publiés.
+- Navigateur synthétique composants réels : connu, ambigu, refus legacy/moteur, clavier et375px PASS ; audit116 constats préexistants identiques. HTTP/IA/DB simulés uniquement.
+- Limite des refus : pas d'IA finale/brouillon nouveau ; analyses et mises à jour de PJ antérieures à la gate restent possibles en usage réel, sans rejeu automatique.
+- Mise en ligne NOT_RUN : GO distinct et préflight frais ; vérifier generate-response gate actif avant quotation-engine nullable, puis consommateurs adaptés. Moteur ancien => interruption503 temporaire des cotations.
+- Rollback : garder gate et guards UI ; inverse du seul delta local vérifié sans application, pas de restauration métier. Matcher historique et postes tarifaires non couverts restent hors lot.
+- Preuves : task/zone-transition/integration/{verification,counter-review,browser/verification,full-ci-result}.json et transition.patch. Aucun calcul/dossier réel, IA réelle, envoi, commit/push ou déploiement.

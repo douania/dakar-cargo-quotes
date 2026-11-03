@@ -19,6 +19,10 @@ Source de vérité unique de tous les sujets volontairement reportés, laissés 
 - Couverture à qualifier dans le calcul observé : frais armateur, assurance, IT/Orbus, tracking note et escorte sans ligne distincte/inclusion démontrée ; storage/demurrage/retour à vide réservés. Cela ne prouve pas l’absence globale de toute capacité DCQ. Sources, applicabilité, unités, devises, TVA et absence de doubles comptes à établir avant extension ; aucun prix comparatif injecté, aucun tarif inventé.
 - Preuves privées : task/zone-local/verification.json et patch ; détail des postes dans task/scenario-validation-local/coverage-gaps-and-contracts.json.
 
+- Transition du 03/11 intégrée et testée LOCAL uniquement : capability optional_factor_v1, anciens clients inconnus/ambigus409, moteur ancien503, destination absente409 ; nouveaux consommateurs sans substitut Dakar. CI1588Vitest/3070Deno/6ignorés, contre-revue47Deno+14frontend PASS.
+- Nouvelle mise en ligne non autorisée/non exécutée : GO distinct, gate generate-response vérifiée avant quotation-engine nullable, interruption503 cotable possible pendant cet intervalle ; anciens écrans peuvent montrer une erreur générique. Garder gate/guards en rollback ; analyses PJ antérieures au refus restent possibles.
+- Preuves et delta isolé : task/zone-transition/integration/verification.json, transition.patch. Aucun tarif ajouté, publication, donnée réelle, calcul Cloud, IA réelle ni envoi. Les préconditions du lot initial ci-dessus restent historiques, cette transition prépare leur remplacement sous GO distinct.
+
 ### KNOWLEDGE-AI-APPROVAL-1 — CORRIGÉ LOCAL / RUNTIME OUVERT — 26 octobre 2026
 
 - R02/P05 a montré poids total/cartons/portée dimensions inférés, puis learned_knowledge validée par confiance seule. Roadmap §2.54 : import-thread local protège l'approbation et les connaissances/résumés existants ; données conservées comme candidates, preuve littérale liée à la source ou inferred/unknown, concurrence et provenance testées.

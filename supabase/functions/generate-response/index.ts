@@ -1,3 +1,4 @@
+import { decideZoneReply, zoneReplyRefusal, OPTIONAL_ZONE_REPLY_CONTRACT } from "../_shared/zone-reply-contract.ts";
 import { zoneComplexityFactor } from "../_shared/delivery-zone-resolution.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -382,6 +383,8 @@ interface AIExtractedData {
   
   // Locations
   origin: string | null;
+  origin_country?: string | null;
+  destination_country?: string | null;
   destination: string | null;
   
   // Cargo details
@@ -1340,7 +1343,7 @@ Pour DDP (avec taxes):
   }
 }`;
 
-serve(async (req) => {
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -1484,7 +1487,8 @@ serve(async (req) => {
     }
 
     // Fallbacks pour cotation directe (email = null)
-    const emailSubject = email?.subject || quotationData?.projectContext?.project_name || 'Cotation directe';
+    const projectContext = quotationData?.projectContext as { project_name?: string } | undefined;
+    const emailSubject = email?.subject || projectContext?.project_name || 'Cotation directe';
     const emailFromAddress = email?.from_address || 'direct@quotation.local';
     const emailBodyText = email?.body_text || '';
     const emailSentAt = email?.sent_at || new Date().toISOString();
@@ -2557,6 +2561,21 @@ Réponds en JSON:
       }
     }
 
+    // Capability negotiation prevents unknown factors reaching unchanged numeric clients.
+    // Gate before final response AI, draft persistence and generated quotation attachments.
+    // Earlier attachment analysis remains part of the existing workflow.
+    if (aiExtracted.can_quote_now) {
+      if (typeof aiExtracted.destination !== 'string' || !aiExtracted.destination.trim()) {
+        return zoneReplyRefusal({ allowed: false, status: 409, code: 'ZONE_CONFIRMATION_REQUIRED',
+          message: "Destination de livraison absente : précisez-la avant de produire le brouillon." }, correlationId, corsHeaders);
+      }
+      const zoneDecision = decideZoneReply(body.zone_reply_contract, quotationEngineResult);
+      if (!zoneDecision.allowed) return zoneReplyRefusal(zoneDecision, correlationId, corsHeaders);
+      if (zoneDecision.clarification) {
+        quotationEngineResult.warnings = [...new Set([...(quotationEngineResult.warnings || []), zoneDecision.clarification])];
+      }
+    }
+
     // ============ BUILD STRUCTURED QUOTATION CONTEXT ============
     let quotationContext = '';
     
@@ -3064,6 +3083,7 @@ RAPPELS CRITIQUES:
 
     return respondOk({
       success: true,
+      zone_reply_contract: body.zone_reply_contract === OPTIONAL_ZONE_REPLY_CONTRACT ? OPTIONAL_ZONE_REPLY_CONTRACT : undefined,
       draft: draft,
       // Analysis fields
       detected_language: targetLanguage,
@@ -3152,4 +3172,5 @@ RAPPELS CRITIQUES:
       correlationId,
     });
   }
-});
+}
+if (Deno.env.get("GENERATE_RESPONSE_DISABLE_SERVE") !== "1") serve(handleRequest);
