@@ -3,7 +3,7 @@
  * Deno type-check baseline gate (non-aggravation).
  *
  * `npm run test:deno` runs with `--no-check` because type-checking the edge functions
- * against the floating `jsr:@supabase/supabase-js@2` types currently yields 65 pre-existing
+ * against the floating `jsr:@supabase/supabase-js@2` types currently yields 47 pre-existing
  * errors. Left alone, `--no-check` would also silently swallow *new* type debt.
  *
  * This gate re-runs the very same test selection with type-checking ENABLED and compares
@@ -20,7 +20,7 @@
  *     fails for another cause
  *   - all errors gone         -> pass
  *
- * Fixing the 65 errors is a separate, targeted effort. When they shrink, lower the baseline
+ * Fixing the 47 errors is a separate, targeted effort. When they shrink, lower the baseline
  * below in the same commit that removes them — never raise it to make a red run green.
  *
  * Usage:
@@ -35,14 +35,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Baseline captured on 2026-09-11 with Deno 2.9.5: 49 diagnostics
- * (45 TS2339, 2 TS2345, 2 TS2352) across four files.
+ * Remaining baseline on 2026-11-03 with Deno 2.9.5: 47 diagnostics
+ * (45 TS2339, 2 TS2352) across three files. The two run-pricing TS2345
+ * diagnostics were removed after fixing its table/selected-query type boundary.
  */
-const BASELINE_TOTAL = 49;
+const BASELINE_TOTAL = 47;
 const BASELINE = {
   'TS2339|supabase/functions/_tests/derive_cargo_canonical_payload_validation.test.ts': 38,
   'TS2339|supabase/functions/_tests/sync_canonical_cargo_to_legacy_facts.test.ts': 7,
-  'TS2345|supabase/functions/run-pricing/index.ts': 2,
   'TS2352|supabase/functions/_tests/canonicalize_cargo_from_case_validation.test.ts': 1,
   'TS2352|supabase/functions/_tests/derive_cargo_canonical_payload_validation.test.ts': 1,
 };

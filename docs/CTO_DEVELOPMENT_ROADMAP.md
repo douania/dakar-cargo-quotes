@@ -4210,3 +4210,15 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Mise en ligne NOT_RUN : GO distinct et préflight frais ; vérifier generate-response gate actif avant quotation-engine nullable, puis consommateurs adaptés. Moteur ancien => interruption503 temporaire des cotations.
 - Rollback : garder gate et guards UI ; inverse du seul delta local vérifié sans application, pas de restauration métier. Matcher historique et postes tarifaires non couverts restent hors lot.
 - Preuves : task/zone-transition/integration/{verification,counter-review,browser/verification,full-ci-result}.json et transition.patch. Aucun calcul/dossier réel, IA réelle, envoi, commit/push ou déploiement.
+
+
+### 3 novembre2026 - RUN-PRICING-SDK-TYPES-1, correction locale ciblée
+- Demande explicite du03/11 : examiner/corriger localement les deuxTS2345 run-pricing qui bloquent l'aperçu ; exception FROZEN limitée au typage et tests, aucune publication ni activation.
+- Base work/42136582 alignée GitHub, index vide ; notes et travaux hors lot (scénarios/Railway/.claude/zone) préservés.
+- Cause reproduite : interface locale exigeant eq/in/then dès from(), alors que le SDK les expose après select(). Interface artisanale remplacée par Pick<SupabaseClient,"from">, aucun cast ni changement de garde/requête.
+- Quatre fichiers code/tests : run-pricing/index, totals-calculation_test, nouveau sdk-guard-contract_test et check-deno-type-baseline. Fixture historique utilise désormais vrai SDK + HTTP synthétique ; corps/assertions des25tests identiques.
+- Deno check handler PASS avec CI SDK2.117.2 et résolution flottante2.117.3 ; JavaScript émis strictement identique avant/après (SHA370eedfe...). Aucun package/config/lock changé.
+- 36tests typés ciblés PASS (11SDK +25gardes/totaux) ; GET seulement, portée dossier/filtres/cohérence et erreurs de chaque lecture conservés. Contre-revue indépendante PASS,4empreintes concordantes, aucun blocage.
+- CI locale npm run ci exit0 : 1588Vitest,3081Deno/6ignorés ; dette abaissée49/5à47/4 et verrouillée dans le gate, aucune exclusion ni seuil relevé ; config/bundles/lint/build PASS. Corpus local inclut des tests antérieurs non publiés.
+- Aucun appel Cloud/IA/IMAP, donnée métier modifiée, envoi, migration, commit/push ou déploiement ; aperçu Lovable non recompilé et correction runtime non installée sous ce GO.
+- Preuves et patch isolé : task/run-pricing-type-local/verification.json,fix.patch,head-based.patch ; retour inverse vérifié sans application, préserver tous les travaux antérieurs. Toute publication/activation exige un accord distinct.

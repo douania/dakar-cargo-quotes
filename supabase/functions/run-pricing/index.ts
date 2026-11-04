@@ -20,7 +20,7 @@ import { weightBasisNotice, quotationWeightNotices } from "../_shared/quotation-
  * Phase 16: Hard guard unifié + coherence checks (no gap upsert, audit trail preserved)
  */
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { provisionalServicePrice } from "../_shared/provisional-service-price.ts";
 import { isToConfirmLine } from "../_shared/quotation-line-status.ts";
 import { resolvePadClassification } from "../_shared/pad/resolvePadClassification.ts";
@@ -246,19 +246,8 @@ export type SelectedPartnerOfferGuard = {
   reason: string | null;
 };
 
-type SupabaseQueryLike = {
-  select: (columns: string, options?: Record<string, unknown>) => SupabaseQueryLike;
-  eq: (column: string, value: unknown) => SupabaseQueryLike;
-  in: (column: string, values: string[]) => SupabaseQueryLike;
-  then: (
-    resolve: (value: { data: Array<Record<string, unknown>> | null; error: { message?: string } | null }) => void,
-    reject: (reason?: unknown) => void,
-  ) => void;
-};
-
-type SupabaseClientLike = {
-  from: (table: string) => SupabaseQueryLike;
-};
+// Keep the SDK's table/select/filter contract without recursively re-declaring it.
+type SupabaseClientLike = Pick<SupabaseClient, "from">;
 
 export function buildOpenCommunicationLoopsGuard(
   rows: OpenCommunicationLoopsRows,

@@ -1,3 +1,4 @@
+import { createClient } from "jsr:@supabase/supabase-js@2";
 import "https://deno.land/std@0.224.0/dotenv/load.ts";
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { LOCAL_TRANSPORT_DEBOURS_ACCOUNTING } from "../_shared/local-transport-debours.ts";
@@ -18,60 +19,49 @@ const { buildSelectedPartnerOfferGuard, getOpenCommunicationLoopsGuard } = await
 // ── Test 1: Standard import with dap/ddp from engine ──
 type GuardRow = Record<string, unknown>;
 
-class GuardQueryBuilder {
-  private filters: Array<[string, unknown]> = [];
-  private inFilters: Array<[string, unknown[]]> = [];
-
-  constructor(private db: FakePricingGuardClient, private table: string) {}
-
-  select(_columns?: string, _options?: Record<string, unknown>) {
-    return this;
-  }
-
-  eq(column: string, value: unknown) {
-    this.filters.push([column, value]);
-    return this;
-  }
-
-  in(column: string, values: string[]) {
-    this.inFilters.push([column, values]);
-    return this;
-  }
-
-  then(
-    resolve: (value: { data: Array<Record<string, unknown>> | null; error: { message?: string } | null }) => void,
-    reject: (reason?: unknown) => void,
-  ) {
-    Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
-  }
-
-  private rows(): GuardRow[] {
-    let rows: GuardRow[] = [];
-    if (this.table === "external_quote_requests") rows = this.db.partnerRequests;
-    else if (this.table === "external_quote_response_facts") rows = this.db.partnerFacts;
-    else if (this.table === "client_gap_requests") rows = this.db.clientGapRequests;
-    else if (this.table === "quote_gaps") rows = this.db.quoteGaps;
-
-    return rows.filter((row) => {
-      for (const [column, value] of this.filters) {
-        if (row[column] !== value) return false;
-      }
-      for (const [column, values] of this.inFilters) {
-        if (!values.includes(row[column])) return false;
-      }
-      return true;
-    });
-  }
-}
-
+/** The real SDK supplies all query stages; only its HTTP transport is synthetic. */
 class FakePricingGuardClient {
   partnerRequests: GuardRow[] = [];
   partnerFacts: GuardRow[] = [];
   clientGapRequests: GuardRow[] = [];
   quoteGaps: GuardRow[] = [];
 
+  private client = createClient("https://pricing-totals-fixture.invalid", "synthetic-key", {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: {
+      fetch: (input, init) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        assertEquals(url.origin, "https://pricing-totals-fixture.invalid");
+        assertEquals(request.method, "GET", "Guard fixtures never write");
+        const table = url.pathname.slice("/rest/v1/".length);
+        const tables: Record<string, GuardRow[]> = {
+          external_quote_requests: this.partnerRequests,
+          external_quote_response_facts: this.partnerFacts,
+          client_gap_requests: this.clientGapRequests,
+          quote_gaps: this.quoteGaps,
+        };
+        assert(Object.hasOwn(tables, table), `Unexpected guard table: ${table}`);
+        const rows = tables[table].filter((row) => {
+          for (const [column, filter] of url.searchParams) {
+            if (column === "select") continue;
+            if (filter.startsWith("eq.")) {
+              if (String(row[column]) !== filter.slice(3)) return false;
+            } else if (filter.startsWith("in.(") && filter.endsWith(")")) {
+              if (!filter.slice(4, -1).split(",").includes(String(row[column]))) return false;
+            } else {
+              throw new Error(`Unexpected guard filter: ${filter}`);
+            }
+          }
+          return true;
+        });
+        return Promise.resolve(Response.json(rows));
+      },
+    },
+  });
+
   from(table: string) {
-    return new GuardQueryBuilder(this, table);
+    return this.client.from(table);
   }
 }
 
