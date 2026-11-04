@@ -195,6 +195,7 @@ export default function Emails() {
   const [showGuidanceDialog, setShowGuidanceDialog] = useState(false);
   const [guidanceEmailId, setGuidanceEmailId] = useState<string | null>(null);
   const [guidanceEmailSubject, setGuidanceEmailSubject] = useState<string>('');
+  const pendingGenerations = useRef(new Set<string>());
   // LANGUAGE-OVERRIDE-PER-DRAFT-1: manual reply language (default AUTO = current behavior)
   const [replyLanguage, setReplyLanguage] = useState<ReplyLanguageOverride>('AUTO');
   
@@ -405,14 +406,19 @@ export default function Emails() {
   };
 
   const generateResponse = async (emailId: string, customInstructions?: string, expertStyle: ExpertStyle = 'auto') => {
+    // Survives dialogue remounts while this page still owns the pending request.
+    if (pendingGenerations.current.has(emailId)) throw new Error('Une génération est déjà en cours pour ce courriel. Vérifiez les brouillons avant de relancer.');
+    pendingGenerations.current.add(emailId);
     try {
-      await generateEmailResponse(emailId, customInstructions, expertStyle, replyLanguage);
-
+      const response = await generateEmailResponse(emailId, customInstructions, expertStyle, replyLanguage);
+      const draft = response?.draft;
+      if (typeof draft?.id !== 'string' || !draft.id.trim() || draft.original_email_id !== emailId) {
+        throw new Error('Le serveur n’a pas confirmé un nouveau brouillon pour ce courriel. Vérifiez les brouillons avant de relancer.');
+      }
       toast.success('Brouillon généré');
-      loadData();
-    } catch (error) {
-      console.error('Generate error:', error);
-      toast.error(error instanceof Error ? error.message : 'Erreur de génération');
+      void loadData();
+    } finally {
+      pendingGenerations.current.delete(emailId);
     }
   };
 
@@ -423,10 +429,9 @@ export default function Emails() {
   };
 
   const handleGenerateWithGuidance = async (instructions: string, expertStyle: ExpertStyle) => {
-    if (!guidanceEmailId) return;
+    if (!guidanceEmailId) throw new Error('Sélectionnez le courriel avant de générer sa réponse.');
+    // A rejection must reach the dialogue; only its confirmed success resets guidance.
     await generateResponse(guidanceEmailId, instructions || undefined, expertStyle);
-    setGuidanceEmailId(null);
-    setGuidanceEmailSubject('');
   };
 
   const deleteConfig = async (id: string) => {
@@ -1750,6 +1755,7 @@ export default function Emails() {
 
         {/* Response Guidance Dialog */}
         <ResponseGuidanceDialog
+          key={guidanceEmailId ?? "no-email"}
           open={showGuidanceDialog}
           onOpenChange={setShowGuidanceDialog}
           onGenerate={handleGenerateWithGuidance}

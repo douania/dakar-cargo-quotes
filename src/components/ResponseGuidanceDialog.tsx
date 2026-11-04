@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import {
@@ -127,6 +126,13 @@ export function ResponseGuidanceDialog({
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [selectedExpert, setSelectedExpert] = useState<ExpertStyle>('auto');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const inputId = useId();
+  const busy = useRef(false);
+  const mounted = useRef(true);
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { if (open && generationError) errorRef.current?.focus(); }, [generationError, open]);
 
   const toggleTemplate = (templateId: string) => {
     setSelectedTemplates(prev => 
@@ -168,18 +174,25 @@ export function ResponseGuidanceDialog({
   };
 
   const handleGenerate = async (withInstructions: boolean) => {
+    if (busy.current) return;
+    busy.current = true;
     setIsGenerating(true);
+    setGenerationError(null);
     try {
       const instructions = withInstructions ? buildInstructions() : '';
       await onGenerate(instructions, selectedExpert);
-      // Reset form on success
+      // A late result must not clear or close a different email's dialogue.
+      if (!mounted.current) return;
       setCustomInstructions('');
       setSelectedTemplates([]);
       setSelectedOptions([]);
       setSelectedExpert('auto');
       onOpenChange(false);
+    } catch (error) {
+      if (mounted.current) setGenerationError(error instanceof Error ? error.message : 'Génération non confirmée.');
     } finally {
-      setIsGenerating(false);
+      busy.current = false;
+      if (mounted.current) setIsGenerating(false);
     }
   };
 
@@ -204,7 +217,8 @@ export function ResponseGuidanceDialog({
           <div>
             <h4 className="text-sm font-medium mb-3">Répondre en tant que</h4>
             <RadioGroup 
-              value={selectedExpert} 
+              value={selectedExpert}
+              disabled={isGenerating}
               onValueChange={(val) => setSelectedExpert(val as ExpertStyle)}
               className="grid grid-cols-1 sm:grid-cols-3 gap-2"
             >
@@ -212,11 +226,11 @@ export function ResponseGuidanceDialog({
                 <div key={option.value}>
                   <RadioGroupItem
                     value={option.value}
-                    id={`expert-${option.value}`}
+                    id={`${inputId}-expert-${option.value}`}
                     className="peer sr-only"
                   />
                   <Label
-                    htmlFor={`expert-${option.value}`}
+                    htmlFor={`${inputId}-expert-${option.value}`}
                     className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-3 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer transition-all"
                   >
                     <div className="flex items-center gap-2 mb-1">
@@ -235,9 +249,13 @@ export function ResponseGuidanceDialog({
             <h4 className="text-sm font-medium mb-3">Templates rapides</h4>
             <div className="flex flex-wrap gap-2">
               {TEMPLATES.map(template => (
-                <Badge
+                <Button
+                  type="button"
                   key={template.id}
                   variant="outline"
+                  size="sm"
+                  disabled={isGenerating}
+                  aria-pressed={selectedTemplates.includes(template.id)}
                   className={`cursor-pointer transition-all px-3 py-1.5 ${
                     selectedTemplates.includes(template.id)
                       ? template.color + ' border-2'
@@ -247,15 +265,18 @@ export function ResponseGuidanceDialog({
                 >
                   {template.icon}
                   <span className="ml-1">{template.label}</span>
-                </Badge>
+                </Button>
               ))}
             </div>
           </div>
 
           {/* Custom Instructions */}
           <div>
-            <h4 className="text-sm font-medium mb-2">Instructions personnalisées</h4>
+            <Label htmlFor={inputId} className="block text-sm font-medium mb-2">Instructions personnalisées</Label>
             <Textarea
+              id={inputId}
+              disabled={isGenerating}
+              aria-describedby={generationError ? `${inputId}-error` : undefined}
               placeholder="Ex: Être très compétitif sur les frais THC, proposer une alternative par voie terrestre, demander des précisions sur le poids exact..."
               value={customInstructions}
               onChange={(e) => setCustomInstructions(e.target.value)}
@@ -273,12 +294,13 @@ export function ResponseGuidanceDialog({
                   className="flex items-center space-x-2"
                 >
                   <Checkbox
-                    id={option.id}
+                    id={`${inputId}-${option.id}`}
+                    disabled={isGenerating}
                     checked={selectedOptions.includes(option.id)}
                     onCheckedChange={() => toggleOption(option.id)}
                   />
                   <label
-                    htmlFor={option.id}
+                    htmlFor={`${inputId}-${option.id}`}
                     className="text-sm cursor-pointer"
                   >
                     {option.label}
@@ -297,6 +319,11 @@ export function ResponseGuidanceDialog({
           )}
         </div>
 
+        {isGenerating && <p role="status" className="text-sm text-muted-foreground">Génération en cours. Fermer cette fenêtre n’annule pas la demande déjà transmise.</p>}
+        {generationError && <div id={`${inputId}-error`} ref={errorRef} role="alert" tabIndex={-1} className="rounded border border-destructive p-3 text-sm space-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <p>{generationError}</p>
+          <p>Vos consignes sont conservées dans cette fenêtre. Aucun nouveau brouillon confirmé. Après une réponse incertaine, vérifiez la liste des brouillons avant de relancer.</p>
+        </div>}
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button
             variant="outline"

@@ -4222,3 +4222,18 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - CI locale npm run ci exit0 : 1588Vitest,3081Deno/6ignorés ; dette abaissée49/5à47/4 et verrouillée dans le gate, aucune exclusion ni seuil relevé ; config/bundles/lint/build PASS. Corpus local inclut des tests antérieurs non publiés.
 - Aucun appel Cloud/IA/IMAP, donnée métier modifiée, envoi, migration, commit/push ou déploiement ; aperçu Lovable non recompilé et correction runtime non installée sous ce GO.
 - Preuves et patch isolé : task/run-pricing-type-local/verification.json,fix.patch,head-based.patch ; retour inverse vérifié sans application, préserver tous les travaux antérieurs. Toute publication/activation exige un accord distinct.
+
+## 2.83 Génération : identité et conservation des consignes - 4 novembre 2026 (local uniquement)
+
+- GO précis local : corriger authentification interne et propagation du refus, tests synthétiques/contre-revue ; aucun commit, push, déploiement, appel connecté ou changement métier.
+- Base work/8f7f3d1 alignée origin ; trois sources, trois nouveaux tests et cette note. Correctif frais en attente et dix fichiers protégés inchangés ; index vide.
+- Cause reproduite avec les deux vrais handlers : service-role rejeté par getUser/workspace ; caller utilise désormais authResult.token validé. Helper Auth, moteur et gate inchangés, aucun accès élargi.
+- UI propage le rejet, conserve consignes/options/expert et ancien brouillon ; efface seulement après acquittement avec id et courriel correspondant. Erreur explicite/focus, contrôles bloqués en attente, pas de rejeu automatique.
+- Garde par courriel dans la page contre doubles clics et A→B→A ; clé de contexte et garde de démontage empêchent une réponse tardive de fermer/effacer B. Fermer ne prétend pas annuler le serveur.
+- Reproduction avant correction :5Deno PASS/6FAIL et2UI PASS/10FAIL ; après58Deno/18UI ciblés PASS. Entrées falsifiées/service/expirées, révocation workspace, concurrence A/B, indisponibilité et anciens clients couverts sans réseau.
+- CI npm run ci exit0 :1605Vitest/3093Deno/0échec/6ignorés, types47/4 et lint709/16 sans aggravation, config/bundles/type/build PASS ; six empreintes stables.
+- Navigateur localhost avec composants réels et frontière synthétique/CSP connect-src none : refus, ancien brouillon, consignes, A→B→A, succès, mauvais acquittement, clavier et390px PASS ; aucun courriel réel.
+- Contre-revue indépendante PASS_WITH_BASELINE, sources/contrats/empreintes et logs vérifiés ; contre-exécution par reviewer NOT_RUN. Audit UI116constats hérités,0nouveau hors décalages de ligne, pas de conformité globale affirmée.
+- Limites : pas d'idempotence serveur/interonglets, pas de test crypto/runtime connecté ; modèle workspace existant conservé. Analyses/PJ antérieures à la gate restent possibles en usage réel et inchangées.
+- Preuves task/generation-auth-local/{verification,full-ci,counter-review,browser-proof}.json et fix.patch ; retour inverse du seul lot, sans écraser travaux voisins. Livraison éventuelle frontend+generate-response sous GO distinct ; aucun moteur/tarif/RLS/schema changé.
+- GO explicite Ramzi du04/11 : publier uniquement ce lot, contrôler CI du SHA exact puis déployer generate-response ; amélioration affichage distincte non livrée, aucune génération connectée ni modification métier.

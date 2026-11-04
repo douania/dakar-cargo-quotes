@@ -2504,7 +2504,8 @@ Réponds en JSON:
         const qeResponse = await fetch(`${supabaseUrl}/functions/v1/quotation-engine`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${supabaseServiceKey}`,
+            // The engine revalidates this caller and workspace; a service key is not a user.
+            'Authorization': `Bearer ${authResult.token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
