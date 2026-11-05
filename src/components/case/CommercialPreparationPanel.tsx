@@ -1,10 +1,11 @@
-/** Prepared editor; intentionally not mounted in CaseView before the version/persistence scope is approved. */
-import { useEffect, useRef, useState } from 'react';
+/** Existing commercial editor; source versions and scenario estimates remain separate. */
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -37,6 +38,14 @@ function PreparationEditor({ initial, actorId, airState, isLocked = false, onDra
   const [label, setLabel] = useState(''), [kind, setKind] = useState<Exclude<CommercialKind, 'source'>>('additional');
   const [amount, setAmount] = useState(''), [basis, setBasis] = useState<CommercialAmountBasis>('unknown');
   const [reason, setReason] = useState(''), [days, setDays] = useState(''), [weightId, setWeightId] = useState(''), [tariffKey, setTariffKey] = useState('');
+  const reviewId = useId();
+  const [reviewError, setReviewError] = useState<'source' | 'scope' | 'applicable' | 'overlap' | null>(null);
+  const [sourceReference, setSourceReference] = useState(''), [scope, setScope] = useState('');
+  const [applicable, setApplicable] = useState(false), [notIncluded, setNotIncluded] = useState(false);
+  const sourceRef = useRef<HTMLInputElement>(null), scopeRef = useRef<HTMLInputElement>(null);
+  const applicableRef = useRef<HTMLButtonElement>(null), notIncludedRef = useRef<HTMLButtonElement>(null);
+  const normalizeLabel = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('fr-FR');
+  const similarLines = editing === 'add' && label.trim() ? draft.lines.filter(line => line.included && normalizeLabel(line.label) === normalizeLabel(label)) : [];
   const [error, setError] = useState(''), [page, setPage] = useState(0);
   const errorRef = useRef<HTMLParagraphElement>(null), reasonRef = useRef<HTMLTextAreaElement>(null), amountRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
@@ -51,12 +60,14 @@ function PreparationEditor({ initial, actorId, airState, isLocked = false, onDra
   function open(line: CommercialLine | 'add', nextMode: 'edit' | 'storage' = 'edit') {
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setEditing(line); setMode(nextMode); setError(''); setReason('');
+    setSourceReference(''); setScope(''); setApplicable(false); setNotIncluded(false); setReviewError(null);
     setLabel(line === 'add' ? '' : line.label); setKind(line === 'add' || line.kind === 'source' ? 'additional' : line.kind);
     setAmount(line === 'add' || line.client_amount_xof === null ? '' : String(line.client_amount_xof));
     setBasis(line === 'add' ? 'unknown' : line.amount_basis); setDays(''); setWeightId(''); setTariffKey('');
   }
   function apply(removal?: 'remove' | 'restore') {
     if (isLocked || !editing) return;
+    setReviewError(null);
     try {
       if (reason.trim().length < 10) { reasonRef.current?.focus(); throw new Error('Expliquez cette décision en au moins 10 caractères.'); }
       const id = editing === 'add' ? `operator:${crypto.randomUUID()}` : editing.id;
@@ -66,7 +77,14 @@ function PreparationEditor({ initial, actorId, airState, isLocked = false, onDra
       else {
         let value: number | null;
         try { value = parseCommercialAmount(amount); } catch (e) { amountRef.current?.focus(); throw e; }
-        action = editing === 'add' ? { type: 'add', line_id: id, label, kind, amount: value, basis, reason }
+        if (editing === 'add') {
+          if (sourceReference.trim().length < 3) { setReviewError('source'); sourceRef.current?.focus(); throw new Error('Indiquez la source du complément (au moins 3 caractères).'); }
+          if (scope.trim().length < 3) { setReviewError('scope'); scopeRef.current?.focus(); throw new Error('Précisez le périmètre du complément (au moins 3 caractères).'); }
+          if (!applicable) { setReviewError('applicable'); applicableRef.current?.focus(); throw new Error('Vérifiez que cette prestation est applicable à cette version du dossier.'); }
+          if (!notIncluded) { setReviewError('overlap'); notIncludedRef.current?.focus(); throw new Error('Vérifiez les inclusions et les lignes existantes avant cet ajout.'); }
+        }
+        action = editing === 'add' ? { type: 'add', line_id: id, label, kind, amount: value, basis, reason,
+          addition_review: { schema_version: 1, source_reference: sourceReference.trim(), scope: scope.trim(), applicable: true, not_already_included: true } }
           : { type: 'edit', line_id: id, amount: value, basis, reason };
       }
       const next = reviseCommercialPreparation(draft, action, { expected_revision: draft.revision, operation_id: crypto.randomUUID(), actor_id: actorId,
@@ -88,6 +106,10 @@ function PreparationEditor({ initial, actorId, airState, isLocked = false, onDra
             <div><Badge variant="outline">{!line.included ? 'Retirée' : line.status === 'estimated' ? 'Estimation opérateur' : line.status === 'source' ? 'Calcul source' : 'À confirmer'}</Badge></div>
             {line.kind === 'customs_estimate' && <p className="text-xs">Provision opérateur ; aucun taux fiscal validé.</p>}
             {line.reason && <p className="text-xs text-muted-foreground">{line.reason}</p>}
+            {line.addition_review && <details className="text-xs"><summary className="cursor-pointer">Qualification lors de l’ajout</summary>
+              <p>Source déclarée : {line.addition_review.source_reference}</p><p>Périmètre déclaré : {line.addition_review.scope}</p>
+              <p>Applicabilité et absence de double compte attestées par l’opérateur lors de l’ajout ; aucune vérification automatique du contenu des justificatifs.</p>
+            </details>}
           </TableCell>
           <TableCell>{money(line.supplier?.amount_ht_xof ?? null)}{line.supplier?.status === 'estimated' && <p className="text-xs">Coût estimé</p>}
             {line.supplier && <details><summary className="cursor-pointer text-xs">Provenance interne</summary><pre className="max-h-48 max-w-xs overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(line.supplier.evidence, null, 2)}</pre></details>}
@@ -117,8 +139,23 @@ function PreparationEditor({ initial, actorId, airState, isLocked = false, onDra
               <Label htmlFor="commercial-basis">Base du montant client</Label><Select value={basis} onValueChange={v => setBasis(v as CommercialAmountBasis)}><SelectTrigger id="commercial-basis"><SelectValue/></SelectTrigger><SelectContent {...commercialSelectPopup}>{Object.entries(basisLabels).map(([k, text]) => <SelectItem key={k} value={k}>{text}</SelectItem>)}</SelectContent></Select>
               {editing && editing !== 'add' && editing.supplier?.amount_ht_xof !== null && editing.supplier?.amount_ht_xof !== undefined && <Button type="button" variant="outline" onClick={() => { setAmount(String(editing.supplier!.amount_ht_xof)); setBasis('before_sodatra_vat'); }}>Reprendre explicitement le coût fournisseur</Button>}
             </>}
+            {editing === 'add' && <fieldset className="rounded border p-3 space-y-3" aria-describedby={`${reviewId}-help`}><legend className="text-sm font-medium">Vérifier le complément</legend>
+              <p id={`${reviewId}-help`} className="text-xs text-muted-foreground">Aucun poste n’est obligatoire du seul fait qu’il figure dans une offre de comparaison. Vérifiez les prestations déjà chiffrées, leurs inclusions et leurs réserves. Le montant est le total de cette rubrique en XOF, sans multiplication ni conversion automatique.</p>
+              {similarLines.length > 0 && <p role="status" className="text-sm">Libellé déjà présent : {similarLines.map(line => `${line.label} (${money(line.client_amount_xof)})`).join(' ; ')}. Un même libellé ne prouve pas un même périmètre. S’il s’agit de la même prestation, annulez cet ajout et modifiez sa ligne ; sinon précisez la différence de périmètre.</p>}
+              <details><summary className="cursor-pointer text-sm">Postes actuellement retenus ({draft.lines.filter(line => line.included).length})</summary>
+                <ul className="max-h-48 overflow-y-auto space-y-2 text-xs mt-2">{draft.lines.filter(line => line.included).map(line => <li key={line.id}>
+                  <p>{line.label} — {money(line.client_amount_xof)} — {line.status === 'source' ? 'Calcul source' : line.status === 'estimated' ? 'Estimation opérateur' : 'À confirmer'}</p>
+                  <p>{line.status === 'source' ? 'Base de la version source conservée' : basisLabels[line.amount_basis]}</p>
+                </li>)}</ul>
+              </details>
+              <Label htmlFor={`${reviewId}-source`}>Référence de source du complément</Label><Input ref={sourceRef} aria-invalid={reviewError === 'source'} aria-describedby={reviewError === 'source' ? `${reviewId}-error` : undefined} id={`${reviewId}-source`} maxLength={500} value={sourceReference} onChange={e => setSourceReference(e.target.value)}/>
+              <Label htmlFor={`${reviewId}-scope`}>Périmètre du complément</Label><Input ref={scopeRef} aria-invalid={reviewError === 'scope'} aria-describedby={reviewError === 'scope' ? `${reviewId}-error` : undefined} id={`${reviewId}-scope`} maxLength={500} value={scope} onChange={e => setScope(e.target.value)} placeholder="Lots, période et prestation concernés"/>
+              <div className="flex items-start gap-2"><Checkbox ref={applicableRef} aria-invalid={reviewError === 'applicable'} aria-describedby={reviewError === 'applicable' ? `${reviewId}-error` : undefined} id={`${reviewId}-applicable`} checked={applicable} onCheckedChange={value => setApplicable(value === true)}/><Label htmlFor={`${reviewId}-applicable`}>J’ai vérifié que cette prestation s’applique à cette version du dossier.</Label></div>
+              <div className="flex items-start gap-2"><Checkbox ref={notIncludedRef} aria-invalid={reviewError === 'overlap'} aria-describedby={reviewError === 'overlap' ? `${reviewId}-error` : undefined} id={`${reviewId}-not-included`} checked={notIncluded} onCheckedChange={value => setNotIncluded(value === true)}/><Label htmlFor={`${reviewId}-not-included`}>J’ai vérifié qu’elle n’est pas déjà comprise dans une autre ligne retenue.</Label></div>
+              <p className="text-xs text-muted-foreground">Cette qualification est une attestation opérateur conservée avec la décision, pas une preuve de tarif validé. L’application ne détermine pas automatiquement les inclusions.</p>
+            </fieldset>}
             <Label htmlFor="commercial-reason">Justification et source de l’estimation</Label><Textarea ref={reasonRef} id="commercial-reason" className="resize-none" maxLength={2000} value={reason} onChange={e => setReason(e.target.value)}/>
-            <p ref={errorRef} tabIndex={-1} role={error ? 'alert' : undefined} className="min-h-5 text-sm text-destructive">{error}</p>
+            <p ref={errorRef} id={`${reviewId}-error`} tabIndex={-1} role={error ? 'alert' : undefined} className="min-h-5 text-sm text-destructive">{error}</p>
             <DialogFooter className="gap-2"><Button type="button" variant="outline" onClick={() => setEditing(null)}>Annuler</Button><Button type="submit">Retenir dans la préparation</Button></DialogFooter>
             {editing && editing !== 'add' && <Button type="button" variant="ghost" onClick={() => apply(editing.included ? 'remove' : 'restore')}>{editing.included ? 'Retirer cette ligne de la préparation' : 'Rétablir cette ligne'}</Button>}
           </fieldset>

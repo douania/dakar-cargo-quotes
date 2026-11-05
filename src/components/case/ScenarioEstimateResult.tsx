@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { QuotationBasis } from "./QuotationBasis";
 import { SourceText } from "@/components/SourceText";
 import { sourcePresentation } from "@/lib/sourcePresentation";
@@ -22,6 +23,11 @@ export interface SelectedScenarioEstimate {
 const isStayLine = (line: EstimateLine) => /^(Magasinage|Surestaries)$/i.test(String(line.category ?? "")) ||
   /^(warehouse_franchise|demurrage_estimate)/.test(String(line.id ?? ""));
 
+const isInternalFee = (line: EstimateLine) => {
+  const canonical = line.canonical && typeof line.canonical === "object" ? line.canonical as EstimateLine : {};
+  return line.bloc === "honoraires" || ["AGENCY", "CUSTOMS_DAKAR"].includes(String(canonical.service_key ?? line.category ?? "").toUpperCase());
+};
+
 /** Presentation only: no amount, fact, tariff or persisted status is changed. */
 function pendingFamily(line: EstimateLine) {
   const canonical = line.canonical && typeof line.canonical === "object" ? line.canonical as EstimateLine : {};
@@ -33,14 +39,16 @@ function pendingFamily(line: EstimateLine) {
   return { key, label: String(line.description ?? line.category ?? "Prestation à préciser").split(" — ")[0], action: "Consulter la réserve du poste" };
 }
 export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdopted }: { onAdopted?: () => void; estimate: SelectedScenarioEstimate; onReview?: () => void; onStayReview?: () => void }) {
+  const detailsId = `estimate-service-details-${useId()}`;
   const { run, pending, error } = estimate;
   const lines = Array.isArray(run?.tariff_lines) ? run.tariff_lines as EstimateLine[] : [];
   const stayLines = lines.filter(isStayLine);
-  const families = new Map<string, { label: string; action: string; count: number; scenario: boolean }>();
-  for (const line of lines.filter(line => !isPricedEstimateLine(line) && !isExcludedEstimateLine(line))) {
+  const families = new Map<string, { label: string; action: string; count: number; scenario: boolean; lineIndex: number }>();
+  for (const [lineIndex, line] of lines.entries()) {
+    if (isPricedEstimateLine(line) || isExcludedEstimateLine(line)) continue;
     const family = pendingFamily(line);
     const previous = families.get(family.key);
-    families.set(family.key, { ...family, count: (previous?.count ?? 0) + 1, scenario: family.key === "PAD" || family.key === "THC" });
+    families.set(family.key, { ...family, count: (previous?.count ?? 0) + 1, scenario: family.key === "PAD" || family.key === "THC", lineIndex: previous?.lineIndex ?? lineIndex });
   }
   const reservationGroups = classifyEstimateReservations({
     lines,
@@ -58,8 +66,15 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
       {run.status === "success" ? <>
         <p className="font-semibold text-lg">{run.qualification === "partial" ? "Sous-total indicatif des postes chiffrés" : "Total indicatif avec hypothèses"} : HT {formatScenarioPricingAmount(run.indicative_total_ht, run.currency)} · TTC {formatScenarioPricingAmount(run.indicative_total_ttc, run.currency)}</p>
         <p className="text-sm text-muted-foreground">Estimation non ferme, distincte du devis confirmé. Les postes à confirmer ne sont pas gratuits.</p>
+        <p role="note" aria-label="Périmètre des frais" className="text-sm text-muted-foreground">
+          Les frais absents de cette liste ne sont pas réputés inclus. Avant tout complément, vérifiez qu'il est applicable, documenté et non déjà compris dans un poste chiffré. Les lignes de ce résultat enregistré ne se modifient pas ici. Les compléments ne peuvent pas être saisis dans cette estimation. La préparation commerciale porte sur une version de devis distincte et ne complète pas automatiquement ce scénario.
+        </p>
+        {lines.some(line => isInternalFee(line) && isPricedEstimateLine(line)) && <section aria-label="Honoraires internes à vérifier" className="rounded border p-3 space-y-1 text-sm">
+          <h4 className="font-medium">Honoraires internes à vérifier</h4>
+          <p>Un montant chiffré ne prouve ni que son barème est définitif, ni que d'autres frais sont inclus. Vérifiez la règle appliquée et son périmètre avant tout complément.</p>
+        </section>}
         <OperatorBasisAdoption estimate={estimate} onAdopted={onAdopted} onReview={onReview} />
-        {lines.length > 0 && <div id="estimate-service-details" className="overflow-x-auto rounded border"><table className="w-full text-sm">
+        {lines.length > 0 && <div id={detailsId} className="overflow-x-auto rounded border"><table className="w-full text-sm">
           <caption className="sr-only">Prestations de cette estimation</caption>
           <thead><tr><th className="text-left p-2">Prestation</th><th className="text-right p-2 whitespace-nowrap">Montant</th><th className="text-left p-2">Base</th><th className="text-left p-2">Statut</th><th className="text-left p-2">Détail</th></tr></thead>
           <tbody>{lines.map((line, i) => {
@@ -67,10 +82,17 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
             const reference = typeof source.reference === "string" ? source.reference : null;
             const note = typeof line.notes === "string" ? line.notes : null;
             const hasDetails = Boolean(note || reference || isStayLine(line));
-            return <tr className="border-t align-top" data-estimate-status={isPricedEstimateLine(line) || isExcludedEstimateLine(line) ? "settled" : "pending"} key={`${String(line.id ?? "line")}-${i}`}>
+            return <tr id={`${detailsId}-${i}`} data-estimate-line-index={i} className="border-t align-top" data-estimate-status={isPricedEstimateLine(line) || isExcludedEstimateLine(line) ? "settled" : "pending"} key={`${String(line.id ?? "line")}-${i}`}>
               <td className="p-2">{String(line.description ?? line.category ?? "Prestation")}</td>
               <td className="text-right p-2 whitespace-nowrap">{isExcludedEstimateLine(line) ? "Exclu sous hypothèse" : isPricedEstimateLine(line) ? formatScenarioPricingAmount(line.amount as number, String(line.currency ?? run.currency)) : "À confirmer"}</td>
-              <td className="p-2 min-w-[12rem] max-w-sm break-words">{isMachineReference(estimateLineBase(line)) ? "Référence tarifaire (voir Détail)" : sourcePresentation(estimateLineBase(line)).text}</td>
+              <td className="p-2 min-w-[12rem] max-w-sm break-words">
+                {isMachineReference(estimateLineBase(line)) ? "Référence tarifaire (voir Détail)" : sourcePresentation(estimateLineBase(line)).text}
+                {isInternalFee(line) && isPricedEstimateLine(line) && <div className="mt-1 text-xs">
+                  {typeof source.rule_label === "string" && source.rule_label.trim()
+                    ? <><span>Règle appliquée :</span><p className="whitespace-pre-wrap break-words">{source.rule_label}</p></>
+                    : <p>Caractère définitif du barème non attesté dans ce résultat.</p>}
+                </div>}
+              </td>
               <td className="p-2 whitespace-nowrap">{estimateLineStatus(line)}</td>
               <td className="p-2">{hasDetails ? <details>
                 <summary className="cursor-pointer whitespace-nowrap">Détail</summary>
@@ -132,9 +154,14 @@ export function ScenarioEstimateResult({ estimate, onReview, onStayReview, onAdo
           <ul className="space-y-2">{Array.from(families.entries()).map(([key, item]) => <li key={key} className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span>{item.label} — {item.count} poste{item.count > 1 ? "s" : ""} non chiffré{item.count > 1 ? "s" : ""}</span>
             {item.scenario && onReview ? <Button size="sm" variant="outline" className="h-auto min-h-9 max-w-full whitespace-normal text-left" onClick={onReview} disabled={pending}>{item.action}</Button>
-              : <a className="underline" href="#estimate-service-details" onClick={event => {
-                 const details = event.currentTarget.closest("section[aria-label='Résultat de l’estimation sélectionnée']")?.querySelector<HTMLDetailsElement>("#estimate-service-details tr[data-estimate-status='pending'] details");
-                if (details) details.open = true;
+              : <a className="underline" href={`#${detailsId}-${item.lineIndex}`} onClick={event => {
+                 const details = event.currentTarget.closest("section[aria-label='Résultat de l’estimation sélectionnée']")?.querySelector<HTMLDetailsElement>(`tr[data-estimate-line-index='${item.lineIndex}'] details`);
+                if (details) {
+                  // Keep the opened summary focused instead of the fragment target.
+                  event.preventDefault();
+                  details.open = true;
+                  details.querySelector("summary")?.focus();
+                }
               }}>{item.action}</a>}
           </li>)}</ul>
         </section>}

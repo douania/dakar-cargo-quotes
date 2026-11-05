@@ -41,3 +41,22 @@ Deno.test('commercial handler refuses non-owner and stale context before inserti
  await withFetch(true,async calls=>{assertEquals((await handleCommercialPreparation(request(body()))).status,403);assert(!calls.some(c=>c.url.includes('/rpc/commercial_store')));},true);
  await withFetch(true,async calls=>{assertEquals((await handleCommercialPreparation(request({...body(),context_hash:'stale'}))).status,409);assert(!calls.some(c=>c.url.includes('/rpc/commercial_store')));});
 });
+
+
+Deno.test('commercial handler retains reviewed additions with server actor and excludes malformed review before store',async()=>{
+ const review={schema_version:1,source_reference:'Synthetic supplier reference',scope:'Synthetic lot and distinct service',applicable:true,not_already_included:true};
+ const value={...body(),operations:[{operation_id:op,action:{type:'add',line_id:'operator:synthetic',label:'Synthetic complement',kind:'additional',amount:200,basis:'taxes_included',reason:'Synthetic operator decision for this scope',addition_review:review}}]};
+ await withFetch(true,async calls=>{
+  assertEquals((await handleCommercialPreparation(request(value))).status,200);
+  const stored=calls.find(c=>c.url.includes('/rpc/commercial_store'))!.body;
+  assertEquals(stored.p_actor,uid);
+  const draft=stored.p_draft as {lines:Array<Record<string,unknown>>;events:Array<Record<string,unknown>>};
+  assertEquals(draft.lines[1].addition_review,review);
+  assertEquals((draft.events[0].action as Record<string,unknown>).addition_review,review);
+ });
+ await withFetch(true,async calls=>{
+  const invalid=structuredClone(value);invalid.operations[0].action.addition_review.not_already_included=false;
+  assertEquals((await handleCommercialPreparation(request(invalid))).status,400);
+  assert(!calls.some(c=>c.url.includes('/rpc/commercial_store')));
+ });
+});

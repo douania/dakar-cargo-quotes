@@ -261,3 +261,90 @@ it.each(["calculated", "unpriced", "mixed", "zero"] as const)(
     expect(JSON.stringify(e)).toBe(before);
   },
 );
+
+it("opens the requested empty-return reserve instead of an earlier storage reserve", async () => {
+  const e = estimate();
+  e.run!.tariff_lines = [
+    { id: "warehouse_franchise_a", category: "Magasinage", description: "Magasinage A", amount: null, notes: "Franchise à renseigner", source: { type: "TO_CONFIRM" } },
+    { id: "return-b", category: "EMPTY_RETURN", description: "Retour des vides B", amount: null, notes: "Dépôt de restitution à confirmer", source: { type: "TO_CONFIRM" } },
+  ];
+  const before = JSON.stringify(e);
+  render(<ScenarioEstimateResult estimate={e} />);
+  await userEvent.click(screen.getByRole("link", { name: "Consulter les conditions à confirmer" }));
+  const table = screen.getByRole("table", { name: "Prestations de cette estimation" });
+  const returned = within(table).getByText("Retour des vides B").closest("tr")!;
+  const storage = within(table).getByText("Magasinage A").closest("tr")!;
+  expect(returned.querySelector("details")).toHaveAttribute("open");
+  expect(storage.querySelector("details")).not.toHaveAttribute("open");
+  expect(returned.querySelector("summary")).toHaveFocus();
+  expect(JSON.stringify(e)).toBe(before);
+});
+
+it("uses separate reserve targets when two results are displayed together", () => {
+  const first = estimate(); const second = estimate(); second.title = "Autre scénario";
+  render(<><ScenarioEstimateResult estimate={first} /><ScenarioEstimateResult estimate={second} /></>);
+  const links = screen.getAllByRole("link", { name: "Consulter les postes et tarifs manquants" });
+  expect(links[0].getAttribute("href")).not.toBe(links[1].getAttribute("href"));
+  for (const link of links) {
+    const target = document.getElementById(link.getAttribute("href")!.slice(1));
+    expect(target).not.toBeNull();
+    expect(link.closest("section[aria-label='Résultat de l’estimation sélectionnée']") ?? link.closest("section[aria-label]"))
+      .toContainElement(target);
+  }
+});
+
+it("shows the retained fee rule label and warns honestly when historical fee provenance is incomplete", () => {
+  const e = estimate();
+  e.run!.tariff_lines = [
+    { id: "fee-a", bloc: "honoraires", category: "AGENCY", description: "Agence synthétique", amount: 400,
+      source: { type: "validated_internal", reference: "fee_rules:synthetic-a", rule_label: "Forfait provisoire import" } },
+    { id: "fee-b", bloc: "honoraires", category: "CUSTOMS_DAKAR", description: "Douane synthétique", amount: 600,
+      source: { type: "validated_internal", reference: "fee_rules:synthetic-b" } },
+  ];
+  const before = JSON.stringify(e);
+  render(<ScenarioEstimateResult estimate={e} />);
+  expect(screen.getByRole("region", { name: "Honoraires internes à vérifier" })).toBeVisible();
+  const table = screen.getByRole("table", { name: "Prestations de cette estimation" });
+  expect(within(within(table).getByText("Agence synthétique").closest("tr")!).getByText("Forfait provisoire import")).toBeVisible();
+  expect(within(within(table).getByText("Douane synthétique").closest("tr")!).getByText("Caractère définitif du barème non attesté dans ce résultat.")).toBeVisible();
+  expect(screen.getByText(/Sous-total indicatif/)).toHaveTextContent(/1\s*000/);
+  expect(JSON.stringify(e)).toBe(before);
+});
+
+it("makes absent-fee coverage explicit without adding mandatory fees, prices or editable totals", () => {
+  const e = estimate(); e.run!.tariff_lines = [{ id: "one", description: "Prestation attestée", amount: 1000, source: { type: "official" } }];
+  const before = JSON.stringify(e);
+  render(<ScenarioEstimateResult estimate={e} />);
+  expect(screen.getByRole("note", { name: "Périmètre des frais" })).toHaveTextContent("Les frais absents de cette liste ne sont pas réputés inclus");
+  expect(screen.getByRole("note", { name: "Périmètre des frais" })).toHaveTextContent("non déjà compris");
+  expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Honoraires internes à vérifier" })).not.toBeInTheDocument();
+  expect(JSON.stringify(e)).toBe(before);
+});
+
+it("preserves the exact retained rule label, including reservations and literal markup, without interpreting it", () => {
+  const e = estimate();
+  const label = "  Forfait (TO_CONFIRM) per_container lot-1 <script>synthetic</script>  ";
+  e.run!.tariff_lines = [{ id: "fee-label", bloc: "honoraires", category: "AGENCY", description: "Agence libellé exact", amount: 1000,
+    source: { type: "validated_internal", rule_label: label } }];
+  const before = JSON.stringify(e);
+  render(<ScenarioEstimateResult estimate={e} />);
+  const row = within(screen.getByRole("table")).getByText("Agence libellé exact").closest("tr")!;
+  const displayed = within(row).getByText((_text, element) => element?.tagName === "P" && element.textContent === label);
+  expect(displayed).toBeVisible();
+  expect(displayed.textContent).toBe(label);
+  expect(displayed.querySelector("script")).toBeNull();
+  expect(JSON.stringify(e)).toBe(before);
+});
+
+
+it("explains that commercial additions cannot alter the retained scenario estimate", () => {
+  const e = estimate(), before = JSON.stringify(e);
+  render(<ScenarioEstimateResult estimate={e} />);
+  const coverage = screen.getByRole("note", { name: "Périmètre des frais" });
+  expect(coverage).toHaveTextContent("Les compléments ne peuvent pas être saisis dans cette estimation");
+  expect(coverage).toHaveTextContent("ne complète pas automatiquement ce scénario");
+  expect(screen.queryByRole("button", { name: "Ajouter une rubrique" })).not.toBeInTheDocument();
+  expect(JSON.stringify(e)).toBe(before);
+});

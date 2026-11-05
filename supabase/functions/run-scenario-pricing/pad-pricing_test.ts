@@ -83,3 +83,42 @@ Deno.test("v3 fees: fixed fee once across groups; missing CAF remains unpriced; 
   assertEquals(foreign[0].amount, null);
   assertEquals((foreign[0].source as Record<string, unknown>).reference, "FEE_CURRENCY_UNSUPPORTED");
 });
+
+Deno.test("scenario fees retain only the applied rule label without changing prices, VAT or duplicate handling", () => {
+  const cargo = { schema_version: 2, cargo_units: [unit("a")] } as ScenarioCargoContext;
+  const args = { facts: [], cargo, containers: [{ type: "20HQ", quantity: 2 }], weightKg: 30000, today: "2026-09-15",
+    requested: ["AGENCY", "AGENCY", "CUSTOMS_DAKAR", "INSURANCE"],
+    lines: [{ id: "fee-a", code: "AGENCY", label_fr: "Agence", vat_applicable: true, is_active: true }],
+    rules: [{ id: "rule-a", fee_line_id: "fee-a", method: "FIXED", amount: 1000, currency: "XOF", effective_from: "2025-01-01", is_active: true }] };
+  const withoutLabel = priceScenarioFees(args);
+  const withLabelArgs = { ...args, rules: [{ ...args.rules[0], label: "  Forfait provisoire (TO_CONFIRM) per_container lot-1  " }] };
+  const before = JSON.stringify(withLabelArgs);
+  const labelled = priceScenarioFees(withLabelArgs);
+  assertEquals(labelled.length, 2);
+  assertEquals((labelled[0].source as Record<string, unknown>).rule_label, "  Forfait provisoire (TO_CONFIRM) per_container lot-1  ");
+  assertEquals((labelled[1].source as Record<string, unknown>).rule_label, undefined);
+  const stripped = labelled.map(line => {
+    const source = { ...(line.source as Record<string, unknown>) };
+    delete source.rule_label;
+    return { ...line, source };
+  });
+  assertEquals(stripped, withoutLabel);
+  const { lines: labelledLines, ...labelledTotals } = computeScenarioTotals(labelled, new Set(["scenario.cargo_units"]));
+  const { lines: baseLines, ...baseTotals } = computeScenarioTotals(withoutLabel, new Set(["scenario.cargo_units"]));
+  assertEquals(labelledTotals, baseTotals);
+  assertEquals(labelledLines.map(line => {
+    const source = { ...(line.source as Record<string, unknown>) };
+    delete source.rule_label;
+    return { ...line, source };
+  }), baseLines);
+  assertEquals(JSON.stringify(withLabelArgs), before);
+  for (const label of [null, "", "   "]) {
+    const lines = priceScenarioFees({ ...args, rules: [{ ...args.rules[0], label }] });
+    assertEquals((lines[0].source as Record<string, unknown>).rule_label, undefined);
+  }
+  for (const patch of [{ currency: "USD" }, { effective_to: "2025-01-02" }, { is_active: false }]) {
+    const lines = priceScenarioFees({ ...args, rules: [{ ...args.rules[0], label: "Forfait provisoire import", ...patch }] });
+    assertEquals(lines[0].amount, null);
+    assertEquals((lines[0].source as Record<string, unknown>).rule_label, undefined);
+  }
+});

@@ -4223,6 +4223,18 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Aucun appel Cloud/IA/IMAP, donnée métier modifiée, envoi, migration, commit/push ou déploiement ; aperçu Lovable non recompilé et correction runtime non installée sous ce GO.
 - Preuves et patch isolé : task/run-pricing-type-local/verification.json,fix.patch,head-based.patch ; retour inverse vérifié sans application, préserver tous les travaux antérieurs. Toute publication/activation exige un accord distinct.
 
+## 2.82 Lisibilité des frais et réserves de scénario - 4 novembre 2026 (local uniquement)
+
+- GO local courant : vérifier affichage/compléments de frais, sans donnée réelle, génération connectée, publication ou déploiement ; HEAD/origin restent8f7f3d1, autres travaux préservés.
+- Défauts reproduits :4tests UI FAIL avant, libellé de règle perdu FAIL comportemental typé ; réserves présentes mais lien ciblait le premier poste. Métadonnée structurelle justifiée avant écriture, aucune formule/tarif modifié.
+- Quatre fichiers techniques : résultat UI+test, fee-pricing+test PAD ; provenance source.rule_label exacte de la seule règle retenue/chiffrée/XOF, pas de notes privées ni classification inférée. Ancien résultat sans libellé reste non attesté et immuable.
+- UI : avertissement frais absents/inclusion non prouvée, vérification des honoraires, réserve exacte et focus clavier ; aucun prix ajouté, nouveau champ de montant, obligation des5postes comparatifs ou parcours fictif.
+- CI finale stabilisée PASS_WITH_BASELINE :1593Vitest/3082Deno/0échec/6ignorés, types47/4 et lint709/16 ;26UI/6Deno ciblés PASS. Empreintes avant/après CI identiques, contrôles config/bundles/type/build PASS.
+- Navigateur Chrome synthétique isolé : états anciens/pending/échec/vide/bloqué, clic/Entrée/focus SUMMARY,390px sans débordement page/table interne. CSP connect-src none et invoke stub ; aucun dossier réel ouvert. Style initial du banc corrigé avant preuves finales.
+- Contre-revue indépendante ciblée PASS après correction du libellé reformulé ; contre-exécution sandbox NOT_RUN. Audit UI global strict non conforme116constats hérités,0constat cible/0aggravation ; pas de nouveaux DESIGN/UX docs sous ce GO borné.
+- PARTIAL métier : séjour complétable par hypothèses guidées liées puis calcul distinct ; pas de saisie libre des5frais absents dans ce résultat. Nécessité/inclusion/source/dédoublonnage à qualifier ; aucune grille inventée ni garantie de complétude globale.
+- Source locale seulement : frontend+run-scenario-pricing seraient à livrer sous GO distinct ; ancien calculd355644c non recalculé/réécrit. Aucun commit/push/Edge/SQL/IMAP/IA/envoi. Preuves : task/scenario-operator-local/verification.json ; retour local par patch inverse isolé, sans écraser travaux voisins.
+
 ## 2.83 Génération : identité et conservation des consignes - 4 novembre 2026 (local uniquement)
 
 - GO précis local : corriger authentification interne et propagation du refus, tests synthétiques/contre-revue ; aucun commit, push, déploiement, appel connecté ou changement métier.
@@ -4296,3 +4308,19 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Aucun dossier synthétique connecté créé : IDs/contenus neufs et zéroPJ isoleraient la cible, mais corpus, tarifs, profils et compteurs partagés restent à inventorier avant essai ; aucune prétention d’isolement global.
 - Préalables futurs : migration puis generate-response avant admission V2, quarantaine durable des anciennes cibles non confirmées ; garde/trace conservés au rollback, aucune suppression ni downgrade contournant le registre.
 - Preuves et manifeste exact dans task/generation-recipe-ledger-integration-local ;16 fichiers dont cette seule note sur base publiée. HEAD/GitHubfa5d585, index vide, autres travaux préservés. Aucun commit/push/déploiement/politique/génération réelle ;0crédit Lovable nouveau.
+
+## 2.92 Qualification des compléments commerciaux — 5 novembre 2026 (local uniquement)
+
+- Demande de reprise DCQ : préserver le blocage V2 et traiter les frais/réserves ; work/be94c7a aligné au préflight, aucun commit/push/Cloud ni dossier réel modifié.
+- Lot antérieur§2.82 conservé : libellé exact de la règle retenue, honoraires non certifiés, réserve ciblée et absence de frais non assimilée à une inclusion.
+- Nouvel ajout commercial : source et périmètre, applicabilité et vérification des inclusions requis dans l’éditeur ; homonymes avec montants/statuts visibles, aucune équivalence ou fusion automatique.
+- Attestation interne addition_review additive, strictement validée lorsqu’elle est fournie ; copiée dans ligne/action/événement, acteur serveur et rejeu inchangés, jamais projetée au devis client. Ancien add sans attestation reste compatible.
+- Qualification déclarative uniquement : ni preuve documentaire automatique, ni garantie universelle de non-double-compte, ni cinq prestations comparatives obligatoires. Aucun taux, montant, TVA, sélection de règle ou formule modifié.
+- Résultat scénario explicitement non éditable ; préparation commerciale distincte. Voie existante à recetter séparément : préparer le devis sur ces bases → version canonique mono-lot sélectionnée/courante → décisions commerciales. Aucun fait historique promu ou réécrit ici.
+- CI locale exit0 :1716Vitest,3355Deno/0échec/6ignorés, types47/4 et lint709/16 sans aggravation, config/bundles/type/build PASS. Régressions avant :5UI et11Deno FAIL ; après correction PASS.
+- Contre-revue indépendante PASS :38UI et27Deno contre-exécutés, données synthétiques, pas de réseau Deno. Navigateur réel localhost : qualification/saisie/focus/clavier, verrouillé/vide et scénario ;390px sans débordement page, menu325px égal au déclencheur.
+- Audit UI strict116constats hérités identiques,0nouveau ; faux positif Radix Select inchangé, aucune conformité globale. DESIGN/UX docs non créés dans ce lot borné conformément au dépôt.
+- Périmètre combiné :9fichiers techniques (dont4du lot antérieur) et roadmap ;5nouveaux fichiers touchés hors lot précédent, aucune migration/ACL/Auth/RLS/configuration. Travaux voisins byte-identiques.
+- PARTIAL métier : qualification/inclusion/source/TVA propres aux frais réels et chaîne sauvegarde/relecture/version de ce parcours restent NOT_RUN connecté. Ancien résultat20 et faits50 inchangés ; PDF externe non injecté, aucune IA/envoi.
+- Livraison éventuelle : frontend puis manage-commercial-preparation et run-scenario-pricing ciblées, contrôle CI/synchronisation/compatibilité ; aucune publication/déploiement effectué ici. Retour local : inverse du seul delta depuis sauvegardes, conserver historiques et travaux voisins.
+- Preuves/manifeste/patch : task/scenario-fee-completion-local/verification.json ; coût Lovable/IA observé pour ce lot :0, aucune opération distante.

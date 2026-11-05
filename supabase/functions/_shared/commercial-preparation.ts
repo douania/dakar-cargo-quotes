@@ -5,6 +5,14 @@ import { resolveAirTariff, type AirTariffState } from './air-tariff.ts';
 type Row = Record<string, unknown>;
 export type CommercialAmountBasis = 'before_sodatra_vat' | 'taxes_included' | 'unknown';
 export type CommercialKind = 'source' | 'additional' | 'customs_estimate' | 'storage_estimate';
+/** Internal operator attestation, not tariff proof or machine-certified coverage. */
+export interface CommercialAdditionReview {
+  schema_version: 1;
+  source_reference: string;
+  scope: string;
+  applicable: true;
+  not_already_included: true;
+}
 export interface CommercialLine {
   id: string;
   label: string;
@@ -16,10 +24,11 @@ export interface CommercialLine {
   amount_basis: CommercialAmountBasis;
   status: 'source' | 'estimated' | 'to_confirm';
   reason: string;
+  addition_review?: CommercialAdditionReview;
 }
 export type CommercialAction =
   | { type: 'edit'; line_id: string; amount: number | null; basis: CommercialAmountBasis; reason: string }
-  | { type: 'add'; line_id: string; label: string; kind: Exclude<CommercialKind, 'source'>; amount: number | null; basis: CommercialAmountBasis; reason: string }
+  | { type: 'add'; line_id: string; label: string; kind: Exclude<CommercialKind, 'source'>; amount: number | null; basis: CommercialAmountBasis; reason: string; addition_review?: CommercialAdditionReview }
   | { type: 'remove' | 'restore'; line_id: string; reason: string }
   | { type: 'storage'; line_id: string; tariff_key: string; weight_fact_id: string; billable_days: number | null; reason: string };
 export interface CommercialEvent {
@@ -46,6 +55,15 @@ const amount = (n: unknown): number | null => validAmount(n) ? n : null;
 const bases: CommercialAmountBasis[] = ['before_sodatra_vat', 'taxes_included', 'unknown'];
 const kinds: CommercialKind[] = ['source', 'additional', 'customs_estimate', 'storage_estimate'];
 const copy = <T,>(v: T): T => structuredClone(v);
+
+/** Optional only for compatibility with saved/older actions. A supplied review must be complete. */
+export function validateCommercialAdditionReview(value: unknown): asserts value is CommercialAdditionReview {
+  const review = row(value);
+  if (review.schema_version !== 1 || Object.keys(review).sort().join(',') !== 'applicable,not_already_included,schema_version,scope,source_reference') throw new Error('Qualification du complément invalide');
+  if (typeof review.source_reference !== 'string' || review.source_reference.trim().length < 3 || review.source_reference.length > 500) throw new Error('Référence de source de 3 à 500 caractères requise');
+  if (typeof review.scope !== 'string' || review.scope.trim().length < 3 || review.scope.length > 500) throw new Error('Périmètre du complément de 3 à 500 caractères requis');
+  if (review.applicable !== true || review.not_already_included !== true) throw new Error('Applicabilité et absence de double compte à attester');
+}
 
 export function parseCommercialAmount(value: string): number | null {
   const compact = value.replace(/[\s\u00a0\u202f]/g, '');
@@ -113,8 +131,10 @@ export function reviseCommercialPreparation(
   if (action.type === 'add') {
     if (line || next.lines.length >= 100 || action.line_id.startsWith('source:')) throw new Error('Ajout de ligne invalide');
     if (!action.label.trim() || action.label.length > 160 || !kinds.includes(action.kind) || action.kind === ('source' as CommercialKind)) throw new Error('Libellé ou nature invalide');
+    if (action.addition_review !== undefined) validateCommercialAdditionReview(action.addition_review);
     line = { id: action.line_id, label: action.label.trim(), kind: action.kind, included: true, original: null, supplier: null,
-      client_amount_xof: null, amount_basis: 'unknown', status: 'to_confirm', reason: action.reason.trim() };
+      client_amount_xof: null, amount_basis: 'unknown', status: 'to_confirm', reason: action.reason.trim(),
+      ...(action.addition_review !== undefined ? { addition_review: copy(action.addition_review) } : {}) };
     next.lines.push(line);
   } else if (!line) throw new Error('Ligne absente de la préparation');
   if (!line) throw new Error('Ligne requise');

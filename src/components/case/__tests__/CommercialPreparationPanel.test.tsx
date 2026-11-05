@@ -19,6 +19,14 @@ async function select(label: string, option: string) {
   fireEvent.click(await screen.findByRole('option', { name: option }));
 }
 
+
+async function qualifyAddition() {
+  fireEvent.change(screen.getByLabelText('Référence de source du complément'), { target: { value: 'Source fournisseur synthétique test' } });
+  fireEvent.change(screen.getByLabelText('Périmètre du complément'), { target: { value: 'Lot synthétique distinct, prestation documentée' } });
+  fireEvent.click(screen.getByRole('checkbox', { name: /s’applique/ }));
+  fireEvent.click(screen.getByRole('checkbox', { name: /déjà comprise/ }));
+}
+
 describe('Commercial preparation component, no backend mutation', () => {
   it('separates source cost from customer amount and announces local/non-durable state', () => {
     render(<CommercialPreparationPanel initial={initial()} actorId="fictional-operator"/>);
@@ -70,6 +78,7 @@ describe('Commercial preparation component, no backend mutation', () => {
     const changed = vi.fn(); render(<CommercialPreparationPanel initial={initial()} actorId="fictional-operator" onDraftChanged={changed}/>);
     fireEvent.click(screen.getByRole('button', { name: 'Ajouter une rubrique' }));
     fireEvent.change(screen.getByLabelText('Libellé de la rubrique'), { target: { value: 'Provision douane' } });
+    await qualifyAddition();
     await select('Nature', 'Provision droits et taxes');
     fireEvent.change(screen.getByLabelText(/Montant client en FCFA/), { target: { value: '150000' } });
     await select('Base du montant client', 'Taxes comprises');
@@ -96,6 +105,7 @@ describe('Commercial preparation component, no backend mutation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retenir dans la préparation' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ajouter une rubrique' }));
     fireEvent.change(screen.getByLabelText('Libellé de la rubrique'), { target: { value: 'Autre prestation' } });
+    await qualifyAddition();
     fireEvent.change(screen.getByLabelText(/Montant client en FCFA/), { target: { value: '1' } });
     await select('Base du montant client', 'Taxes comprises');
     fireEvent.change(screen.getByLabelText('Justification et source de l’estimation'), { target: { value: reason } });
@@ -112,4 +122,57 @@ describe('Commercial preparation component, no backend mutation', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(opener).toHaveFocus();
   });
+});
+
+it('requires explicit source, scope, applicability and overlap review for a new complementary line without losing entered amount', async () => {
+  const changed = vi.fn(); render(<CommercialPreparationPanel initial={initial()} actorId="fictional-operator" onDraftChanged={changed}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Ajouter une rubrique' }));
+  fireEvent.change(screen.getByLabelText('Libellé de la rubrique'), { target: { value: 'Assurance synthétique' } });
+  fireEvent.change(screen.getByLabelText(/Montant client en FCFA/), { target: { value: '250' } });
+  await select('Base du montant client', 'Taxes comprises');
+  fireEvent.change(screen.getByLabelText('Justification et source de l’estimation'), { target: { value: reason } });
+  const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Retenir dans la préparation' }));
+  submit(); expect(screen.getByRole('alert')).toHaveTextContent(/source du complément/);
+  expect(screen.getByLabelText('Référence de source du complément')).toHaveFocus();
+  fireEvent.change(screen.getByLabelText('Référence de source du complément'), { target: { value: 'Devis fournisseur synthétique' } });
+  submit(); expect(screen.getByRole('alert')).toHaveTextContent(/périmètre du complément/);
+  expect(screen.getByLabelText('Périmètre du complément')).toHaveFocus();
+  fireEvent.change(screen.getByLabelText('Périmètre du complément'), { target: { value: 'Lot synthétique A, trajet précis' } });
+  submit(); expect(screen.getByRole('alert')).toHaveTextContent(/prestation est applicable/);
+  expect(screen.getByRole('checkbox', { name: /s’applique/ })).toHaveFocus();
+  fireEvent.click(screen.getByRole('checkbox', { name: /s’applique/ }));
+  submit(); expect(screen.getByRole('alert')).toHaveTextContent(/inclusions/);
+  expect(screen.getByRole('checkbox', { name: /déjà comprise/ })).toHaveFocus();
+  expect(screen.getByLabelText(/Montant client en FCFA/)).toHaveValue('250'); expect(changed).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('checkbox', { name: /déjà comprise/ })); submit();
+  expect(changed).toHaveBeenCalledTimes(1);
+  const draft = changed.mock.calls[0][0];
+  expect(draft.lines.at(-1)).toMatchObject({ client_amount_xof: 250, status: 'estimated', addition_review: { scope: 'Lot synthétique A, trajet précis', source_reference: 'Devis fournisseur synthétique' } });
+  expect(screen.getByText(/aucune vérification automatique du contenu/)).toBeInTheDocument();
+});
+
+it('warns about an included matching label without inferring equivalent coverage or inventing a price', async () => {
+  const changed = vi.fn(); render(<CommercialPreparationPanel initial={initial()} actorId="fictional-operator" onDraftChanged={changed}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Ajouter une rubrique' }));
+  fireEvent.change(screen.getByLabelText('Libellé de la rubrique'), { target: { value: '  HÓNORAIRES  ' } });
+  expect(screen.getByText(/Libellé déjà présent/)).toHaveTextContent('Honoraires');
+  expect(screen.getByText(/Libellé déjà présent/)).toHaveTextContent('ne prouve pas un même périmètre');
+  expect(screen.getByLabelText(/Montant client en FCFA/)).toHaveValue('');
+  await qualifyAddition();
+  fireEvent.change(screen.getByLabelText('Justification et source de l’estimation'), { target: { value: reason } });
+  fireEvent.click(screen.getByRole('button', { name: 'Retenir dans la préparation' }));
+  expect(changed.mock.calls[0][0].lines.at(-1)).toMatchObject({ client_amount_xof: null, status: 'to_confirm' });
+});
+
+it('resets addition attestations after cancel and keeps existing line edits on their original workflow', async () => {
+  render(<CommercialPreparationPanel initial={initial()} actorId="fictional-operator"/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Ajouter une rubrique' })); await qualifyAddition();
+  fireEvent.click(screen.getByRole('button', { name: 'Annuler' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Ajouter une rubrique' }));
+  expect(screen.getByRole('checkbox', { name: /s’applique/ })).not.toBeChecked();
+  expect(screen.getByRole('checkbox', { name: /déjà comprise/ })).not.toBeChecked();
+  expect(screen.getByLabelText('Référence de source du complément')).toHaveValue('');
+  fireEvent.click(screen.getByRole('button', { name: 'Annuler' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Modifier Honoraires' }));
+  expect(screen.queryByLabelText('Référence de source du complément')).not.toBeInTheDocument();
 });

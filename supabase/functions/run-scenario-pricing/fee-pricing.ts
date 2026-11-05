@@ -19,7 +19,8 @@ export function priceScenarioFees(args: {
   return [...new Set(args.requested)].filter(key => ["AGENCY", "CUSTOMS_DAKAR"].includes(key)).map(key => {
     const matching = args.lines.filter(l => l.code === key && l.is_active === true);
     const resolution = matching.length === 1 ? resolveFeeLine(matching[0], args.rules, context) : null;
-    const currencySupported = args.rules.find(r => r.id === resolution?.ruleId)?.currency === "XOF";
+    const appliedRule = args.rules.find(r => r.id === resolution?.ruleId);
+    const currencySupported = appliedRule?.currency === "XOF";
     const priced = resolution?.status === "RESOLVED" && resolution.amount !== null && currencySupported;
     const foreignCurrency = resolution?.status === "RESOLVED" && !currencySupported;
     const skipped = resolution?.status === "SKIPPED";
@@ -30,6 +31,10 @@ export function priceScenarioFees(args: {
       source: { type: priced ? "validated_internal" : skipped ? "EXCLUDED_BY_RULE" : "TO_CONFIRM",
         reference: priced ? `fee_rules:${resolution.ruleId}` : foreignCurrency ? "FEE_CURRENCY_UNSUPPORTED" : resolution?.reason ?? (skipped ? "Non facturé selon le paramétrage de la ligne" : "FEE_LINE_UNAVAILABLE"),
         fee_line_id: resolution?.lineId ?? null, rule_id: resolution?.ruleId ?? null,
+        // Retain the selected rule's own label (e.g. a provisional forfait), not a
+        // guessed classification or private administrative notes. Prices unchanged.
+        ...(priced && typeof appliedRule?.label === "string" && appliedRule.label.trim()
+          ? { rule_label: appliedRule.label } : {}),
         vat_applicable: resolution?.vatApplicable ?? false, confidence: priced || skipped ? 0.95 : 0 } };
   });
 }
