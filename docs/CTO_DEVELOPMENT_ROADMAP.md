@@ -4324,3 +4324,17 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - PARTIAL métier : qualification/inclusion/source/TVA propres aux frais réels et chaîne sauvegarde/relecture/version de ce parcours restent NOT_RUN connecté. Ancien résultat20 et faits50 inchangés ; PDF externe non injecté, aucune IA/envoi.
 - Livraison éventuelle : frontend puis manage-commercial-preparation et run-scenario-pricing ciblées, contrôle CI/synchronisation/compatibilité ; aucune publication/déploiement effectué ici. Retour local : inverse du seul delta depuis sauvegardes, conserver historiques et travaux voisins.
 - Preuves/manifeste/patch : task/scenario-fee-completion-local/verification.json ; coût Lovable/IA observé pour ce lot :0, aucune opération distante.
+
+## 2.94 Adoption maritime et préservation commerciale - 5 novembre 2026 (local uniquement)
+
+- GO parent : vérifier le scénario maritime20 puis corriger/tester localement sans écriture réelle ni envoi. HEAD/GitHub7d214a7 alignés, index vide, travaux voisins préservés.
+- Lecture authentique : scénario sélectionné et calcul unique non supplantés, périmètre/snapshot concordants,16faits courants identiques au snapshot, aucun calcul en cours. Aucune adoption ni version réelle exécutée.
+- Défauts reproduits : policy all_included malgré réserves, honoraires_ht absent à l’adoption, portée partial effacée après chiffrage commercial ; honoraires historiques sans validation conservée.
+- Migration locale CREATE OR REPLACE, même signature/ACL/gardes/verrous/rejeu : projection des honoraires manquants, rapprochement des montants retenus et policy des postes réservés. Aucun prix/taux/sélecteur du moteur changé ; aucun historique réécrit.
+- Générateur de version conserve partial/exclusions et signale la validation non attestée des honoraires historiques sans consulter les tarifs actuels. La composition commerciale garde les exclusions de source même si les trois lignes sont renseignées.
+- Contrat TVA existant respecté : base taxable distincte des honoraires totaux, seul booléen source.vat_applicable=false est non taxable ; marqueur et bloc honoraires conservés à la révision suivante. Aucune exonération inférée du seul total.
+- Tests négatifs avant3FAIL/aprèsPASS ; PostgreSQL isolé : concurrence, idempotence, ACL, faits/hypothèses/liens, refus atomiques HT/TVA/ligne incohérents et variantes réservées ; export SQL synthétique fourni au vrai handler puis composition commerciale PASS.
+- CI isolée complète initiale PASS1466Vitest/3358Deno/6ignorés ; reprise serveur finale3364Deno/6ignorés PASS, dette types47/4 et lint sans aggravation, preuves dans task/maritime-adoption-local/validation-final.json ; code frontend inchangé.
+- Contre-revue indépendante et tests ciblés réalisés ; périmètre six fichiers techniques plus cette note. Schéma de fixture ciblé et HTTP/JWT mockés : ne valent ni validation Cloud/RLS ni adoption authentique.
+- Dossier réel et scénario20 byte-métadonnées inchangés ; ancien calcul/zone Thiès conservé malgré transport Dakar Zone1, montants historiques non recalculés. Réserves et cinq inclusions non démontrées restent ouvertes, aucun tarif fournisseur inventé.
+- Aucune publication/migration Cloud/déploiement/IA/IMAP/PDF/brouillon/envoi/V2. Coût de contrôles Cloud readonly non exposé, aucun essaiIA/crédit agent nouveau. Mise en service future : manifeste/CI, fonctions generate-quotation-version et manage-commercial-preparation avant remplacement SQL compatible, puis recette contrôlée distincte.

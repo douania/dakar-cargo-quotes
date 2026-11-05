@@ -21,11 +21,12 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
   const pricedSource = original.filter(l => !isToConfirmLine(l) && number(l.amount));
   const originalSum = pricedSource.reduce((sum,l) => sum+(l.amount as number),0);
   const originalFees = pricedSource.filter(l=>l.bloc === 'honoraires').reduce((sum,l)=>sum+(l.amount as number),0);
-  const originalTax = commercialFeeTotals(originalSum,originalFees);
+  const originalTaxableFees = pricedSource.filter(l=>l.bloc === 'honoraires' && row(l.source).vat_applicable !== false).reduce((sum,l)=>sum+(l.amount as number),0);
+  const originalTax = commercialFeeTotals(originalSum,originalTaxableFees);
   if (!number(totals.subtotal_before_sodatra_vat) || !number(totals.honoraires_ht) || !number(totals.honoraires_tva)
     || !same(originalSum,totals.subtotal_before_sodatra_vat) || !same(originalFees,totals.honoraires_ht)
     || !same(originalTax.honorairesTva,totals.honoraires_tva)) throw new Error('Base commerciale source non rapprochable ; revue requise');
-  let subtotal = 0, fees = 0, priced = 0, unknown = 0;
+  let subtotal = 0, fees = 0, taxableFees = 0, priced = 0, unknown = 0;
   const lines = draft.lines.map((line,index) => {
     const originalLine = row(line.original);
     const inherited = line.status === 'source' && line.kind === 'source';
@@ -37,8 +38,9 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
     const value = line.included && number(line.client_amount_xof) ? line.client_amount_xof : null;
     const unresolved = line.included && (value === null || (!inherited && line.amount_basis === 'unknown'));
     if (unresolved) unknown++;
-    const taxable = inherited ? originalLine.bloc === 'honoraires' : line.amount_basis === 'before_sodatra_vat';
-    if (line.included && !unresolved && value !== null) {subtotal += value; priced++; if (taxable) fees += value;}
+    const isFee = inherited ? originalLine.bloc === 'honoraires' : line.amount_basis === 'before_sodatra_vat';
+    const taxable = isFee && (!inherited || row(originalLine.source).vat_applicable !== false);
+    if (line.included && !unresolved && value !== null) {subtotal += value; priced++; if (isFee) fees += value; if (taxable) taxableFees += value;}
     const modified = !inherited;
     const customsEstimate = line.kind === 'customs_estimate' || (modified && originalLine.category === 'CUSTOMS_RESERVE');
     // No supplier proof, internal reason, actor or purchase amount in client line data.
@@ -52,27 +54,30 @@ export function composeCommercialSnapshot(draft: CommercialPreparation, revision
       quantity:inherited && number(sourceQuantity) && number(sourceUnitPrice) ? sourceQuantity : 1,
       unit_price:line.included && !unresolved ? inherited && number(sourceQuantity) && number(sourceUnitPrice) ? sourceUnitPrice : value : null,
       amount:line.included && !unresolved ? value : null,currency:'XOF',
-      bloc:taxable ? 'honoraires' : 'debours',explanation,
+      bloc:isFee ? 'honoraires' : 'debours',explanation,
       source:{type:!line.included ? 'EXCLUDED_BY_RULE' : unresolved ? 'TO_CONFIRM' : modified ? 'OPERATOR_ESTIMATE' : 'SAVED_SOURCE',
-        reference:!line.included ? 'COMMERCIAL_REMOVED' : 'COMMERCIAL_REVISION',firm_eligible:false},
+        reference:!line.included ? 'COMMERCIAL_REMOVED' : 'COMMERCIAL_REVISION',firm_eligible:false,vat_applicable:taxable},
       commercial:{line_id:line.id,included:line.included,estimated:modified,basis:inherited ? taxable ? 'before_sodatra_vat' : 'taxes_included' : line.amount_basis,customs_estimate:customsEstimate,storage_estimate:line.kind==='storage_estimate'},
     };
   });
-  const calculated = commercialFeeTotals(subtotal,fees);
+  const calculated = commercialFeeTotals(subtotal,taxableFees);
   if (![subtotal,fees,calculated.totalPayable].every(number)) throw new Error('Total commercial hors limites');
   const airCrossTradeBasis = readAirCrossTradeBasis(source.air_cross_trade);
   const airScopeReduced = airCrossTradeMissingCoverage(airCrossTradeBasis, lines).length > 0;
   const customsBasis=readCustomsBasisSnapshot(source.customs_basis);
+  const sourceQualification = row(row(source.meta).quoteQualification);
+  const partial = unknown > 0 || airScopeReduced || sourceQualification.level === 'partial';
+  const reserved = partial || sourceQualification.firmTotalPolicy === 'excludes_reserved_items';
   return {...(airCrossTradeBasis ? {air_cross_trade:airCrossTradeBasis} : {}),...(customsBasis?{customs_basis:customsBasis}:{}),inputs:source.inputs,client:source.client,...(source.operator_basis ? {operator_basis:source.operator_basis} : {}),
     meta:{...row(source.meta),version_id:null,version_number:null,created_at:null,
       commercial_revision_id:revisionId,commercial_source_version_id:draft.source_version_id,
-      quoteQualification:{level:unknown || airScopeReduced ? 'partial' : 'provisional',firmTotalPolicy:unknown || airScopeReduced ? 'excludes_reserved_items' : 'all_included',
+      quoteQualification:{level:partial ? 'partial' : 'provisional',firmTotalPolicy:reserved ? 'excludes_reserved_items' : 'all_included',
         reasons:[...(Array.isArray(row(row(source.meta).quoteQualification).reasons) ? row(row(source.meta).quoteQualification).reasons as unknown[] : []),...(airScopeReduced ? [{code:'AIR_CROSS_TRADE_SCOPE_REDUCED',message:'Périmètre aérien réduit : le montant ne couvre pas le parcours complet.'}] : []),{code:'COMMERCIAL_OPERATOR_REVISION',message:'Montants retenus par l’opérateur ; estimations révisables, postes inconnus exclus.'}]}},
     lines,raw_lines:structuredClone(lines),sources:[],
     totals:{currency:'XOF',commercial_amounts:true,total_ht:priced ? subtotal : null,total_ttc:priced ? calculated.totalPayable : null,
       subtotal_before_sodatra_vat:priced ? subtotal : null,total_payable:priced ? calculated.totalPayable : null,
       honoraires_ht:priced ? fees : null,honoraires_tva:priced ? calculated.honorairesTva : null,
-      honoraires_ttc:priced ? calculated.honorairesTtc : null},
+      honoraires_ttc:priced ? fees+calculated.honorairesTva : null},
     commercial:{schema_version:1,revision_id:revisionId,source_version_id:draft.source_version_id,unknown_lines:unknown,estimated:true,
       conditions:['Décisions commerciales opérateur, non contractuelles.','Une provision douanière ne valide ni classement ni taux fiscal.','Un poste à confirmer n’est pas gratuit.']},
   };

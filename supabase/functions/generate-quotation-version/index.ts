@@ -350,6 +350,7 @@ Deno.serve(async (req) => {
           pricingRun.outputs_json?.quoteQualification,
           tariffLines,
           customsBasis ?? undefined,
+          operatorBasis ?? undefined,
         ),
       },
       // P0-E: facts_snapshot est un TABLEAU {key, value_*} et inputs_json est
@@ -417,7 +418,7 @@ Deno.serve(async (req) => {
 
     if (operatorBasis) {
       snapshot.meta.quoteQualification.level = snapshot.meta.quoteQualification.level === "partial" ? "partial" : "provisional";
-      snapshot.meta.quoteQualification.firmTotalPolicy = "all_included";
+      // Preserve the resolver's partial/excluded-items qualification for retained reserves.
     }
     // ── Multi-lot enrichment from outputs_json ───────────
     if (outputsJson?.multi_lot === true && Array.isArray(outputsJson.lots) && outputsJson.lots.length > 0) {

@@ -7,6 +7,8 @@
  * Module isolé (sans Deno.serve, sans import jsr/supabase) pour tests unitaires fiables.
  */
 
+import { readOperatorBasis } from "../_shared/operator-quotation-basis.ts";
+import { isToConfirmLine } from "../_shared/quotation-line-status.ts";
 import { quotationWeightNotices } from "../_shared/quotation-weight-basis.ts";
 import { tariffReferenceNotice } from "../_shared/selected-tariff-reference.ts";
 import { withCustomsEstimateQualification } from "../_shared/customs-basis.ts";
@@ -58,6 +60,7 @@ export function resolveSnapshotQualification(
   outputsQQ: any,
   tariffLines: any[],
   customsBasis?: unknown,
+  operatorBasis?: unknown,
 ): QQ {
   outputsQQ=withCustomsEstimateQualification(outputsQQ,customsBasis);
   const lines = Array.isArray(tariffLines) ? tariffLines : [];
@@ -73,7 +76,16 @@ export function resolveSnapshotQualification(
     reasons: [...(Array.isArray(outputsQQ?.reasons) ? outputsQQ.reasons.filter((r: QQReason) => r.code !== "PROVISIONAL_WEIGHT_BASIS") : []),
       ...notices.map(message => ({ code: "PROVISIONAL_WEIGHT_BASIS", message }))],
   };
-  const hasToConfirm = hasToConfirmLine(tariffLines);
+  const basis = readOperatorBasis(operatorBasis);
+  if (basis) {
+    const reasons: QQReason[] = Array.isArray(outputsQQ?.reasons) ? [...outputsQQ.reasons] : [];
+    if (!reasons.some(r => r.code === "OPERATOR_QUOTATION_BASIS")) reasons.push({code:"OPERATOR_QUOTATION_BASIS",message:"Cotation sur bases opérateur explicites et révisables."});
+    // A legacy fee's confidence/activity is no contractual validation. No current catalogue lookup.
+    if (lines.some(l => l?.bloc === "honoraires" && !isToConfirmLine(l) && typeof l.amount === "number") &&
+        !reasons.some(r => r.code === "TARIFF_VALIDATION_UNCONFIRMED")) reasons.push({code:"TARIFF_VALIDATION_UNCONFIRMED",message:"Honoraires repris du calcul source ; validation tarifaire non attestée, non fermes."});
+    outputsQQ = {...outputsQQ,level:outputsQQ?.level === "partial" ? "partial" : "provisional",reasons};
+  }
+  const hasToConfirm = lines.some(isToConfirmLine);
   const incomingLevel: QQLevel | null =
     outputsQQ && typeof outputsQQ === "object" && ["firm", "provisional", "partial"].includes(outputsQQ.level)
       ? outputsQQ.level
@@ -86,7 +98,7 @@ export function resolveSnapshotQualification(
     return {
       level: "partial",
       reasons: hasToConfirm ? mergeReason(incomingReasons, RATE_PENDING_REASON) : incomingReasons,
-      firmTotalPolicy: incomingPolicy,
+      firmTotalPolicy: hasToConfirm ? "excludes_reserved_items" : incomingPolicy,
     };
   }
 

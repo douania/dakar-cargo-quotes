@@ -62,21 +62,61 @@ try {
     ${table(read('supabase/migrations/20260829200000_create_scenario_pricing_p1a4.sql'), 'quote_scenario_pricing_runs')}
   `);
   sql(migration); sql(rollback); sql(migration);
+  sql(read('supabase/migrations/20261105180000_operator_basis_commercial_projection.sql'));
+  sql(read('supabase/migrations/20261105180000_operator_basis_commercial_projection.sql')); // repeatable definition only
   assert.equal(sql("SELECT has_function_privilege('authenticated','public.adopt_operator_quotation_basis(uuid,uuid,uuid,text,text,uuid)','EXECUTE');"), 'f');
   assert.equal(sql("SELECT has_function_privilege('anon','public.adopt_operator_quotation_basis(uuid,uuid,uuid,text,text,uuid)','EXECUTE');"), 'f');
-  const scope = { cargo_units: [{ unit_ref: 'synthetic', quantity: 2 }], schema_version: 2 };
+  const scope = { cargo_units: [{ unit_ref: 'synthetic', quantity: 20, equipment_code:'20gp', ownership:'COC', gross_weight_kg:28000, weight_basis:'per_unit' }], schema_version: 3 };
   sql(`INSERT INTO auth.users VALUES('${userId}'); INSERT INTO email_threads VALUES('${id(9)}');
     INSERT INTO quote_cases(id,thread_id,status) VALUES('${caseId}','${id(9)}','READY_TO_PRICE');
     INSERT INTO quote_scenarios VALUES('${scenarioId}','${caseId}','${hash}',${j(scope)},'draft',null,'SYNTHETIC',1,'[]');
     INSERT INTO quote_scenario_selections VALUES('${caseId}','${scenarioId}',null);
     INSERT INTO pricing_runs(case_id,run_number,inputs_json,facts_snapshot,status,total_ht) VALUES('${caseId}',1,'{}','[]','success',10);
-    INSERT INTO quote_scenario_assumptions VALUES('${id(6)}','${caseId}','active','quantity','cargo.count','number','2','Synthetic quantity','Synthetic basis','operator_guidance','[]','medium');
+    INSERT INTO quote_scenario_assumptions VALUES('${id(6)}','${caseId}','active','quantity','cargo.count','number','20','Synthetic quantity','Synthetic basis','operator_guidance','[]','medium');
     INSERT INTO quote_scenario_links(scenario_id,assumption_id) VALUES('${scenarioId}','${id(6)}');
     INSERT INTO quote_facts(id,case_id,fact_key,fact_category,value_text,source_type) VALUES('${id(7)}','${caseId}','routing.destination','routing','SYNTHETIC','manual_input');
     INSERT INTO quote_scenario_pricing_runs(id,case_id,scenario_id,scenario_scope_hash,run_seq,status,qualification,scenario_snapshot,inputs_json,facts_snapshot,assumptions_snapshot,overlay_json,tariff_lines,firm_total_ht,firm_total_ttc,indicative_total_ht,indicative_total_ttc,request_fingerprint,created_by)
-    VALUES('${sourceId}','${caseId}','${scenarioId}','${hash}',1,'success','partial',${j(scope)},'{}',
+    VALUES('${sourceId}','${caseId}','${scenarioId}','${hash}',1,'success','partial',${j(scope)},'{"originPort":"TEST-PORT","finalDestination":"TEST-CITY","incoterm":"DAP","containers":[{"type":"20GP","quantity":20}],"cargoWeight":560}',
       (SELECT jsonb_agg(to_jsonb(f)) FROM quote_facts f),(SELECT jsonb_agg(to_jsonb(a)) FROM quote_scenario_assumptions a),'[]',
-      '[{"amount":100,"bloc":"honoraires"},{"amount":null,"source":{"type":"TO_CONFIRM"}}]',0,0,100,118,'${hash}','${userId}');`);
+      '[{"amount":1000,"description":"THC SYNTHETIC","currency":"XOF","bloc":"operationnel"},
+      {"amount":2000,"description":"TRUCK SYNTHETIC","currency":"XOF","bloc":"operationnel"},
+      {"amount":3000,"description":"PAD SYNTHETIC","currency":"XOF","bloc":"operationnel"},
+      {"amount":350,"description":"CUSTOMS SYNTHETIC","currency":"XOF","bloc":"honoraires"},
+      {"amount":200,"description":"AGENCY SYNTHETIC","currency":"XOF","bloc":"honoraires"},
+      {"amount":null,"description":"STORAGE SYNTHETIC","currency":"XOF","source":{"type":"TO_CONFIRM"}},
+      {"amount":null,"description":"DEMURRAGE SYNTHETIC","currency":"USD","source":{"type":"TO_CONFIRM"}},
+      {"amount":null,"description":"EMPTY RETURN SYNTHETIC","currency":"XOF","source":{"type":"TO_CONFIRM"}}]',0,0,6550,6649,'${hash}','${userId}');`);
+  sql("UPDATE quote_scenario_pricing_runs SET completed_at='2026-11-05T12:00:00Z';");
+  const casesBefore=sql('SELECT jsonb_agg(to_jsonb(c)) FROM quote_cases c;');
+  const runsBefore=sql('SELECT jsonb_agg(to_jsonb(r) ORDER BY run_number) FROM pricing_runs r;');
+  for(const mutation of [
+    'UPDATE quote_scenario_pricing_runs SET indicative_total_ht=6551;',
+    'UPDATE quote_scenario_pricing_runs SET indicative_total_ttc=6650;',
+    `UPDATE quote_scenario_pricing_runs SET tariff_lines=jsonb_set(tariff_lines,'{0,amount}','1001');`,
+  ]) {
+    sql(`BEGIN; ${mutation} ${call()}`, 'montants source non rapprochables');
+    assert.equal(sql('SELECT jsonb_agg(to_jsonb(c)) FROM quote_cases c;'),casesBefore);
+    assert.equal(sql('SELECT jsonb_agg(to_jsonb(r) ORDER BY run_number) FROM pricing_runs r;'),runsBefore);
+    assert.equal(sql('SELECT count(*) FROM case_timeline_events;'),'0');
+  }
+  // Match computeScenarioTotals: only boolean false excludes the fee from VAT.
+  for(const [flag,ttc,vat] of [[false,6613,63],[null,6649,99],["false",6649,99],[true,6649,99]]) {
+    const result=sql(`BEGIN; UPDATE quote_scenario_pricing_runs SET tariff_lines=jsonb_set(tariff_lines,'{4,source}',${j({vat_applicable:flag})}),indicative_total_ttc=${ttc}; ${call()}
+      SELECT outputs_json->'totals' FROM pricing_runs WHERE run_number=2; ROLLBACK;`).split('\n').at(-1);
+    const totals=JSON.parse(result);assert.equal(totals.honoraires_ht,550);assert.equal(totals.honoraires_tva,vat);assert.equal(totals.total_payable,ttc);
+    assert.equal(sql('SELECT count(*) FROM pricing_runs;'),'1');
+  }
+  // Legacy numeric placeholders and source spellings remain reserved, not priced.
+  for(const placeholder of [
+    {amount:987,source:' to_confirm+synthetic '},
+    {amount:0,source:{type:'TO_CONFIRM:synthetic'}},
+    {amount:987,type:'provisional_reserve'},
+    {amount:987,category:'CUSTOMS_RESERVE'},
+  ]) {
+    const projected=JSON.parse(sql(`BEGIN; UPDATE quote_scenario_pricing_runs SET tariff_lines=jsonb_set(tariff_lines,'{5}',${j(placeholder)}); ${call()}`));
+    assert.equal(projected.idempotent_replay,false);
+    assert.equal(sql('SELECT count(*) FROM pricing_runs;'),'1'); // uncommitted connection rolled back
+  }
   const factsBefore = sql('SELECT jsonb_agg(to_jsonb(f)) FROM quote_facts f;');
   sql(call(sourceId, 'key-scope', 'b'.repeat(64)), 'SCENARIO_STATE_CHANGED');
   sql(`BEGIN; UPDATE quote_facts SET value_text='changed'; ${call()}`, 'SCENARIO_STATE_CHANGED');
@@ -100,10 +140,17 @@ try {
   assert.equal(results.filter(r => r.idempotent_replay).length, 1);
   assert.equal(sql('SELECT count(*) FROM pricing_runs;'), '2');
   sql(call(sourceId, 'different-alias-key'), 'IDEMPOTENCY_CONFLICT');
-  assert.equal(sql("SELECT total_ht::text||'/'||total_ttc::text FROM pricing_runs WHERE run_number=2;"), '100/118');
+  assert.equal(sql("SELECT total_ht::text||'/'||total_ttc::text FROM pricing_runs WHERE run_number=2;"), '6550/6649');
   assert.equal(sql("SELECT outputs_json #>> '{operator_basis,assumptions,0,statement}' FROM pricing_runs WHERE run_number=2;"), 'Synthetic quantity');
+  assert.equal(sql("SELECT outputs_json #>> '{totals,honoraires_ht}' FROM pricing_runs WHERE run_number=2;"), '550');
+  assert.equal(sql("SELECT outputs_json #>> '{totals,honoraires_ttc}' FROM pricing_runs WHERE run_number=2;"), '649');
+  assert.equal(sql("SELECT outputs_json #>> '{quoteQualification,firmTotalPolicy}' FROM pricing_runs WHERE run_number=2;"), 'excludes_reserved_items');
+  assert.equal(sql("SELECT tariff_lines->5->'amount' FROM pricing_runs WHERE run_number=2;"), 'null');
+  assert.equal(sql("SELECT has_function_privilege('service_role','public.adopt_operator_quotation_basis(uuid,uuid,uuid,text,text,uuid)','EXECUTE');"), 't');
   assert.equal(sql('SELECT jsonb_agg(to_jsonb(f)) FROM quote_facts f;'), factsBefore);
   sql(`BEGIN; UPDATE quote_facts SET value_text='changed'; ${call()}`, 'SCENARIO_STATE_CHANGED');
+  if (process.env.DCQ_OPERATOR_RECIPE_OUTPUT) fs.writeFileSync(process.env.DCQ_OPERATOR_RECIPE_OUTPUT,
+    sql('SELECT to_jsonb(r) FROM pricing_runs r WHERE run_number=2;')+'\n');
   sql(`INSERT INTO quote_scenario_pricing_runs SELECT (jsonb_populate_record(null::quote_scenario_pricing_runs, to_jsonb(r)||'{"id":"${id(5)}","run_seq":2}'::jsonb)).* FROM quote_scenario_pricing_runs r WHERE id='${sourceId}';`);
   const next = JSON.parse(sql(call(id(5), 'synthetic-key-B'))); assert.equal(next.run_number, 3);
   sql(call(sourceId, 'synthetic-key-B'), 'IDEMPOTENCY_CONFLICT');
