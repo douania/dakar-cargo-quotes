@@ -3338,6 +3338,155 @@ export type Database = {
         }
         Relationships: []
       }
+      generation_recipe_attempts: {
+        Row: {
+          actor_id: string
+          case_id: string
+          created_at: string
+          draft_id: string | null
+          email_id: string
+          engine_verified: boolean | null
+          fence: string
+          grant_id: string
+          id: string
+          intent_hash: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          actor_id: string
+          case_id: string
+          created_at?: string
+          draft_id?: string | null
+          email_id: string
+          engine_verified?: boolean | null
+          fence: string
+          grant_id: string
+          id: string
+          intent_hash: string
+          state: string
+          updated_at?: string
+        }
+        Update: {
+          actor_id?: string
+          case_id?: string
+          created_at?: string
+          draft_id?: string | null
+          email_id?: string
+          engine_verified?: boolean | null
+          fence?: string
+          grant_id?: string
+          id?: string
+          intent_hash?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generation_recipe_attempts_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: true
+            referencedRelation: "generation_recipe_grants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generation_recipe_email_leases: {
+        Row: {
+          actor_id: string
+          created_at: string
+          email_id: string
+          fence: string
+          finished_at: string | null
+          id: string
+          state: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          email_id: string
+          fence: string
+          finished_at?: string | null
+          id: string
+          state: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          email_id?: string
+          fence?: string
+          finished_at?: string | null
+          id?: string
+          state?: string
+        }
+        Relationships: []
+      }
+      generation_recipe_grants: {
+        Row: {
+          actor_id: string
+          case_id: string
+          created_at: string
+          email_id: string
+          expires_at: string
+          id: string
+          intent_hash: string
+          revoked_at: string | null
+          starts_at: string
+        }
+        Insert: {
+          actor_id: string
+          case_id: string
+          created_at?: string
+          email_id: string
+          expires_at: string
+          id: string
+          intent_hash: string
+          revoked_at?: string | null
+          starts_at: string
+        }
+        Update: {
+          actor_id?: string
+          case_id?: string
+          created_at?: string
+          email_id?: string
+          expires_at?: string
+          id?: string
+          intent_hash?: string
+          revoked_at?: string | null
+          starts_at?: string
+        }
+        Relationships: []
+      }
+      generation_recipe_quarantines: {
+        Row: {
+          case_id: string
+          created_at: string
+          created_by: string
+          email_id: string
+          reason: string
+          resolution_ref: string | null
+          resolved_at: string | null
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          created_by: string
+          email_id: string
+          reason: string
+          resolution_ref?: string | null
+          resolved_at?: string | null
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          created_by?: string
+          email_id?: string
+          reason?: string
+          resolution_ref?: string | null
+          resolved_at?: string | null
+        }
+        Relationships: []
+      }
       historical_quotation_lines: {
         Row: {
           amount: number | null
@@ -9080,6 +9229,15 @@ export type Database = {
         Args: { p_version_id: string }
         Returns: Json
       }
+      begin_generation_email_lease: {
+        Args: {
+          p_actor: string
+          p_email: string
+          p_fence: string
+          p_lease: string
+        }
+        Returns: Json
+      }
       case_document_analysis_begin: {
         Args: {
           p_actor: string
@@ -9123,6 +9281,16 @@ export type Database = {
       claim_attachment_for_analysis: {
         Args: { p_attachment_id: string; p_claim_ts: string }
         Returns: string
+      }
+      claim_generation_recipe_attempt: {
+        Args: {
+          p_actor: string
+          p_attempt: string
+          p_fence: string
+          p_grant: string
+          p_hash: string
+        }
+        Returns: Json
       }
       client_gap_current_guard_v1: {
         Args: { p_case: string; p_data: Json }
@@ -9291,6 +9459,22 @@ export type Database = {
         Returns: undefined
       }
       finalize_quotation_ownership: { Args: never; Returns: string }
+      finish_generation_email_lease: {
+        Args: { p_actor: string; p_fence: string; p_lease: string }
+        Returns: Json
+      }
+      finish_generation_recipe_attempt: {
+        Args: {
+          p_actor: string
+          p_attempt: string
+          p_body: string
+          p_engine_verified: boolean
+          p_fence: string
+          p_subject: string
+          p_to: string
+        }
+        Returns: Json
+      }
       frp_build_artifact: {
         Args: {
           p_capture: string
@@ -9375,6 +9559,15 @@ export type Database = {
       frs_text: { Args: { j: Json; max_len?: number }; Returns: boolean }
       frs_utf16_length: { Args: { s: string }; Returns: number }
       frs_value: { Args: { field: string; j: Json }; Returns: boolean }
+      generation_recipe_assert_service: { Args: never; Returns: undefined }
+      generation_recipe_lock_actor: {
+        Args: { p_actor: string }
+        Returns: undefined
+      }
+      generation_recipe_target_valid: {
+        Args: { p_case: string; p_email: string }
+        Returns: boolean
+      }
       get_next_pricing_run_number: {
         Args: { p_case_id: string }
         Returns: number
@@ -9445,6 +9638,10 @@ export type Database = {
           p_source_type?: string
           p_statement?: string
         }
+        Returns: Json
+      }
+      mark_generation_recipe_uncertain: {
+        Args: { p_actor: string; p_attempt: string; p_fence: string }
         Returns: Json
       }
       migrate_legacy_imap_secrets: { Args: never; Returns: number }
@@ -9566,6 +9763,15 @@ export type Database = {
         Args: { p_allowed: string[]; p_node: Json }
         Returns: string
       }
+      read_generation_recipe_receipt: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_email: string
+          p_grant: string
+        }
+        Returns: Json
+      }
       read_lot_confirmation_context: {
         Args: { p_case_id: string }
         Returns: Json
@@ -9625,6 +9831,18 @@ export type Database = {
         }
         Returns: Json
       }
+      register_generation_recipe_grant: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_email: string
+          p_expires: string
+          p_grant: string
+          p_hash: string
+          p_starts: string
+        }
+        Returns: Json
+      }
       release_attachment_claim: {
         Args: { p_attachment_id: string; p_claim_ts: string }
         Returns: undefined
@@ -9656,6 +9874,15 @@ export type Database = {
       retired_equipment_candidate: {
         Args: { p_candidate: Json; p_fact: string }
         Returns: boolean
+      }
+      revoke_generation_recipe_grant: {
+        Args: {
+          p_actor: string
+          p_case: string
+          p_email: string
+          p_grant: string
+        }
+        Returns: Json
       }
       select_quotation_version: {
         Args: { p_case_id: string; p_version_id: string }
