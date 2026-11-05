@@ -91,12 +91,12 @@ Deno.test("recipe discarded attachment payload cannot leak or trigger links guar
 });
 
 type Row = Record<string, unknown>;
-interface Options { request?: Record<string, unknown>; policyText?: string | null; token?: string; cases?: Row[] | null; caseError?: boolean; attachments?: Row[] | null; attachmentCount?: number | null; attachmentError?: boolean; attachmentOutput?: boolean; linkOutput?: boolean; changePolicy?: boolean; historical?: boolean; revokeAtEngine?: boolean; handler?: typeof generate }
+interface Options { request?: Record<string, unknown>; policyText?: string | null; token?: string; cases?: Row[] | null; caseError?: boolean; attachments?: Row[] | null; attachmentCount?: number | null; attachmentError?: boolean; attachmentOutput?: boolean; linkOutput?: boolean; changePolicy?: boolean; historical?: boolean; draftAckLost?: boolean; fileAckLost?: boolean; attachmentUpdateAckLost?: boolean; revokeAtEngine?: boolean; handler?: typeof generate; now?: number; ledgerPolicyText?: string | null; ledgerReady?: string | null; blockedEmails?: string | null; ledgerRpc?: (name: string, args: Record<string, unknown>) => Promise<{data:unknown;error:unknown}> }
 export async function runRecipeFixture(options: Options = {}) {
   const originalFetch = globalThis.fetch, NativeDate = Date;
-  let clock = NOW;
+  let clock = options.now ?? NOW;
   globalThis.Date = new Proxy(NativeDate, { construct(target, args) { return Reflect.construct(target, args.length ? args : [clock]); }, get(target, name, receiver) { return name === "now" ? () => clock : Reflect.get(target, name, receiver); } });
-  const env: Record<string, string | null> = { SUPABASE_URL: "https://recipe-fixture.invalid", SUPABASE_ANON_KEY: "synthetic-anon", SUPABASE_SERVICE_ROLE_KEY: "synthetic-service", LOVABLE_API_KEY: "synthetic-ai", [RECIPE_POLICY_ENV]: options.policyText === undefined ? JSON.stringify(policy) : options.policyText };
+  const env: Record<string, string | null> = { SUPABASE_URL: "https://recipe-fixture.invalid", SUPABASE_ANON_KEY: "synthetic-anon", SUPABASE_SERVICE_ROLE_KEY: "synthetic-service", LOVABLE_API_KEY: "synthetic-ai", [RECIPE_POLICY_ENV]: options.policyText === undefined ? JSON.stringify(policy) : options.policyText, GENERATE_RESPONSE_RECIPE_V2_POLICY: options.ledgerPolicyText ?? null, GENERATE_RESPONSE_RECIPE_V2_READY: options.ledgerReady ?? null, GENERATE_RESPONSE_RECIPE_BLOCKED_EMAILS: options.blockedEmails ?? null };
   const previous = Object.keys(env).map(key => Deno.env.get(key));
   Object.entries(env).forEach(([key, value]) => value === null ? Deno.env.delete(key) : Deno.env.set(key, value));
   const drafts: Row[] = [{ id: "old-draft", original_email_id: EMAIL, body_text: "Preserve old draft exactly" }], originalDraft = JSON.stringify(drafts[0]);
@@ -120,17 +120,25 @@ export async function runRecipeFixture(options: Options = {}) {
     assertEquals(url.hostname, "recipe-fixture.invalid", "No external network allowed");
     if (url.pathname === "/auth/v1/user") { authTokens.push(token); return token === "synthetic-A" || token === "synthetic-B" ? json({ id: token === "synthetic-A" ? A : B, email: "test@example.invalid" }) : json({ message: "Invalid user" }, 401); }
     if (url.pathname.endsWith("/rpc/has_workspace_access")) return json(!(options.revokeAtEngine && authTokens.length > 1));
+    if (url.pathname.includes('/rpc/') && /generation_recipe|generation_email_lease/.test(url.pathname)) {
+      assertEquals(token, 'synthetic-service', 'Ledger RPCs use only the service client after requireUser');
+      const name = url.pathname.split('/').pop()!, args = await req.json();
+      const result = options.ledgerRpc ? await options.ledgerRpc(name,args)
+        : {data:{kind:name==='begin_generation_email_lease'?'started':'retained'},error:null};
+      return result.error ? json(result.error,400) : json(result.data);
+    }
+
     if (url.pathname === "/functions/v1/quotation-engine") { engineTokens.push(token); return await engine(new Request(req.url, { method: req.method, headers: req.headers, body: await req.text() })); }
-    if (url.pathname === "/functions/v1/generate-quotation-attachment") { generatedFiles++; return json({ attachment: { filename: "synthetic.html", public_url: "https://synthetic.invalid/signed" } }); }
+    if (url.pathname === "/functions/v1/generate-quotation-attachment") { generatedFiles++; if(options.fileAckLost) return json({message:"Synthetic unconfirmed file mutation"},500); return json({ attachment: { filename: "synthetic.html", public_url: "https://synthetic.invalid/signed" } }); }
     if (url.pathname.startsWith("/storage/")) { storage++; return new Response(new Uint8Array([1, 2])); }
     if (url.pathname.startsWith("/functions/v1/")) return json({ suggested_lines: [] });
     assert(url.pathname.startsWith("/rest/v1/")); const table = url.pathname.split("/").pop()!;
     if (req.method !== "GET" && req.method !== "HEAD") {
       if (table === "runtime_events") { runtimeEvents++; return json([]); }
       if (table === "learned_knowledge") { usageUpdates++; assertEquals(req.method, "PATCH"); return json([]); }
-      if (table === "email_attachments") { attachmentUpdates++; return json([]); }
+      if (table === "email_attachments") { attachmentUpdates++; return options.attachmentUpdateAckLost ? json({message:"Synthetic unconfirmed attachment mutation"},500) : json([]); }
       assertEquals(table, "email_drafts", "No other business writes allowed"); assertEquals(req.method, "POST");
-      const row = { ...await req.json(), id: "new-draft" }; drafts.push(row); return json(row);
+      const row = { ...await req.json(), id: "new-draft" }; drafts.push(row); return options.draftAckLost ? json({message:"Synthetic lost draft ACK"},500) : json(row);
     }
     if (table === "quote_cases" && options.caseError) return json({ message: "Synthetic case read failure" }, 500);
     if (table === "email_attachments" && options.attachmentError) return json({ message: "Synthetic attachment read failure" }, 500);

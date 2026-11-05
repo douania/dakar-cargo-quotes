@@ -197,6 +197,9 @@ async function fixture(
       });
     }
     if (name === "has_workspace_access") return json(true);
+    // Reservation metadata is tested separately; this fixture counts business outputs.
+    if (name === "begin_generation_email_lease") return json({kind:"started"});
+    if (name === "finish_generation_email_lease") return json({kind:"retained"});
     if (url.pathname === "/functions/v1/quotation-engine") {
       engineCalls++;
       return options.failure ? json({ error: "synthetic" }, 503) : json(engine);

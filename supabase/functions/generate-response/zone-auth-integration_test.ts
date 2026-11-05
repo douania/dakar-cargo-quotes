@@ -54,6 +54,8 @@ async function chain(options: { tokens?: string[]; deniedWorkspace?: boolean; re
       workspaceChecks.push(token);
       return json(Boolean(USERS[token]) && !options.deniedWorkspace && !(options.revokedAtEngine && (counts.get(token) ?? 0) > 1));
     }
+    if (url.pathname.endsWith('/rpc/begin_generation_email_lease')) return json({kind:'started'});
+    if (url.pathname.endsWith('/rpc/finish_generation_email_lease')) return json({kind:'retained'});
     if (url.pathname === "/functions/v1/quotation-engine") {
       engineHeaders.push(token);
       const text = await req.text(); enginePayloads.push(text);

@@ -4281,3 +4281,18 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Cause de l'essai réel toujours UNKNOWN : le diagnostic perdu n'est pas récupérable ;500/UNKNOWN ne départage pas toutes les phases serveur. Aucun coût IA réel ni absence de transmission déduit de0draft.
 - Preuves task/generation-recipe-observability-local/{verification,publication-manifest,isolated-ci,worktree-ci,counter-review,browser-verification}.json et head-based.patch ; copie de publication figée séparée de la worktree partagée.
 - Mise en ligne ultérieure sous GO distinct : vérifier empreintes et distant, publier uniquement le lot, CI du SHA exact puis vérifier compilation/source Lovable et route protégée sans soumission. Aucun déploiement de fonction ou politique nécessaire ; retour par revert frontend ciblé sous GO, sans effet rétroactif sur l'essai passé.
+
+## 2.90 Registre de recette intégré - 5 novembre 2026 (local uniquement)
+
+- GO parent : raccordement local serveur/interface, grants immuables, JWT/RLS, concurrence et contre-revue ; aucun envoi client ni activation Cloud.
+- Lot : migration/rollback du registre, helper+handler generate-response, page V2 sur route protégée existante, diagnostic et tests ; Auth canonique, QE/pricing/FROZEN et autres travaux préservés.
+- Grant serveur stable lié acteur/cible/intention/fenêtre ; tentative/fence avant IA ; brouillon et reçu terminaux dans une transaction SQL. Nouvelle clé, expiration, révocation ou retrait READY ne libèrent jamais un état non confirmé.
+- Status propriétaire en lecture seule sans politique/READY ; JWT validé par requireUser, admission relue après verrous ; tables sans accès direct, RPC service-only, rattachement email/case verrouillé avec prérequis UNIQUE(thread_id).
+- Normal/V1 réservent atomiquement le même courriel avant IA, indépendamment de READY. ACK brouillon/fichier perdu conserve la réservation ; succès terminal acquitté seul la ferme. Dépendance migration et risque de blocage conservateur explicites.
+- Contre-revue corrige ensemble lease prématurée, rattachement concurrent, NULL SQL, reçu visible au changement de compte et saisie UUID majuscule. 64 tests PostgreSQL + pipeline handler→SQL réel PASS ; 2 compatibilités anciens handlers PASS.
+- CI worktree PASS : 1711 Vitest,3341 Deno/6 ignorés ; CI isolée HEAD+lot PASS :1456 Vitest,3340 Deno/6 ignorés ; reprise frontend finale et39 V2 PASS après ultime normalisation UI, typage/build vérifiés.
+- Dette isolée identique :47 erreurs Deno/4 catégories et708 erreurs lint/16 avertissements ; aucune hausse de baseline. Contre-exécution61SQL,156Deno,113UI puis39V2 PASS, aucun blocage restant identifié.
+- Limites : JWT GoTrue et fournisseurs mockés, claims PostgreSQL synthétiques ; pas de preuve Cloud, fin de l’ancien worker10:56, unicité/coût fournisseur ou validation du dossier commercial réel.
+- Aucun dossier synthétique connecté créé : IDs/contenus neufs et zéroPJ isoleraient la cible, mais corpus, tarifs, profils et compteurs partagés restent à inventorier avant essai ; aucune prétention d’isolement global.
+- Préalables futurs : migration puis generate-response avant admission V2, quarantaine durable des anciennes cibles non confirmées ; garde/trace conservés au rollback, aucune suppression ni downgrade contournant le registre.
+- Preuves et manifeste exact dans task/generation-recipe-ledger-integration-local ;16 fichiers dont cette seule note sur base publiée. HEAD/GitHubfa5d585, index vide, autres travaux préservés. Aucun commit/push/déploiement/politique/génération réelle ;0crédit Lovable nouveau.

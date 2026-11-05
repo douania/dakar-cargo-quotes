@@ -1,3 +1,7 @@
+import { LEDGER_POLICY_ENV, LEDGER_READY_ENV, LEGACY_BLOCK_ENV, resolveLedgerRequest,
+  registerRecipeGrant, claimRecipeAttempt, finishRecipeAttempt, readRecipeReceipt, revokeRecipeGrant,
+  retainUncertainRecipe, beginEmailLease, finishEmailLease, recipeReceiptPayload, ledgerErrorResponse, RecipeLedgerError,
+  type ActiveRecipe, type EmailLease, type RecipeReceipt } from "./recipe-ledger.ts";
 import { NO_FILES_RECIPE, RECIPE_POLICY_ENV, MAX_RECIPE_ATTACHMENTS, resolveRecipeMode, recipeCaseReadRefusal, recipeAttachmentReadRefusal, recipeGeneratedLinkRefusal, recipeRefusalResponse } from "./recipe-mode.ts";
 import { decideZoneReply, zoneReplyRefusal, OPTIONAL_ZONE_REPLY_CONTRACT } from "../_shared/zone-reply-contract.ts";
 import { zoneComplexityFactor } from "../_shared/delivery-zone-resolution.ts";
@@ -1367,6 +1371,11 @@ export async function handleRequest(req: Request): Promise<Response> {
   const { user } = authResult;
 
   const userId = user.id;
+  let activeRecipe: ActiveRecipe | null = null;
+  let activeLease: EmailLease | null = null;
+  let durableReceipt: RecipeReceipt | null = null;
+  let normalLeaseTerminal = false;
+  let ordinaryEffectsConfirmed = true;
 
   try {
     // Phase 15.3 — CTO fix: Parse body with try/catch to avoid UNKNOWN on invalid JSON
@@ -1392,6 +1401,13 @@ export async function handleRequest(req: Request): Promise<Response> {
         correlationId,
       });
     }
+
+    const ledgerRequest = resolveLedgerRequest(body, userId, Deno.env.get(LEDGER_POLICY_ENV), Deno.env.get(LEDGER_READY_ENV), Deno.env.get(LEGACY_BLOCK_ENV));
+    // Read-only recovery stays available with no policy/READY; no register,
+    // claim, lease or finally mutation is reached by this branch.
+    if (ledgerRequest?.action === 'status') return respondOk(recipeReceiptPayload(await readRecipeReceipt(serviceClient, ledgerRequest)), correlationId);
+    if (ledgerRequest?.action === 'revoke') return respondOk(recipeReceiptPayload(await revokeRecipeGrant(serviceClient, ledgerRequest)), correlationId);
+    const v2Run = ledgerRequest?.action === 'run' ? ledgerRequest : null;
 
     const { emailId: productionEmailId, customInstructions, expertStyle, quotationData, reply_language_override } = body as {
       emailId?: string;
@@ -1424,9 +1440,11 @@ export async function handleRequest(req: Request): Promise<Response> {
 
     // A recipe is a server-authorized restriction, never a client-granted permission.
     // Keep this decision immutable throughout the request, including after expiry.
-    const recipeDecision = resolveRecipeMode(body, userId, Deno.env.get(RECIPE_POLICY_ENV));
-    if (!recipeDecision.allowed) return recipeRefusalResponse(recipeDecision, correlationId, corsHeaders);
-    const recipeContext = recipeDecision.context;
+    const recipeDecision = v2Run ? null : resolveRecipeMode(body, userId, Deno.env.get(RECIPE_POLICY_ENV));
+    if (recipeDecision && !recipeDecision.allowed) return recipeRefusalResponse(recipeDecision, correlationId, corsHeaders);
+    const recipeContext = v2Run
+      ? { mode: NO_FILES_RECIPE, actorId: userId, emailId: v2Run.emailId, caseId: v2Run.caseId } as const
+      : recipeDecision!.allowed ? recipeDecision!.context : { mode: 'production' } as const;
     const isRecipe = recipeContext.mode === NO_FILES_RECIPE;
     // Recipe wire omits legacy selectors, so an old handler refuses before AI.
     const emailId = recipeContext.mode === NO_FILES_RECIPE ? recipeContext.emailId : productionEmailId;
@@ -1503,6 +1521,13 @@ export async function handleRequest(req: Request): Promise<Response> {
         : { data: [], error: null };
       const refusal = recipeCaseReadRefusal(recipeContext, email, caseRead);
       if (refusal) return recipeRefusalResponse(refusal, correlationId, corsHeaders);
+    }
+
+    // Mandatory atomic reservation for every new normal/V1 email invocation.
+    // It is independent of READY/policy; missing migration fails closed.
+    if (emailId && !v2Run) {
+      activeLease = { id: crypto.randomUUID(), actorId: userId, fence: crypto.randomUUID() };
+      await beginEmailLease(serviceClient, activeLease, emailId);
     }
 
     // Fallbacks pour cotation directe (email = null)
@@ -1647,6 +1672,19 @@ export async function handleRequest(req: Request): Promise<Response> {
       if (refusal) return recipeRefusalResponse(refusal, correlationId, corsHeaders);
     }
 
+    if (v2Run) {
+      const intentHash = await registerRecipeGrant(serviceClient, v2Run, body);
+      // Set before the RPC: a lost claim response must retain uncertainty, never
+      // retry admission or proceed to AI without a confirmed started result.
+      activeRecipe = { ...v2Run, fence: crypto.randomUUID() };
+      const claim = await claimRecipeAttempt(serviceClient, activeRecipe, intentHash);
+      if (claim === 'replay') {
+        const receipt = await readRecipeReceipt(serviceClient, v2Run);
+        activeRecipe = null;
+        return respondOk(recipeReceiptPayload(receipt), correlationId);
+      }
+    }
+
     // Auto-analyze unanalyzed attachments
     if (attachments && attachments.some(att => !att.is_analyzed)) {
       console.log("Found unanalyzed attachments, triggering analysis...");
@@ -1670,7 +1708,7 @@ export async function handleRequest(req: Request): Promise<Response> {
                 is_analyzed: true,
                 extracted_data: { type: 'unsupported', content_type: attachment.content_type }
               })
-              .eq('id', attId);
+              .eq('id', attId).then(result => { if (result.error) ordinaryEffectsConfirmed = false; return result; });
             continue;
           }
           
@@ -1684,7 +1722,7 @@ export async function handleRequest(req: Request): Promise<Response> {
                 extracted_text: `Fichier trop volumineux (${Math.round(attachment.size / 1024)}KB) - analyse manuelle requise`,
                 extracted_data: { type: 'too_large', size: attachment.size, filename: attachment.filename }
               })
-              .eq('id', attId);
+              .eq('id', attId).then(result => { if (result.error) ordinaryEffectsConfirmed = false; return result; });
             continue;
           }
           
@@ -1701,7 +1739,7 @@ export async function handleRequest(req: Request): Promise<Response> {
                 is_analyzed: true,
                 extracted_data: { type: 'download_failed', error: downloadError?.message || 'Unknown error' }
               })
-              .eq('id', attId);
+              .eq('id', attId).then(result => { if (result.error) ordinaryEffectsConfirmed = false; return result; });
             continue;
           }
           
@@ -1805,7 +1843,7 @@ Réponds en JSON:
                 extracted_text: extractedText,
                 extracted_data: extractedData
               })
-              .eq('id', attId);
+              .eq('id', attId).then(result => { if (result.error) ordinaryEffectsConfirmed = false; return result; });
               
             console.log(`Successfully analyzed ${attachment.filename}`);
           } else {
@@ -1818,9 +1856,10 @@ Réponds en JSON:
                 is_analyzed: true,
                 extracted_data: { type: 'analysis_failed', error: 'AI analysis failed' }
               })
-              .eq('id', attId);
+              .eq('id', attId).then(result => { if (result.error) ordinaryEffectsConfirmed = false; return result; });
           }
         } catch (analysisError) {
+          ordinaryEffectsConfirmed = false;
           console.error(`Error analyzing attachment ${attId}:`, analysisError);
         }
       }
@@ -3009,24 +3048,27 @@ RAPPELS CRITIQUES:
     }
     const draftSubject = isRecipe ? `[RECETTE AUTH] ${generatedSubject}` : generatedSubject;
 
-    // Create draft
-    const { data: draft, error: draftError } = await supabase
-      .from('email_drafts')
-      .insert({
-        original_email_id: emailId,
-        to_addresses: [emailFromAddress],
-        subject: draftSubject,
-        body_text: fullBodyText,
-        status: 'draft',
-        ai_generated: true,
-        created_by: userId
-      })
-      .select()
-      .single();
-
-    if (draftError) {
-      console.error("Error creating draft:", draftError);
-      throw new Error("Erreur de création du brouillon");
+    // V2 draft+terminal receipt are one SQL transaction. Normal/V1 retain
+    // their existing draft shape and business behavior.
+    let draft: { id: string };
+    if (activeRecipe) {
+      const zone = quotationEngineResult?.metadata?.zone_resolution;
+      const engineVerified = aiExtracted.can_quote_now === true &&
+        ['matched', 'unknown', 'ambiguous'].includes(zone?.status) &&
+        ['delivery_zones', 'static_fallback'].includes(zone?.source);
+      durableReceipt = await finishRecipeAttempt(serviceClient, activeRecipe, draftSubject, fullBodyText, emailFromAddress, engineVerified);
+      draft = { id: durableReceipt.draft_id! };
+      activeRecipe = null;
+    } else {
+      const created = await supabase.from('email_drafts').insert({
+        original_email_id: emailId, to_addresses: [emailFromAddress], subject: draftSubject,
+        body_text: fullBodyText, status: 'draft', ai_generated: true, created_by: userId,
+      }).select().single();
+      if (created.error || !created.data) {
+        console.error("Error creating draft:", created.error);
+        throw new Error("Erreur de création du brouillon");
+      }
+      draft = created.data;
     }
 
     console.log(`Generated ${targetLanguage} draft (ai_lang: ${aiExtracted.detected_language}, override: ${replyLanguageOverride}, source: ${languageSourceKind}, type: ${aiExtracted.request_type}, canQuote: ${aiExtracted.can_quote_now}, transport: ${aiExtracted.transport_mode}):`, draft.id);
@@ -3061,9 +3103,11 @@ RAPPELS CRITIQUES:
           console.log("Attachment generated:", attachmentResult?.attachment?.public_url);
         } else {
           const errorText = await attachmentResponse.text();
+          ordinaryEffectsConfirmed = false;
           console.error("Attachment generation failed:", errorText);
         }
       } catch (attachmentError) {
+        ordinaryEffectsConfirmed = false;
         console.error("Attachment generation error (non-blocking):", attachmentError);
       }
     }
@@ -3113,6 +3157,11 @@ RAPPELS CRITIQUES:
       },
     });
 
+    if (durableReceipt) return respondOk(recipeReceiptPayload(durableReceipt), correlationId);
+
+    // A failed/unknown ordinary mutation may still finish remotely. Retain its
+    // durable reservation instead of admitting a V2 worker after a lost ACK.
+    normalLeaseTerminal = ordinaryEffectsConfirmed;
     return respondOk({
       success: true,
       ...(isRecipe ? { recipe_mode: NO_FILES_RECIPE, recipe_effects: {
@@ -3184,6 +3233,7 @@ RAPPELS CRITIQUES:
     }, correlationId);
 
   } catch (error) {
+    if (error instanceof RecipeLedgerError) return ledgerErrorResponse(error, correlationId, corsHeaders);
     console.error("Expert response generation error:", error);
     
     // Phase 14: Log error
@@ -3208,6 +3258,15 @@ RAPPELS CRITIQUES:
       message: error instanceof Error ? error.message : 'Erreur de génération',
       correlationId,
     });
+  } finally {
+    if (activeRecipe) {
+      try { await retainUncertainRecipe(serviceClient, activeRecipe); }
+      catch { console.warn('Recipe ledger outcome remains unconfirmed; no automatic retry.'); }
+    }
+    if (activeLease && normalLeaseTerminal) {
+      try { await finishEmailLease(serviceClient, activeLease); }
+      catch { console.warn('Email generation reservation remains unconfirmed; no automatic release.'); }
+    }
   }
 }
 if (Deno.env.get("GENERATE_RESPONSE_DISABLE_SERVE") !== "1") serve(handleRequest);

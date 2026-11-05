@@ -16,7 +16,7 @@ import HsCodesAdmin from "./pages/admin/HsCodes";
 import TaxRatesAdmin from "./pages/admin/TaxRates";
 import DocumentsAdmin from "./pages/admin/Documents";
 import EmailsAdmin from "./pages/admin/Emails";
-import GenerationRecipe from "./pages/admin/GenerationRecipe";
+import GenerationRecipe from "./pages/admin/GenerationRecipeV2";
 import KnowledgeAdmin from "./pages/admin/Knowledge";
 import MarketIntelligence from "./pages/admin/MarketIntelligence";
 import CustomsRegimesAdmin from "./pages/admin/CustomsRegimes";
