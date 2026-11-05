@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import GenerationRecipe from '../GenerationRecipe';
+import { recipeInvocationDiagnostic } from '@/lib/recipeInvocationDiagnostic';
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', E = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const T = '11111111-1111-4111-8111-111111111111', P = '22222222-2222-4222-8222-222222222222', D = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -185,4 +186,46 @@ it('ignores late output when the active user changes', async () => {
 });
 it('ignores a slow preflight after unmount and never calls generation', async () => {
   let settle!: (value: unknown) => void; f.getUser.mockImplementation(() => new Promise(resolve => { settle = resolve; })); const view = show(); await fill(); await check(); view.unmount(); await act(async () => settle({ data: { user: f.user }, error: null })); expect(f.invoke).not.toHaveBeenCalled();
+});
+
+
+describe('proposal: bounded non-sensitive diagnostics with no retry',()=>{
+ it.each([['RECIPE_DISABLED',403],['RECIPE_POLICY_INVALID',503],['RECIPE_ATTACHMENT_READ_FAILED',503],['ZONE_ENGINE_CONTRACT_NOT_READY',503],['RECIPE_LINK_OUTPUT_BLOCKED',409],['UNKNOWN',500]] as const)('shows allowlisted code %s HTTP %s without exposing payload',async(code,status)=>{
+  const response=new Response(JSON.stringify({ok:false,error:{code,message:'PRIVATE_SYNTHETIC_BODY https://private.invalid'},correlation_id:C,token:'PRIVATE_SYNTHETIC_TOKEN'}),{status});
+  f.invoke.mockResolvedValue({data:null,error:Object.assign(new Error('PRIVATE_SYNTHETIC_SDK_MESSAGE'),{context:response})});
+  show();await ready();await generate();const alert=await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('sans confirmation complète');expect(alert).toHaveTextContent('Ne relancez pas');
+  expect(alert).toHaveTextContent(code);expect(alert).toHaveTextContent(`HTTP ${status}`);expect(alert).toHaveTextContent(C);
+  expect(alert).not.toHaveTextContent('PRIVATE_SYNTHETIC');expect(alert).not.toHaveTextContent('https://');
+  expect(f.invoke).toHaveBeenCalledTimes(1);expect(sessionStorage.getItem(KEY)).not.toBeNull();
+  expect(screen.queryByRole('button',{name:/réessayer|relancer/i})).not.toBeInTheDocument();expect(fetch).not.toHaveBeenCalled();
+ });
+ it('distinguishes incomplete acknowledgement and keeps one invocation',async()=>{
+  f.invoke.mockResolvedValue({data:{ok:true,data:{}},error:null});show();await ready();await generate();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Accusé serveur incomplet');expect(f.invoke).toHaveBeenCalledTimes(1);
+ });
+ it('distinguishes unconfirmed persisted read without claiming failed generation',async()=>{
+  f.persisted=null;show();await ready();await generate();expect(await screen.findByRole('alert')).toHaveTextContent('Relecture du brouillon non confirmée');
+  expect(screen.getByRole('alert')).toHaveTextContent('frais IA peuvent exister');expect(f.invoke).toHaveBeenCalledTimes(1);
+ });
+ it('handles a transport failure without exposing arbitrary error text',async()=>{
+  f.invoke.mockRejectedValue(new Error('PRIVATE_SYNTHETIC_TOKEN'));show();await ready();await generate();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Réponse serveur indisponible');expect(screen.getByRole('alert')).not.toHaveTextContent('PRIVATE_SYNTHETIC');
+ });
+ it.each(['<html>PRIVATE_SYNTHETIC_BODY</html>',JSON.stringify({error:{code:'PRIVATE_SYNTHETIC_CODE'},correlation_id:'PRIVATE_SYNTHETIC_REFERENCE'}),'x'.repeat(8193)])('rejects unstructured/unknown/oversized diagnostic payload %#',async(body)=>{
+  expect(await recipeInvocationDiagnostic({context:new Response(body,{status:503})})).toBe('HTTP 503.');expect(fetch).not.toHaveBeenCalled();
+ });
+ it('bounds a non-terminating response stream to two seconds',async()=>{
+  vi.useFakeTimers();const response=new Response(new ReadableStream({start(){}}),{status:503});
+  const result=recipeInvocationDiagnostic({context:response});await vi.advanceTimersByTimeAsync(2001);
+  expect(await result).toBe('HTTP 503.');
+ });
+ it('suppresses diagnostics after an active-user change during response decoding',async()=>{
+  let release!:(data:Uint8Array)=>void;
+  const response=new Response(new ReadableStream({start(controller){release=data=>{controller.enqueue(data);controller.close();};}}),{status:503});
+  f.invoke.mockResolvedValue({data:null,error:{context:response}});const view=show();await ready();await generate();
+  f.user={id:P,email:'other@example.invalid'};view.rerender(<MemoryRouter><GenerationRecipe/></MemoryRouter>);
+  await act(async()=>release(new TextEncoder().encode(JSON.stringify({error:{code:'RECIPE_DISABLED'},correlation_id:C}))));
+  expect(screen.queryByText(/Code RECIPE_DISABLED/)).not.toBeInTheDocument();expect(f.invoke).toHaveBeenCalledTimes(1);
+ });
 });

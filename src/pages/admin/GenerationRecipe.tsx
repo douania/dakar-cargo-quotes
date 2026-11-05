@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { OPTIONAL_ZONE_REPLY_CONTRACT } from '@/lib/generationZoneContract';
+import { recipeInvocationDiagnostic } from '@/lib/recipeInvocationDiagnostic';
 
 const MODE = 'no_files_v1';
 const ATTEMPT_KEY = 'dcq:recipe-attempt:no_files_v1';
@@ -109,6 +110,7 @@ export default function GenerationRecipe() {
     if (target.actorId !== user?.id) { setError('La session ne correspond pas à l’opérateur autorisé.'); return; }
     if (generate && (!checked || !acknowledged || checked.actorId !== target.actorId || checked.caseId !== target.caseId || checked.emailId !== target.emailId)) return;
     pending.current = true; const token = ++epoch.current; let sent = false;
+    let phase: 'invocation' | 'acknowledgement' | 'draft-read' = 'invocation', invocationDiagnostic = '';
     const active = () => mounted.current && epoch.current === token && currentUser.current === target.actorId;
     setBusy(generate ? 'generate' : 'check'); setError(''); setResult(null);
     try {
@@ -126,16 +128,20 @@ export default function GenerationRecipe() {
         customInstructions: INSTRUCTIONS, expertStyle: 'auto', reply_language_override: 'AUTO',
       } }), 90_000);
       if (!active()) return;
-      if (response.error) throw new Error('Le serveur a refusé la recette ou sa réponse n’a pas pu être reçue.');
+      if (response.error) { invocationDiagnostic = await recipeInvocationDiagnostic(response.error); throw new Error('Recette non confirmée.'); }
+      phase = 'acknowledgement';
       const ack = acknowledgement(response.data, target);
+      phase = 'draft-read';
       const persisted = await bounded(supabase.from('email_drafts').select('id, original_email_id, created_by, status, sent_at, subject').eq('id', ack.draftId).eq('original_email_id', target.emailId).eq('created_by', target.actorId).single());
       if (!active()) return;
       if (persisted.error || persisted.data?.id !== ack.draftId || persisted.data.original_email_id !== target.emailId || persisted.data.created_by !== target.actorId || persisted.data.status !== 'draft' || persisted.data.sent_at !== null || !persisted.data.subject.startsWith('[RECETTE AUTH]')) throw new Error('L’enregistrement du brouillon ne peut pas être confirmé.');
       setResult(ack);
     } catch (failure) {
+      if (sent && phase === 'invocation' && !invocationDiagnostic) invocationDiagnostic = await recipeInvocationDiagnostic(failure);
       if (active()) {
         const detail = sent ? 'Tentative terminée sans confirmation complète. Un brouillon et des frais IA peuvent exister. Ne relancez pas ; vérifiez en lecture seule et faites supprimer la politique serveur.' : failure instanceof Error ? failure.message : 'La vérification n’a pas abouti. Aucun appel de génération n’a été lancé.';
-        setError(detail); setChecked(null); setAcknowledged(false);
+        const diagnostic = phase === 'invocation' ? `Appel de génération non confirmé. ${invocationDiagnostic}` : phase === 'acknowledgement' ? 'Accusé serveur incomplet ou incohérent.' : 'Relecture du brouillon non confirmée.';
+        setError(sent ? `${detail} Diagnostic : ${diagnostic}` : detail); setChecked(null); setAcknowledged(false);
       }
     } finally { pending.current = false; if (mounted.current) setBusy(null); }
   };

@@ -4269,3 +4269,15 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Lot futur exact :6fichiers code/tests serveur+client et cette roadmap (notes2.84/2.85 seules ajoutées au HEAD) ; patch/manifeste/CI/revue/navigateur/plan dans task/generation-recipe-client-local.
 - Activation sous accord distinct : CI SHA exact, livrer generate-response seule, politique acteur/email/case15min proposée, un essai payant puis suppression immédiate ; effets draft/IA/compteurs/événements conservés, coût non plafonné et propagation configuration encore à vérifier.
 - Aucun commit/push/déploiement/configuration Cloud, migration, Auth/RLS, donnée métier réelle, import IMAP ou envoi ; rollback ciblé par patch inverse vérifié, sans suppression de données ni restauration de compteurs partagés.
+
+## 2.87 Observabilité de la recette sans fichiers - 5 novembre 2026 (local uniquement)
+
+- GO précis : intégrer localement le diagnostic filtré, contrôler le lot et figer son manifeste ; aucune publication, activation ou nouvelle recette connectée.
+- Trois fichiers UI : GenerationRecipe, helper recipeInvocationDiagnostic et tests ; étape locale, HTTP, code serveur autorisé et référence UUID affichés sans message arbitraire, corps, en-tête ou jeton.
+- Lecture de la seule réponse SDK déjà reçue, clone borné8KiB/2s ; ni nouvelle requête ni persistance du diagnostic. Gardes utilisateur/démontage, marqueur de tentative, avertissement d'effets incertains et absence de relance conservés.
+- Wire, Auth/RLS, serveur, moteur, zone, tarifs, configuration et tous travaux voisins inchangés ; lot publiable isolé = ces3fichiers et cette seule note, sans autres changements documentaires locaux.
+- CI isolée exacte d0c8875+lot :1418Vitest/3184Deno/6ignorés ; CI worktree :1673Vitest/3185Deno/6ignorés ; exits0, config/bundles/types frontend/build PASS. Dette Deno47/4 et lint708/16 isolé,709/16 worktree sans aggravation.
+- Contre-revue indépendante75UI contre-exécutés PASS, sources exactes et invariants contrôlés ; navigateur Edge localhost avec SDK/Auth synthétiques et CSP connect-src none :1appel simulé,409/code/référence visibles, texte privé absent, relance bloquée.
+- Cause de l'essai réel toujours UNKNOWN : le diagnostic perdu n'est pas récupérable ;500/UNKNOWN ne départage pas toutes les phases serveur. Aucun coût IA réel ni absence de transmission déduit de0draft.
+- Preuves task/generation-recipe-observability-local/{verification,publication-manifest,isolated-ci,worktree-ci,counter-review,browser-verification}.json et head-based.patch ; copie de publication figée séparée de la worktree partagée.
+- Mise en ligne ultérieure sous GO distinct : vérifier empreintes et distant, publier uniquement le lot, CI du SHA exact puis vérifier compilation/source Lovable et route protégée sans soumission. Aucun déploiement de fonction ou politique nécessaire ; retour par revert frontend ciblé sous GO, sans effet rétroactif sur l'essai passé.
