@@ -1,3 +1,4 @@
+import { NO_FILES_RECIPE, RECIPE_POLICY_ENV, MAX_RECIPE_ATTACHMENTS, resolveRecipeMode, recipeCaseReadRefusal, recipeAttachmentReadRefusal, recipeGeneratedLinkRefusal, recipeRefusalResponse } from "./recipe-mode.ts";
 import { decideZoneReply, zoneReplyRefusal, OPTIONAL_ZONE_REPLY_CONTRACT } from "../_shared/zone-reply-contract.ts";
 import { zoneComplexityFactor } from "../_shared/delivery-zone-resolution.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
@@ -1392,7 +1393,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       });
     }
 
-    const { emailId, customInstructions, expertStyle, quotationData, reply_language_override } = body as {
+    const { emailId: productionEmailId, customInstructions, expertStyle, quotationData, reply_language_override } = body as {
       emailId?: string;
       customInstructions?: string;
       expertStyle?: string;
@@ -1420,6 +1421,15 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
 
     const replyLanguageOverride: 'AUTO' | 'FR' | 'EN' = rawReplyLanguageOverride;
+
+    // A recipe is a server-authorized restriction, never a client-granted permission.
+    // Keep this decision immutable throughout the request, including after expiry.
+    const recipeDecision = resolveRecipeMode(body, userId, Deno.env.get(RECIPE_POLICY_ENV));
+    if (!recipeDecision.allowed) return recipeRefusalResponse(recipeDecision, correlationId, corsHeaders);
+    const recipeContext = recipeDecision.context;
+    const isRecipe = recipeContext.mode === NO_FILES_RECIPE;
+    // Recipe wire omits legacy selectors, so an old handler refuses before AI.
+    const emailId = recipeContext.mode === NO_FILES_RECIPE ? recipeContext.emailId : productionEmailId;
 
     if (!LOVABLE_API_KEY) {
       return respondError({
@@ -1484,6 +1494,15 @@ export async function handleRequest(req: Request): Promise<Response> {
         });
       }
       email = emailData;
+    }
+
+    if (recipeContext.mode === NO_FILES_RECIPE) {
+      const caseRead = email?.thread_ref
+        ? await supabase.from('quote_cases').select('id,thread_id')
+          .eq('id', recipeContext.caseId).eq('thread_id', email.thread_ref).limit(2)
+        : { data: [], error: null };
+      const refusal = recipeCaseReadRefusal(recipeContext, email, caseRead);
+      if (refusal) return recipeRefusalResponse(refusal, correlationId, corsHeaders);
     }
 
     // Fallbacks pour cotation directe (email = null)
@@ -1618,10 +1637,15 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
 
     // ============ FETCH AND ANALYZE ATTACHMENTS ============
-    let { data: attachments } = await supabase
-      .from('email_attachments')
-      .select('*')
-      .eq('email_id', emailId);
+    const attachmentRead = isRecipe
+      ? await supabase.from('email_attachments').select('*', { count: 'exact' })
+        .eq('email_id', emailId).limit(MAX_RECIPE_ATTACHMENTS + 1)
+      : await supabase.from('email_attachments').select('*').eq('email_id', emailId);
+    let { data: attachments } = attachmentRead;
+    if (recipeContext.mode === NO_FILES_RECIPE) {
+      const refusal = recipeAttachmentReadRefusal(recipeContext, attachmentRead);
+      if (refusal) return recipeRefusalResponse(refusal, correlationId, corsHeaders);
+    }
 
     // Auto-analyze unanalyzed attachments
     if (attachments && attachments.some(att => !att.is_analyzed)) {
@@ -2976,7 +3000,14 @@ RAPPELS CRITIQUES:
     const closing = parsedResponse.closing || (targetLanguage === 'FR' ? 'Meilleures Salutations' : 'Best Regards');
     const signature = parsedResponse.signature || 'Taleb HOBALLAH\n2HL Group';
     
-    const fullBodyText = `${greeting}\n\n${bodyShort}${delegation}\n\n${closing}\n\n${signature}`;
+    const generatedBodyText = `${greeting}\n\n${bodyShort}${delegation}\n\n${closing}\n\n${signature}`;
+    const fullBodyText = isRecipe ? `[RECETTE AUTH — NE PAS ENVOYER]\n\n${generatedBodyText}` : generatedBodyText;
+    const generatedSubject = parsedResponse.subject || `Re: ${emailSubject}`;
+    if (isRecipe) {
+      const refusal = recipeGeneratedLinkRefusal({ ...parsedResponse, recipe_subject: generatedSubject, recipe_body: fullBodyText });
+      if (refusal) return recipeRefusalResponse(refusal, correlationId, corsHeaders);
+    }
+    const draftSubject = isRecipe ? `[RECETTE AUTH] ${generatedSubject}` : generatedSubject;
 
     // Create draft
     const { data: draft, error: draftError } = await supabase
@@ -2984,7 +3015,7 @@ RAPPELS CRITIQUES:
       .insert({
         original_email_id: emailId,
         to_addresses: [emailFromAddress],
-        subject: parsedResponse.subject || `Re: ${emailSubject}`,
+        subject: draftSubject,
         body_text: fullBodyText,
         status: 'draft',
         ai_generated: true,
@@ -3002,7 +3033,7 @@ RAPPELS CRITIQUES:
 
     // ============ GENERATE ATTACHMENT IF NEEDED ============
     let attachmentResult: any = null;
-    if (parsedResponse.attachment_needed && parsedResponse.attachment_data?.posts?.length > 0) {
+    if (!isRecipe && parsedResponse.attachment_needed && parsedResponse.attachment_data?.posts?.length > 0) {
       console.log("Generating quotation attachment...");
       try {
         const enrichedAttachmentData = {
@@ -3084,6 +3115,11 @@ RAPPELS CRITIQUES:
 
     return respondOk({
       success: true,
+      ...(isRecipe ? { recipe_mode: NO_FILES_RECIPE, recipe_effects: {
+        draft_persisted: true, application_ai_calls_occurred: true,
+        usage_counters_may_change: true, attachment_analysis_performed: false,
+        files_created: false, download_links_created: false,
+      } } : {}),
       zone_reply_contract: body.zone_reply_contract === OPTIONAL_ZONE_REPLY_CONTRACT ? OPTIONAL_ZONE_REPLY_CONTRACT : undefined,
       draft: draft,
       // Analysis fields
@@ -3135,9 +3171,9 @@ RAPPELS CRITIQUES:
         closing: parsedResponse.closing,
         signature: parsedResponse.signature
       },
-      attachment_needed: parsedResponse.attachment_needed,
-      attachment_data: parsedResponse.attachment_data,
-      generated_attachment: attachmentResult?.attachment || null,
+      attachment_needed: isRecipe ? false : parsedResponse.attachment_needed,
+      attachment_data: isRecipe ? null : parsedResponse.attachment_data,
+      generated_attachment: isRecipe ? null : attachmentResult?.attachment || null,
       quotation_summary: parsedResponse.quotation_summary,
       regulatory_analysis: parsedResponse.regulatory_analysis,
       carrier_detected: aiExtracted.carrier || parsedResponse.carrier_detected,

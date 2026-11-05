@@ -16,6 +16,7 @@ import HsCodesAdmin from "./pages/admin/HsCodes";
 import TaxRatesAdmin from "./pages/admin/TaxRates";
 import DocumentsAdmin from "./pages/admin/Documents";
 import EmailsAdmin from "./pages/admin/Emails";
+import GenerationRecipe from "./pages/admin/GenerationRecipe";
 import KnowledgeAdmin from "./pages/admin/Knowledge";
 import MarketIntelligence from "./pages/admin/MarketIntelligence";
 import CustomsRegimesAdmin from "./pages/admin/CustomsRegimes";
@@ -62,6 +63,7 @@ const App = () => (
             <Route path="/admin/customs-regimes" element={<RequireAuth><CustomsRegimesAdmin /></RequireAuth>} />
             <Route path="/admin/documents" element={<RequireAuth><DocumentsAdmin /></RequireAuth>} />
             <Route path="/admin/emails" element={<RequireAuth><EmailsAdmin /></RequireAuth>} />
+            <Route path="/admin/recipe-generation" element={<RequireAuth><GenerationRecipe /></RequireAuth>} />
             <Route path="/admin/knowledge" element={<RequireAuth><KnowledgeAdmin /></RequireAuth>} />
             <Route path="/admin/market-intelligence" element={<RequireAuth><MarketIntelligence /></RequireAuth>} />
             <Route path="/admin/pricing-intelligence" element={<RequireAuth><PricingIntelligence /></RequireAuth>} />

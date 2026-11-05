@@ -4237,3 +4237,35 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Limites : pas d'idempotence serveur/interonglets, pas de test crypto/runtime connecté ; modèle workspace existant conservé. Analyses/PJ antérieures à la gate restent possibles en usage réel et inchangées.
 - Preuves task/generation-auth-local/{verification,full-ci,counter-review,browser-proof}.json et fix.patch ; retour inverse du seul lot, sans écraser travaux voisins. Livraison éventuelle frontend+generate-response sous GO distinct ; aucun moteur/tarif/RLS/schema changé.
 - GO explicite Ramzi du04/11 : publier uniquement ce lot, contrôler CI du SHA exact puis déployer generate-response ; amélioration affichage distincte non livrée, aucune génération connectée ni modification métier.
+
+## 2.84 Mode de recette serveur sans fichiers - 4 novembre 2026 (local uniquement)
+
+- GO précis local/FROZEN : borner fichiers/liens et tester sans affaiblir Auth/workspace/production ; aucune publication, configuration Cloud ou recette connectée.
+- Trois fichiers techniques : generate-response/index, nouveau recipe-mode et92tests ; cette note seule ajoutée aux documents. Base work/origin74e0c71, index vide,143empreintes protégées conformes dont affichage en attente.
+- Mode no_files_v1 désactivé tant que policy serveur absente ; acteur authentifié/email/case/datesUTC liés, fenêtre d'admission<=1h. Décision figée pendant requête, cible expirée toujours refusée ; policy corrompue503global jusqu'à correction/retrait explicite.
+- Wire dédié recipe_email_id sans propriété emailId/quotationData : mélange ou absence de mode refusé, identité interne issue du contexte admis ; appel legacy ciblé sansmode refusé. Aucun fallback/retry/downgrade admis.
+- Lien canonique email→thread→case et lecturePJ complète/count exact/max1000/stricttrue vérifiés avant IA ou analyse ; erreur/ambiguïté/troncature/pièceàanalyser refusées. Aucune lectureStorage ou mutationPJ dans le mode admis.
+- Sous-appel de pièce toujours supprimé même siIAle réclame ; attachment_needed=false, attachment_data/generated_attachment=null, draft marqué RECETTE AUTH/NE PAS ENVOYER et effets explicites. Filtre lexical IA supplémentaire, non assainisseur exhaustif de tout texte.
+- Effets conservés : extraction/rédactionIA/coût non plafonné, nouveau draft, événements et compteurs learned_knowledge/updated_at possibles ; pas de transaction globale/idempotence/verrou dossier ou autres endpoints/utilisateurs.
+- Régression initiale reproduite : ancien simpleflag+emailId lançait1sous-appelfichier ; nouveau wire contre vrai handler74e0c71 :400avantemails/IA/moteur/Storage/fichier/draft,1événement technique.9sources legacy identiques à Git.
+- 92tests ciblés+1compatibilité PASS ; contre-revue indépendante contre-exécute93PASS sans réseauapplicatif, aucune écriture par reviewer. Parité production absente policy : réponse/traceHTTP/draft identiques octetpourOctet.
+- CI finale npm run ci exit0 :1605Vitest/3185Deno/6ignorés ; detteDeno47/4 et lint709/16 sans aggravation, config/bundles/type/build PASS ;3empreintes finales stables. PremièreCI1605/3170 avant durcissement conservée, non substituée à la finale.
+- Auth helper, moteur, gate zone, tarifs, RLS/schema, configuration et tous travaux voisins inchangés ; aucun appel Cloud/IA/IMAP, donnée métier réelle, fichierStorage/lien signé, envoi, commit/push/déploiement sous ce lot.
+- Activation future sous accord distinct : livrer handler+helper, valider/configurerpolicy et appel client dédié (UI actuelle ne l'envoie pas), exiger acquittementrecipe_mode/effects sans downgrade. Ancien runtime refuse le wire sûr ; retirerpolicy rétablit production et n'annule aucun coût/effet antérieur.
+- Preuves et patches isolés : task/generation-recipe-local/{verification,full-ci-final,counter-review,legacy-wire,activation-contract}.json,fix.patch et head-based.patch ; retour du seul lot vérifié sans application, sans effacer correctifs livrés ou affichage voisin.
+
+## 2.85 Interface interne de recette sans fichiers - 5 novembre 2026 (local uniquement)
+
+- GO précis : préparer/tester localement le client synthétique et figer le lot ; aucune publication, activation ou génération connectée.
+- Trois fichiers UI : route /admin/recipe-generation dans App, nouvelle page GenerationRecipe et54tests ; RequireAuth, SDK et droits existants réutilisés, aucun autre parcours modifié.
+- Identité validée getUser et RPC STABLE has_workspace_access sans argument ; lecture métadonnées email/thread/case unique, PJ complètes/max1000/stricttrue et absence de brouillon ; contrôles répétés avant appel.
+- Wire littéral no_files_v1/recipe_email_id/optional_factor_v1, sans emailId/quotationData ni headers manuels ; aucun repli, retry, envoi, pièce, calcul ou modification métier depuis ce client.
+- Accusé mode/effets et draft marqué/non envoyé/bon auteur/bon email vérifié, puis lecture du draft persistant ; preuve moteur distincte, réponse non cotable reste non concluante.
+- Une tentative conservée dans sessionStorage (identifiants/heure seulement), accès stockage indisponible bloquant ; timeout90s non assimilé à une annulation ; gardes doubles clics/user/cible/démontage, pas d'idempotence serveur/interonglets revendiquée.
+- 61tests ciblés PASS dont7régressions Emails ; contre-revue indépendante61PASS puis3tests affectés PASS après retrait d'un incrément de cleanup superflu.148empreintes protégées conformes dont serveur et affichage voisin.
+- CI finale npm run ci exit0 :1659Vitest/3185Deno/6ignorés, types47/4 et lint709/16 sans aggravation, config/bundles/type/build PASS ; premier arrêt lint17warnings corrigé sans relever baseline.
+- Edge localhost synthétique : saisie invalide/focus, préflight, attente, succès/refus, clavier,390x844 sans débordement, rechargement bloqué ; SDK/Auth remplacés, CSP connect-src none, aucune donnée réelle.
+- Audit UI strict116constats hérités identiques avant/après,0nouveau sur lot ; AGENTS interdit nouveau Markdown, tokens/primitives/coque conservés, aucune conformité UI globale affirmée.
+- Lot futur exact :6fichiers code/tests serveur+client et cette roadmap (notes2.84/2.85 seules ajoutées au HEAD) ; patch/manifeste/CI/revue/navigateur/plan dans task/generation-recipe-client-local.
+- Activation sous accord distinct : CI SHA exact, livrer generate-response seule, politique acteur/email/case15min proposée, un essai payant puis suppression immédiate ; effets draft/IA/compteurs/événements conservés, coût non plafonné et propagation configuration encore à vérifier.
+- Aucun commit/push/déploiement/configuration Cloud, migration, Auth/RLS, donnée métier réelle, import IMAP ou envoi ; rollback ciblé par patch inverse vérifié, sans suppression de données ni restauration de compteurs partagés.
