@@ -133,3 +133,33 @@ it("rejects an empty saved run block before both digest and detail can use old g
   expect(screen.getByText("Bases retenues pour cette cotation").closest("summary")).not.toHaveTextContent("20GP");
   expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();
 });
+
+const savedOperatorBasis = {schema_version:1,title:"Recette fictive",revision_no:1,calculated_at:"2026-11-06T00:00:00Z",source_run_id:"synthetic",scope_hash:"a".repeat(64),scope:{cargo_units:[{unit_ref:"recette-poids",quantity:20,gross_weight_kg:28000,weight_basis:"per_unit"}]},assumptions:[],overlay:[],reservations:[],open_points:[]};
+it("shows the immutable operator lot for an existing version without inferring a unit for its legacy global",()=>{
+ const inputs={cargo_weight:560,containers:[{type:"20GP",quantity:20}]};const before=JSON.stringify(inputs);
+ render(<QuotationBasis context="Version synthétique" inputs={inputs} operatorBasis={savedOperatorBasis} facts={[{key:"cargo.weight_kg",value_number:9000}]} />);
+ const detail=screen.getByRole("region",{name:"Poids et conteneurs enregistrés par lot"});expect(detail).toHaveTextContent(/560\s000 kg \(560 tonnes\)/);expect(detail).toHaveTextContent(/28\s000 kg par unité × 20/);
+ expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();expect(JSON.stringify(inputs)).toBe(before);
+});
+it("uses the same retained operator weight before and after version creation",()=>{
+ const {rerender}=render(<QuotationBasis context="Calcul" pricingRun={{outputs_json:{operator_basis:savedOperatorBasis},engine_request:{cargoWeight:560}}} />);
+ const before=screen.getByRole("region",{name:"Poids et conteneurs enregistrés par lot"}).textContent;
+ rerender(<QuotationBasis context="Version" inputs={{cargo_weight:560}} operatorBasis={savedOperatorBasis} />);
+ expect(screen.getByRole("region",{name:"Poids et conteneurs enregistrés par lot"}).textContent).toBe(before);
+});
+it.each([null, {bad:true}])("reports damaged operator history without a global fallback (%s)",operatorBasis=>{
+ render(<QuotationBasis context="Version" inputs={{cargo_weight:560}} operatorBasis={operatorBasis} />);expect(screen.getByRole("alert")).toHaveTextContent("Bases de poids indisponibles");expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();
+});
+it("does not fall back to global weights for a valid but empty operator scope",()=>{
+ render(<QuotationBasis context="Version" inputs={{cargo_weight:560,containers:[{type:"20GP",quantity:20}]}} operatorBasis={{...savedOperatorBasis,scope:{cargo_units:[]}}} />);
+ expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();expect(screen.getByText("Bases retenues pour cette cotation").closest("summary")).not.toHaveTextContent("560");
+});
+
+it("keeps operator provenance exclusive even when a different cargo block is damaged",()=>{
+ const {rerender}=render(<QuotationBasis context="Version" inputs={{cargo_basis:null,cargo_weight:560}} operatorBasis={savedOperatorBasis} />);expect(screen.queryByRole("alert")).toBeNull();expect(screen.getByRole("region",{name:"Poids et conteneurs enregistrés par lot"})).toHaveTextContent("560 tonnes");
+ rerender(<QuotationBasis context="Version" inputs={{cargo_basis:null,cargo_weight:560}} operatorBasis={{...savedOperatorBasis,scope:{cargo_units:[]}}} />);expect(screen.queryByRole("alert")).toBeNull();expect(screen.queryByText("Poids enregistré (unité non précisée)")).toBeNull();
+});
+it("keeps non-operator legacy weight units unknown, without reading current facts",()=>{
+ render(<QuotationBasis context="Ancienne version" inputs={{cargo_weight:560}} facts={[{key:"cargo.weight_kg",value_number:560000}]} />);
+ expect(screen.getByText("Poids enregistré (unité non précisée)").nextElementSibling).toHaveTextContent("560");
+});

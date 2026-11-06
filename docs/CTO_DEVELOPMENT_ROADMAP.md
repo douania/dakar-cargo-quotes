@@ -4366,3 +4366,16 @@ Chaque mise à jour doit indiquer la date, les preuves, le SHA concerné et le v
 - Méthode métier corrigée : cotations SODATRA non normatives, cinq frais non imposés. Factures réelles et barèmes DCQ qualifiés en lecture seule ; deux factures transitaires rattachées par texte identique, scopes non équivalents au cas20TC. Nom facture Taleb contredit par en-tête Devis client, exclu ; aucun tarif greffé.
 - Livraison : seul lot+CI SHA exact, run-scenario-pricing uniquement puis fonction SQL ciblée+estampille si contrôle autorise ; aucune recette authentique, IA applicative, PDF/brouillon/envoi, V2 ou quarantaine. Coûts Cloud non exposés,0crédit agent nouveau à ce stade.
 - Preuves/manifeste task/scenario-category-local/verification.json et invoice-validation-readonly-20261106/verification.json. Rollback ciblé garde les registres et faits, réintroduit défauts ; pas de suppression ou réécriture historique. Préparation locale validée, activation à vérifier séparément.
+
+
+## 2.101 Unite du poids des bases operateur en version - 6 novembre 2026
+
+- GO DCQ : corriger le seul affichage du poids des versions, tests/contre-revue/livraison ; aucun rejeu authentique ni modification des donnees reelles.
+- Cause : la carte de version omettait operator_basis et affichait cargo_weight legacy sans unite, bien que les lots immuables conservent gross_weight_kg/weight_basis/quantite. Le contrat serveur volontairement distinct n'est pas modifie.
+- Cinq fichiers frontend : carte/type, composant Bases retenues/test, helper de presentation poids operateur/test. Priorite exclusive au scope enregistre, jamais aux faits actuels ni a un autre cargo_basis ; null invalide signale, scope vide sans repli global.
+- Par lot : per_unit multiplie seulement par quantite entiere positive, total ne multiplie pas ; aucun cumul de lots. Resultat derive explicitement, kg/tonnes lisibles, zero valide, champs inconnus ou produit non sur restent non etablis ; petites valeurs non arrondies a zero.
+- Recette synthetique locale :20x28000kg=560000kg/560tonnes. Historiques ambigus non reinterpretes, snapshots immuables non reecrits ; anciens PDF inchanges. Aucun tarif, qualification, montant, Auth/RLS ou migration modifie.
+- Candidat isole :1491Vitest/3390Deno/6ignores PASS, config/bundles/types/lint/build PASS_WITH_BASELINE.37tests cibles contre-executes et manifeste cinq fichiers contre-verifie. Audit UI strict116constats identiques a la baseline,0nouveau, pas de conformite globale revendiquee.
+- Navigateur local composants reels/donnees fictives : rendu desktop/390px et ouverture clavier PASS, captures hors Git. Premier controle interrompu par delais navigateur puis repris dans un onglet frais ; dimensions restaurees.
+- Livraison ciblee : cinq fichiers+la presente section seulement sur work, CI du SHA exact et synchronisation Lovable a verifier ; aucun deploiement de fonction necessaire. Rollback par revert de ce seul lot, sans toucher aux historiques.
+- Preuves task/weight-unit-fix-20261106/prepared.json,local-validation.json,ci-isolated.log et captures locales. Aucune generation connectee, IA applicative, PDF/brouillon/envoi, acces IMAP ou facture, nouveau calcul/adoption/version/SQL ; cout runtime non expose,0credit agent nouveau observe.

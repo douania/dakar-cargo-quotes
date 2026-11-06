@@ -420,7 +420,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
         <div>
           <div className="space-y-3">
             {versions.map((version, index) => {
-              const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[]; meta?: Record<string, unknown>; inputs?: unknown; lots?: unknown } | null;
+              const snapshot = version.snapshot as { totals?: Record<string, unknown>; lines?: unknown[]; meta?: Record<string, unknown>; inputs?: unknown; lots?: unknown; operator_basis?: unknown } | null;
               const totalHt = snapshot?.totals?.total_ht == null ? NaN : Number(snapshot.totals.total_ht);
               const currency = String(snapshot?.totals?.currency || 'XOF');
               const linesCount = snapshot?.lines?.length || 0;
@@ -466,7 +466,7 @@ function QuotationVersionCardInner({ caseId, isLocked = false, refreshToken, onR
                         )}
                       </div>
 
-                      <QuotationBasis context={`Version v${version.version_number}${version.is_selected ? " sélectionnée" : ""}`} inputs={snapshot?.inputs} lots={snapshot?.lots} onReview={onReviewBasis} collapsed={!version.is_selected} />
+                      <QuotationBasis context={`Version v${version.version_number}${version.is_selected ? " sélectionnée" : ""}`} inputs={snapshot?.inputs} operatorBasis={snapshot?.operator_basis} lots={snapshot?.lots} onReview={onReviewBasis} collapsed={!version.is_selected} />
                       <CaseSourceChangesNotice caseId={caseId} runId={version.pricing_run_id} refreshToken={refreshToken} />
                       {Number.isFinite(displayedTotal) && (
                         <p className="mt-2 text-lg font-bold">
