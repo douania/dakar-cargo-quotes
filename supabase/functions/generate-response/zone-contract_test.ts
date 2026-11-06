@@ -210,7 +210,7 @@ async function fixture(
       writes.push(name!);
       if (name === "email_drafts") {
         drafts++;
-        return json({ id: "synthetic-draft", body_text: "Fixture" });
+        return json({ id: "88888888-8888-4888-8888-888888888888", body_text: "Fixture" });
       }
       assertEquals(
         name,

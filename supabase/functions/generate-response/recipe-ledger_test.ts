@@ -57,3 +57,76 @@ Deno.test('ledger real handler engine admission loss preserves unresolved fence 
 for(const mode of ['normal','v1'])Deno.test('ledger '+mode+' always takes and ends durable email lease even with READY absent',async()=>{const calls:string[]=[];const r=await runRecipeFixture({policyText:mode==='v1'?undefined:null,request:mode==='v1'?{}:{recipe_mode:undefined,recipe_email_id:undefined,emailId:E},ledgerRpc:async(n)=>{calls.push(n);return {data:{kind:n==='begin_generation_email_lease'?'started':'retained'},error:null};}});assertEquals(r.status,200,JSON.stringify(r.output));assertEquals(calls,['begin_generation_email_lease','finish_generation_email_lease']);});
 Deno.test('ledger absent migration blocks normal AI instead of silently bypassing lease',async()=>{const r=await runRecipeFixture({policyText:null,request:{recipe_mode:undefined,recipe_email_id:undefined,emailId:E},ledgerRpc:async()=>({data:null,error:{code:'PGRST202'}})});assertEquals(r.status,503);assertEquals(r.extraction+r.finalAi,0);assertEquals(r.drafts.length,1);});
 for(const failure of ['draftAckLost','fileAckLost'] as const)Deno.test('ledger normal retains active reservation after '+failure,async()=>{const calls:string[]=[];const r=await runRecipeFixture({policyText:null,request:{recipe_mode:undefined,recipe_email_id:undefined,emailId:E},[failure]:true,ledgerRpc:async n=>{calls.push(n);return {data:{kind:'started'},error:null};}});assertEquals(r.status,failure==='draftAckLost'?500:200);assertEquals(calls,['begin_generation_email_lease']);});
+
+// Normal/V1 terminal lifecycle; shared fixture already imported above.
+const normal={recipe_mode:undefined,recipe_email_id:undefined,emailId:E};
+type Fault=NonNullable<Parameters<typeof runRecipeFixture>[0]>;
+function ledger(){
+ let active:Record<string,unknown>|null=null;
+ const calls:Array<{name:string;args:Record<string,unknown>}>=[];
+ const rpc=async(name:string,args:Record<string,unknown>)=>{
+  calls.push({name,args});
+  if(name==='begin_generation_email_lease'){
+   if(active)return {data:{kind:'unresolved'},error:null};
+   active={...args};return {data:{kind:'started'},error:null};
+  }
+  assertEquals(name,'finish_generation_email_lease');
+  if(active&&active.p_lease===args.p_lease&&active.p_actor===args.p_actor&&active.p_fence===args.p_fence)active=null;
+  return {data:{kind:'retained'},error:null};
+ };
+ return {rpc,calls,get active(){return active;}};
+}
+const safe:Array<[string,Fault,number]>=[
+ ['empty body',{emailBody:''},400],
+ ['zone confirmation',{destination:'SYNTHETIC UNKNOWN CITY',request:{...normal,zone_reply_contract:undefined}},409],
+ ['engine unavailability',{engineFault:true},503],
+ ['extraction HTTP refusal',{extractionFault:'http'},500],
+ ['extraction transport ended without output',{extractionFault:'network'},500],
+ ['final AI HTTP refusal',{finalFault:'http'},500],
+ ['final AI transport ended without output',{finalFault:'network'},500],
+ ['final response parse error',{finalFault:'parse'},500],
+ ['database permission rejection',{draftRejectCode:'42501'},500],
+ ['database constraint rejection',{draftRejectCode:'23505'},500],
+];
+for(const [name,fault,status] of safe)Deno.test('normal lease safe terminal: '+name+' permits only a later explicit invocation',async()=>{
+ const db=ledger();
+ const first=await runRecipeFixture({policyText:null,request:normal,attachmentOutput:false,attachments:[],...fault,ledgerRpc:db.rpc});
+ assertEquals(first.status,status,JSON.stringify(first.output));assertEquals(first.drafts.length,1,'Existing draft is retained; no new draft from failed attempt');
+ assertEquals(first.generatedFiles,0);assertEquals(db.calls.map(x=>x.name),['begin_generation_email_lease','finish_generation_email_lease']);assertEquals(db.active,null);
+ const start=db.calls[0].args,end=db.calls[1].args;
+ for(const key of ['p_lease','p_actor','p_fence'])assertEquals(end[key],start[key]);
+ const next=await runRecipeFixture({policyText:null,request:normal,attachments:[],attachmentOutput:false,ledgerRpc:db.rpc});
+ assertEquals(next.status,200,JSON.stringify(next.output));assertEquals(next.drafts.length,2);assertEquals(next.extraction,1);assertEquals(db.active,null);
+ assertEquals(db.calls.filter(c=>c.name==='begin_generation_email_lease').length,2,'No automatic admission retry inside either request');
+});
+for(const [name,fault,status] of [
+ ['lost draft ACK',{draftAckLost:true},500],
+ ['malformed draft ACK',{draftMalformedAck:true},500],
+ ['unclassified database error',{draftRejectCode:'XX000'},500],
+ ['connection SQLSTATE',{draftRejectCode:'08006'},500],
+ ['cancellation SQLSTATE',{draftRejectCode:'57014'},500],
+ ['unconfirmed generated file',{fileAckLost:true},200],
+] as Array<[string,Fault,number]>)Deno.test('normal lease uncertain terminal: '+name+' retains reservation and prevents a second worker',async()=>{
+ const db=ledger();const result=await runRecipeFixture({policyText:null,request:normal,attachments:[],...fault,ledgerRpc:db.rpc});
+ assertEquals(result.status,status,JSON.stringify(result.output));assert(db.active);assertEquals(db.calls.map(c=>c.name),['begin_generation_email_lease']);
+ const retry=await runRecipeFixture({policyText:null,request:normal,ledgerRpc:db.rpc});assertEquals(retry.status,409);assertEquals(retry.output.error.code,'RECIPE_TARGET_UNRESOLVED');assertEquals(retry.extraction+retry.finalAi,0);
+});
+Deno.test('normal lease unconfirmed begin never finishes an unacknowledged or foreign lease',async()=>{
+ const db=ledger();const first=await runRecipeFixture({policyText:null,request:normal,ledgerRpc:async(n,a)=>{await db.rpc(n,a);return {data:null,error:{code:'08006'}};}});
+ assertEquals(first.status,503);assertEquals(first.extraction+first.finalAi,0);assert(db.active);assertEquals(db.calls.map(c=>c.name),['begin_generation_email_lease']);
+ const next=await runRecipeFixture({policyText:null,request:normal,ledgerRpc:db.rpc});assertEquals(next.status,409);assertEquals(next.extraction+next.finalAi,0);assertEquals(db.calls.filter(x=>x.name==='finish_generation_email_lease').length,0);
+});
+Deno.test('normal lease release ACK loss is not replayed and cannot repeat AI or draft writes',async()=>{
+ const db=ledger();const r=await runRecipeFixture({policyText:null,request:normal,emailBody:'',attachments:[],ledgerRpc:async(n,a)=>{const result=await db.rpc(n,a);return n==='finish_generation_email_lease'?{data:null,error:{code:'08006'}}:result;}});
+ assertEquals(r.status,400);assertEquals(r.extraction+r.finalAi,0);assertEquals(r.drafts.length,1);assertEquals(db.calls.map(x=>x.name),['begin_generation_email_lease','finish_generation_email_lease']);
+});
+Deno.test('V1 known no-file refusal finishes only its own lease; V2 and quarantine paths remain separate',async()=>{
+ const db=ledger();const r=await runRecipeFixture({linkOutput:true,ledgerRpc:db.rpc});assertEquals(r.status,409);assertEquals(r.drafts.length,1);assertEquals(db.calls.map(x=>x.name),['begin_generation_email_lease','finish_generation_email_lease']);assertEquals(db.active,null);
+ const q=await runRecipeFixture({policyText:null,request:normal,blockedEmails:JSON.stringify([E]),ledgerRpc:db.rpc});assertEquals(q.status,409);assertEquals(q.output.error.code,'RECIPE_PRIOR_EXECUTION_UNCONFIRMED');assertEquals(db.calls.length,2);assertEquals(q.extraction+q.finalAi,0);
+});
+
+for(const invalid of ['not-a-uuid','',null,17,{},[]])Deno.test('normal lease invalid draft key '+JSON.stringify(invalid)+' remains uncertain',async()=>{
+ const db=ledger();const first=await runRecipeFixture({policyText:null,request:normal,attachments:[],attachmentOutput:false,draftAckId:invalid,ledgerRpc:db.rpc});
+ assertEquals(first.status,500);assert(db.active);assertEquals(db.calls.map(c=>c.name),['begin_generation_email_lease']);
+ const next=await runRecipeFixture({policyText:null,request:normal,ledgerRpc:db.rpc});assertEquals(next.status,409);assertEquals(next.extraction+next.finalAi,0);
+});

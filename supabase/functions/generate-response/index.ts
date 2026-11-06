@@ -1,6 +1,6 @@
 import { LEDGER_POLICY_ENV, LEDGER_READY_ENV, LEGACY_BLOCK_ENV, resolveLedgerRequest,
   registerRecipeGrant, claimRecipeAttempt, finishRecipeAttempt, readRecipeReceipt, revokeRecipeGrant,
-  retainUncertainRecipe, beginEmailLease, finishEmailLease, recipeReceiptPayload, ledgerErrorResponse, RecipeLedgerError,
+  retainUncertainRecipe, beginEmailLease, finishEmailLease, isDefiniteDraftInsertRejection, isConfirmedDraftId, recipeReceiptPayload, ledgerErrorResponse, RecipeLedgerError,
   type ActiveRecipe, type EmailLease, type RecipeReceipt } from "./recipe-ledger.ts";
 import { NO_FILES_RECIPE, RECIPE_POLICY_ENV, MAX_RECIPE_ATTACHMENTS, resolveRecipeMode, recipeCaseReadRefusal, recipeAttachmentReadRefusal, recipeGeneratedLinkRefusal, recipeRefusalResponse } from "./recipe-mode.ts";
 import { decideZoneReply, zoneReplyRefusal, OPTIONAL_ZONE_REPLY_CONTRACT } from "../_shared/zone-reply-contract.ts";
@@ -1375,6 +1375,8 @@ export async function handleRequest(req: Request): Promise<Response> {
   let activeLease: EmailLease | null = null;
   let durableReceipt: RecipeReceipt | null = null;
   let normalLeaseTerminal = false;
+  let normalLeaseAcquired = false;
+  let ordinaryDraftWriteStarted = false;
   let ordinaryEffectsConfirmed = true;
 
   try {
@@ -1528,6 +1530,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     if (emailId && !v2Run) {
       activeLease = { id: crypto.randomUUID(), actorId: userId, fence: crypto.randomUUID() };
       await beginEmailLease(serviceClient, activeLease, emailId);
+      normalLeaseAcquired = true;
     }
 
     // Fallbacks pour cotation directe (email = null)
@@ -3060,11 +3063,14 @@ RAPPELS CRITIQUES:
       draft = { id: durableReceipt.draft_id! };
       activeRecipe = null;
     } else {
+      // Set before sending: a missing/transport ACK may still have committed.
+      ordinaryDraftWriteStarted = true;
       const created = await supabase.from('email_drafts').insert({
         original_email_id: emailId, to_addresses: [emailFromAddress], subject: draftSubject,
         body_text: fullBodyText, status: 'draft', ai_generated: true, created_by: userId,
       }).select().single();
-      if (created.error || !created.data) {
+      if (created.error || !created.data || !isConfirmedDraftId(created.data.id)) {
+        if (!created.data && isDefiniteDraftInsertRejection(created.error)) ordinaryDraftWriteStarted = false;
         console.error("Error creating draft:", created.error);
         throw new Error("Erreur de création du brouillon");
       }
@@ -3263,7 +3269,10 @@ RAPPELS CRITIQUES:
       try { await retainUncertainRecipe(serviceClient, activeRecipe); }
       catch { console.warn('Recipe ledger outcome remains unconfirmed; no automatic retry.'); }
     }
-    if (activeLease && normalLeaseTerminal) {
+    // A terminal refusal before any uncertain output write is safe to close.
+    // The request never retries itself. Keep lost begin/draft/file ACKs, unfinished
+    // workers and the independent V2/quarantine ledger reserved without a TTL.
+    if (activeLease && normalLeaseAcquired && ordinaryEffectsConfirmed && (normalLeaseTerminal || !ordinaryDraftWriteStarted)) {
       try { await finishEmailLease(serviceClient, activeLease); }
       catch { console.warn('Email generation reservation remains unconfirmed; no automatic release.'); }
     }

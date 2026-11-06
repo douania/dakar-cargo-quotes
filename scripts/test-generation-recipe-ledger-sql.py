@@ -147,6 +147,13 @@ try:
   check('atomic rollback on '+stage+' failure',failure)
  def norm_first():i,k=uid(),uid();kind(lease(i,k),'started');kind(grant(),'unresolved');endlease(i,k);kind(grant(),'registered');kind(lease(),'unresolved')
  check('normal lease and recipe reservation exclude each other atomically',norm_first)
+ def fenced_normal_finish():
+  i,k=uid(),uid();kind(lease(i,k),'started')
+  endlease(i,k,actor=B);endlease(i,uid());assert sql(f"SELECT state FROM public.generation_recipe_email_leases WHERE id='{i}';")=='active'
+  kind(lease(actor=B),'unresolved');endlease(i,k);assert sql(f"SELECT state FROM public.generation_recipe_email_leases WHERE id='{i}';")=='finished'
+  newer,token=uid(),uid();kind(lease(newer,token,actor=B),'started');endlease(i,k)
+  assert sql(f"SELECT state FROM public.generation_recipe_email_leases WHERE id='{newer}';")=='active'
+ check('finished normal failure cannot release another actor or a newer lease',fenced_normal_finish)
  def normal_race():
   rows=parallel(range(24),lambda n:lease() if n%2 else grant(g=uid()));kinds={x['kind'] for x in rows};assert not({'registered','started'}<=kinds),rows;assert 'registered' in kinds or 'started' in kinds
  check('24 normal-v2 races cannot admit both categories',normal_race)

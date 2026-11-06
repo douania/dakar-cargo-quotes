@@ -141,8 +141,18 @@ export async function beginEmailLease(db: LedgerDb, lease: EmailLease, email: st
   const result = await rpc(db, 'begin_generation_email_lease', { p_lease: lease.id, p_actor: lease.actorId, p_email: email, p_fence: lease.fence });
   requireKind(result, ['started']);
 }
+/** A structured PostgreSQL rejection of this single INSERT is an aborted statement,
+ * unlike lost/malformed ACKs, transport errors, cancellations or generic failures.
+ * Never infer rollback from a message or HTTP status alone. */
+export function isDefiniteDraftInsertRejection(error: unknown): boolean {
+  return record(error) && typeof error.code === 'string' &&
+    ['42501', '23502', '23503', '23505', '23514', '22001', '22P02'].includes(error.code);
+}
+/** The persisted draft key is UUID; an arbitrary nonempty string is not an ACK. */
+export function isConfirmedDraftId(value: unknown): value is string { return uuid(value) !== null; }
 export async function finishEmailLease(db: LedgerDb, lease: EmailLease): Promise<void> {
-  await rpc(db, 'finish_generation_email_lease', { p_lease: lease.id, p_actor: lease.actorId, p_fence: lease.fence });
+  const result = await rpc(db, 'finish_generation_email_lease', { p_lease: lease.id, p_actor: lease.actorId, p_fence: lease.fence });
+  requireKind(result, ['retained']);
 }
 export function recipeReceiptPayload(receipt: RecipeReceipt) {
   return { success: true, recipe_mode: IDEMPOTENT_RECIPE, recipe_receipt: receipt, zone_reply_contract: OPTIONAL_ZONE_REPLY_CONTRACT,

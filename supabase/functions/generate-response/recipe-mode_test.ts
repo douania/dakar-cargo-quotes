@@ -91,7 +91,7 @@ Deno.test("recipe discarded attachment payload cannot leak or trigger links guar
 });
 
 type Row = Record<string, unknown>;
-interface Options { request?: Record<string, unknown>; policyText?: string | null; token?: string; cases?: Row[] | null; caseError?: boolean; attachments?: Row[] | null; attachmentCount?: number | null; attachmentError?: boolean; attachmentOutput?: boolean; linkOutput?: boolean; changePolicy?: boolean; historical?: boolean; draftAckLost?: boolean; fileAckLost?: boolean; attachmentUpdateAckLost?: boolean; revokeAtEngine?: boolean; handler?: typeof generate; now?: number; ledgerPolicyText?: string | null; ledgerReady?: string | null; blockedEmails?: string | null; ledgerRpc?: (name: string, args: Record<string, unknown>) => Promise<{data:unknown;error:unknown}> }
+interface Options { draftAckId?: unknown; emailBody?: string | null; destination?: string; extractionFault?: "http" | "network"; finalFault?: "http" | "network" | "parse"; engineFault?: boolean; draftRejectCode?: string; draftMalformedAck?: boolean; request?: Record<string, unknown>; policyText?: string | null; token?: string; cases?: Row[] | null; caseError?: boolean; attachments?: Row[] | null; attachmentCount?: number | null; attachmentError?: boolean; attachmentOutput?: boolean; linkOutput?: boolean; changePolicy?: boolean; historical?: boolean; draftAckLost?: boolean; fileAckLost?: boolean; attachmentUpdateAckLost?: boolean; revokeAtEngine?: boolean; handler?: typeof generate; now?: number; ledgerPolicyText?: string | null; ledgerReady?: string | null; blockedEmails?: string | null; ledgerRpc?: (name: string, args: Record<string, unknown>) => Promise<{data:unknown;error:unknown}> }
 export async function runRecipeFixture(options: Options = {}) {
   const originalFetch = globalThis.fetch, NativeDate = Date;
   let clock = options.now ?? NOW;
@@ -111,10 +111,15 @@ export async function runRecipeFixture(options: Options = {}) {
       const content = await req.json();
       if (content.tool_choice) {
         extraction++;
+        if(options.extractionFault === "network") throw new TypeError("Synthetic provider transport lost");
+        if(options.extractionFault === "http") return json({error:"Synthetic provider refusal"},429);
         if (options.changePolicy) { clock += 7200000; Deno.env.delete(RECIPE_POLICY_ENV); }
-        return json({ choices: [{ message: { tool_calls: [{ function: { name: "extract_quotation_data", arguments: JSON.stringify({ detected_language: "FR", request_type: "QUOTATION_REQUEST", can_quote_now: true, transport_mode: "maritime", destination: "Dakar", origin: "Jebel Ali", incoterm: "DAP", cargo_description: "SYNTHETIC", containers: [{ type: "20GP", quantity: 1 }], weight_kg: 28000, value: 500000, currency: "XOF", services_requested: ["customs_clearance", "local_delivery"], missing_info: [], questions_to_ask: [], has_pi: false }) } }] } }] });
+        return json({ choices: [{ message: { tool_calls: [{ function: { name: "extract_quotation_data", arguments: JSON.stringify({ detected_language: "FR", request_type: "QUOTATION_REQUEST", can_quote_now: true, transport_mode: "maritime", destination: options.destination ?? "Dakar", origin: "Jebel Ali", incoterm: "DAP", cargo_description: "SYNTHETIC", containers: [{ type: "20GP", quantity: 1 }], weight_kg: 28000, value: 500000, currency: "XOF", services_requested: ["customs_clearance", "local_delivery"], missing_info: [], questions_to_ask: [], has_pi: false }) } }] } }] });
       }
       finalAi++;
+      if(options.finalFault === "network") throw new TypeError("Synthetic provider transport lost");
+      if(options.finalFault === "http") return json({error:"Synthetic provider refusal"},503);
+      if(options.finalFault === "parse") return json({choices:[{message:{content:"NOT JSON"}}]});
       return json({ choices: [{ message: { content: JSON.stringify({ greeting: "Bonjour", body_short: options.linkOutput ? "Visit https://generated.invalid/file" : "Synthetic reply", closing: "Fin", signature: "Test", attachment_needed: options.attachmentOutput !== false, attachment_data: { filename: "overwrite-existing.html", posts: [{ description: "Synthetic", montant: 1, devise: "XOF" }], public_url: "https://generated.invalid/forged-signed" } }) } }] });
     }
     assertEquals(url.hostname, "recipe-fixture.invalid", "No external network allowed");
@@ -128,7 +133,7 @@ export async function runRecipeFixture(options: Options = {}) {
       return result.error ? json(result.error,400) : json(result.data);
     }
 
-    if (url.pathname === "/functions/v1/quotation-engine") { engineTokens.push(token); return await engine(new Request(req.url, { method: req.method, headers: req.headers, body: await req.text() })); }
+    if (url.pathname === "/functions/v1/quotation-engine") { engineTokens.push(token); if(options.engineFault) return json({error:"Synthetic engine unavailable"},503); return await engine(new Request(req.url, { method: req.method, headers: req.headers, body: await req.text() })); }
     if (url.pathname === "/functions/v1/generate-quotation-attachment") { generatedFiles++; if(options.fileAckLost) return json({message:"Synthetic unconfirmed file mutation"},500); return json({ attachment: { filename: "synthetic.html", public_url: "https://synthetic.invalid/signed" } }); }
     if (url.pathname.startsWith("/storage/")) { storage++; return new Response(new Uint8Array([1, 2])); }
     if (url.pathname.startsWith("/functions/v1/")) return json({ suggested_lines: [] });
@@ -138,12 +143,13 @@ export async function runRecipeFixture(options: Options = {}) {
       if (table === "learned_knowledge") { usageUpdates++; assertEquals(req.method, "PATCH"); return json([]); }
       if (table === "email_attachments") { attachmentUpdates++; return options.attachmentUpdateAckLost ? json({message:"Synthetic unconfirmed attachment mutation"},500) : json([]); }
       assertEquals(table, "email_drafts", "No other business writes allowed"); assertEquals(req.method, "POST");
-      const row = { ...await req.json(), id: "new-draft" }; drafts.push(row); return options.draftAckLost ? json({message:"Synthetic lost draft ACK"},500) : json(row);
+      if(options.draftRejectCode) return json({code:options.draftRejectCode,message:"Synthetic database refusal"},400);
+      const row = { ...await req.json(), id: Object.hasOwn(options,"draftAckId") ? options.draftAckId : "55555555-5555-4555-8555-555555555555" }; drafts.push(row); if(options.draftMalformedAck) return json({}); return options.draftAckLost ? json({message:"Synthetic lost draft ACK"},500) : json(row);
     }
     if (table === "quote_cases" && options.caseError) return json({ message: "Synthetic case read failure" }, 500);
     if (table === "email_attachments" && options.attachmentError) return json({ message: "Synthetic attachment read failure" }, 500);
     const tables: Record<string, Row[] | null> = {
-      emails: [{ id: EMAIL, subject: "Synthetic request", body_text: "Synthetic body", from_address: "sender@example.invalid", sent_at: "2026-11-04T10:00:00Z", thread_ref: THREAD }],
+      emails: [{ id: EMAIL, subject: "Synthetic request", body_text: options.emailBody === undefined ? "Synthetic body" : options.emailBody, from_address: "sender@example.invalid", sent_at: "2026-11-04T10:00:00Z", thread_ref: THREAD }],
       quote_cases: options.cases === undefined ? [{ id: CASE, thread_id: THREAD }] : options.cases,
       email_attachments: attachments, delivery_zones: fixtureZones, local_transport_rates: options.historical ? [] : fixtureRates,
       learned_knowledge: options.historical ? [{ id: "synthetic-tariff", name: "transport", category: "tarif", is_validated: true, confidence: 1, created_at: "2026-11-04T10:00:00Z", usage_count: 3, data: { service: "transport", destination: "Dakar", cargo_type: "SYNTHETIC", transport_mode: "routier", montant: 1 } }] : [],

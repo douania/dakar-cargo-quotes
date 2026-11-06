@@ -70,7 +70,7 @@ async function chain(options: { tokens?: string[]; deniedWorkspace?: boolean; re
       if (table === "runtime_events") return json([]);
       assertEquals(table, "email_drafts", "No business mutation other than the synthetic new-draft insert");
       assertEquals(req.method, "POST", "Existing drafts must not be updated or deleted");
-      const row = { ...await req.json(), id: `synthetic-new-${drafts.length}` };
+      const row = { ...await req.json(), id: `77777777-7777-4777-8777-${String(drafts.length).padStart(12,"0")}` };
       drafts.push(row); return json(row);
     }
     const tables: Record<string, Row[]> = {

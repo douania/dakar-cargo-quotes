@@ -16,6 +16,20 @@ Deno.test('ledger SQL pipeline: real handler, actual PostgreSQL receipt transact
  const calls:string[]=[];
  const rpc=async(name:string,args:Record<string,unknown>)=>{calls.push(name);assert(/^(register_generation_recipe_grant|claim_generation_recipe_attempt|finish_generation_recipe_attempt|mark_generation_recipe_uncertain|read_generation_recipe_receipt|revoke_generation_recipe_grant|begin_generation_email_lease|finish_generation_email_lease)$/.test(name));const q='SET ROLE service_role;SET request.jwt.claims='+lit(JSON.stringify({role:'service_role'}))+';SELECT public.'+name+'('+Object.entries(args).map(([k,v])=>{assert(/^p_[a-z_]+$/.test(k));return k+'=>'+lit(v);}).join(',')+');';const r=await sql(q);return r.code?{data:null,error:{code:r.err.includes('42501')?'42501':'XX000',message:'Synthetic SQL error'}}:{data:JSON.parse(r.out),error:null};};
  const reset=await sql('TRUNCATE public.generation_recipe_attempts,public.generation_recipe_grants,public.generation_recipe_email_leases,public.generation_recipe_quarantines,public.email_drafts;');assertEquals(reset.code,0,reset.err);
+ // Known local terminal failures finish their own fenced SQL lease, with no draft.
+ for(const fault of [{emailBody:''},{finalFault:'http' as const},{draftRejectCode:'23505'}]) {
+  calls.length=0;
+  const failed=await runRecipeFixture({policyText:null,request:{recipe_mode:undefined,recipe_email_id:undefined,emailId:E},attachments:[],attachmentOutput:false,...fault,ledgerRpc:rpc});
+  assert(failed.status>=400,JSON.stringify(failed.output));assertEquals(failed.drafts.length,1);assertEquals(failed.generatedFiles,0);
+  assertEquals(calls,['begin_generation_email_lease','finish_generation_email_lease']);
+  assertEquals((await sql("SELECT count(*) FROM public.generation_recipe_email_leases WHERE state='active';")).out,'0');
+  assertEquals((await sql('SELECT count(*) FROM public.email_drafts;')).out,'0');
+ }
+ assertEquals((await sql("SELECT count(*) FROM public.generation_recipe_email_leases WHERE state='finished';")).out,'3');
+ // The next explicit worker is admitted, but no request retried its own AI work.
+ const safeNext=await runRecipeFixture({policyText:null,request:{recipe_mode:undefined,recipe_email_id:undefined,emailId:E},emailBody:'',attachments:[],ledgerRpc:rpc});assertEquals(safeNext.status,400);
+ assertEquals((await sql("SELECT count(*) FROM public.generation_recipe_email_leases WHERE state='finished';")).out,'4');
+ assertEquals((await sql('TRUNCATE public.generation_recipe_email_leases;')).code,0);
  const now=Date.now(),policy={grant_id:G,actor_user_id:A,case_id:C,email_id:E,starts_at:new Date(now-1000).toISOString(),expires_at:new Date(now+900000).toISOString()};
  const body={recipe_mode:IDEMPOTENT_RECIPE,recipe_grant_id:G,recipe_case_id:C,recipe_email_id:E,recipe_attempt_id:ATTEMPT,zone_reply_contract:'optional_factor_v1',actor_user_id:B,fence:'forged-client-value'};
  const options={policyText:null,ledgerPolicyText:JSON.stringify(policy),ledgerReady:'1',attachments:[],now,ledgerRpc:rpc};
