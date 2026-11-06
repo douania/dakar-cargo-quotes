@@ -101,6 +101,8 @@ function buildFactsSnapshot(rows: PricingFactRow[]): PricingFactRow[] {
   return (rows ?? []).map((row) => ({
     id: row.id,
     fact_key: row.fact_key,
+    fact_category: row.fact_category ?? null,
+    is_validated: row.is_validated ?? false,
     value_text: row.value_text ?? null,
     value_number: row.value_number ?? null,
     value_json: row.value_json ?? null,
@@ -269,7 +271,7 @@ async function handleRequest(req: Request): Promise<Response> {
           .eq("id", request.scenario_id)
           .maybeSingle(),
         serviceClient.from("quote_facts")
-          .select("id,fact_key,value_text,value_number,value_json,value_date,source_type,confidence")
+          .select("id,fact_key,fact_category,is_validated,value_text,value_number,value_json,value_date,source_type,confidence")
           .eq("case_id", request.case_id)
           .eq("is_current", true),
         serviceClient.from("quote_scenario_links")

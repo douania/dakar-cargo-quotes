@@ -36,7 +36,7 @@ function call(source = sourceId, key = 'synthetic-key-A', scope = hash, scenario
 }
 let started = false;
 try {
-  const r = spawnSync('docker', ['run', '--rm', '-d', '--name', container, '--network', 'none', '--tmpfs', '/var/lib/postgresql/data', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', 'postgres:17-alpine'], { encoding: 'utf8' });
+  const r = spawnSync('docker', ['run', '--pull', 'never', '--rm', '-d', '--name', container, '--network', 'none', '--tmpfs', '/var/lib/postgresql/data', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', 'postgres:17-alpine'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr); started = true;
   for (let i = 0; i < 60; i++) {
     if (spawnSync('docker', ['exec', container, 'pg_isready', '-U', 'postgres']).status === 0) break;
@@ -87,6 +87,7 @@ try {
       {"amount":null,"description":"DEMURRAGE SYNTHETIC","currency":"USD","source":{"type":"TO_CONFIRM"}},
       {"amount":null,"description":"EMPTY RETURN SYNTHETIC","currency":"XOF","source":{"type":"TO_CONFIRM"}}]',0,0,6550,6649,'${hash}','${userId}');`);
   sql("UPDATE quote_scenario_pricing_runs SET completed_at='2026-11-05T12:00:00Z';");
+  sql(read('supabase/migrations/20261106120000_scenario_fact_snapshot_categories.sql'));
   const casesBefore=sql('SELECT jsonb_agg(to_jsonb(c)) FROM quote_cases c;');
   const runsBefore=sql('SELECT jsonb_agg(to_jsonb(r) ORDER BY run_number) FROM pricing_runs r;');
   for(const mutation of [
@@ -118,6 +119,20 @@ try {
     assert.equal(sql('SELECT count(*) FROM pricing_runs;'),'1'); // uncommitted connection rolled back
   }
   const factsBefore = sql('SELECT jsonb_agg(to_jsonb(f)) FROM quote_facts f;');
+  // A missing historical category is unknown, never filled from current rows.
+  // Reject before writing a new canonical run; preserve all source bytes.
+  const categoryRunsBefore=sql('SELECT jsonb_agg(to_jsonb(r) ORDER BY run_number) FROM pricing_runs r;');
+  const categorySourceBefore=sql('SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM quote_scenario_pricing_runs r;');
+  for (const mutation of [
+    "UPDATE quote_scenario_pricing_runs SET facts_snapshot=jsonb_set(facts_snapshot,'{0}',(facts_snapshot->0)-'fact_category');",
+    "UPDATE quote_scenario_pricing_runs SET facts_snapshot=jsonb_set(facts_snapshot,'{0,fact_category}','null');",
+    `UPDATE quote_scenario_pricing_runs SET facts_snapshot=jsonb_set(facts_snapshot,'{0,fact_category}',${j('')});`,
+  ]) sql(`BEGIN; ${mutation} ${call()}`, 'catégories des faits absentes');
+  sql(`BEGIN; UPDATE quote_facts SET fact_category='cargo'; ${call()}`, 'SCENARIO_STATE_CHANGED');
+  sql(`BEGIN; UPDATE quote_facts SET is_validated=true; ${call()}`, 'SCENARIO_STATE_CHANGED');
+  assert.equal(sql('SELECT jsonb_agg(to_jsonb(r) ORDER BY run_number) FROM pricing_runs r;'),categoryRunsBefore);
+  assert.equal(sql('SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM quote_scenario_pricing_runs r;'),categorySourceBefore);
+
   sql(call(sourceId, 'key-scope', 'b'.repeat(64)), 'SCENARIO_STATE_CHANGED');
   sql(`BEGIN; UPDATE quote_facts SET value_text='changed'; ${call()}`, 'SCENARIO_STATE_CHANGED');
   sql(`BEGIN; UPDATE quote_scenario_assumptions SET assumed_value='3'; ${call()}`, 'SCENARIO_STATE_CHANGED');
@@ -140,6 +155,46 @@ try {
   assert.equal(results.filter(r => r.idempotent_replay).length, 1);
   assert.equal(sql('SELECT count(*) FROM pricing_runs;'), '2');
   sql(call(sourceId, 'different-alias-key'), 'IDEMPOTENCY_CONFLICT');
+  // The canonical guard is the real production definition, not a permissive mock.
+  const lifecycle=read('supabase/migrations/20261018180000_quotation_lifecycle_integrity.sql');
+  const factGuard=lifecycle.match(/CREATE FUNCTION public\.assert_quotation_run_facts_current[\s\S]*?END; \$\$;/)[0];
+  sql('CREATE TABLE quote_request_lines(id uuid,case_id uuid,created_at timestamptz,updated_at timestamptz);'+factGuard);
+  sql(`SELECT public.assert_quotation_run_facts_current('${caseId}', '${results[0].pricing_run_id}');`);
+  sql(`BEGIN; UPDATE quote_facts SET fact_category='cargo'; SELECT public.assert_quotation_run_facts_current('${caseId}', '${results[0].pricing_run_id}');`, 'not comparable');
+  sql(`BEGIN; UPDATE quote_facts SET is_validated=true; SELECT public.assert_quotation_run_facts_current('${caseId}', '${results[0].pricing_run_id}');`, 'validation changed');
+  const replayLegacy=JSON.parse(sql(`BEGIN; UPDATE quote_scenario_pricing_runs SET facts_snapshot=jsonb_set(facts_snapshot,'{0}',(facts_snapshot->0)-'fact_category'); ${call()} ROLLBACK;`));
+  assert(replayLegacy.idempotent_replay);assert.equal(replayLegacy.pricing_run_id,results[0].pricing_run_id);
+  // Exercise the actual canonical version RPC after the actual adoption RPC.
+  // Minimal synthetic role/table fixture; no Cloud/JWT or document-analysis data.
+  const canonical=lifecycle.match(/CREATE FUNCTION public\.create_canonical_quotation_version[\s\S]*?END; \$\$;/)[0];
+  sql(`ALTER TABLE auth.users ADD COLUMN banned_until timestamptz;
+    CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $body$ SELECT current_setting('request.jwt.claim.role',true) $body$;
+    CREATE TABLE app_roles(user_id uuid,role text);INSERT INTO app_roles VALUES('${userId}','workspace_operator');
+    CREATE TABLE quotation_versions(id uuid PRIMARY KEY,case_id uuid,pricing_run_id uuid,version_number integer,status text,is_selected boolean,snapshot jsonb,created_by uuid,source_kind text DEFAULT 'canonical',commercial_revision_id uuid);
+    CREATE TABLE quotation_version_lines(quotation_version_id uuid,line_order integer,service_code text,description text,quantity numeric,unit_price numeric,amount numeric,currency text,breakdown jsonb);
+    ${canonical}`);
+  const adopted=JSON.parse(sql(`SELECT to_jsonb(r) FROM pricing_runs r WHERE id='${results[0].pricing_run_id}';`));
+  const versionSnapshot={meta:{pricing_run_id:adopted.id,quoteQualification:adopted.outputs_json.quoteQualification},
+    operator_basis:adopted.outputs_json.operator_basis,raw_lines:adopted.tariff_lines,lines:adopted.tariff_lines,totals:adopted.outputs_json.totals};
+  const versionLines=adopted.tariff_lines.map((line,i)=>({service_code:`LINE_${i+1}`,description:line.description,quantity:1,unit_price:line.amount,amount:line.amount,currency:line.currency,breakdown:{source:line.source??null}}));
+  const makeVersion=(role='service_role')=>`SET request.jwt.claim.role='${role}'; SELECT public.create_canonical_quotation_version('${caseId}','${adopted.id}','${userId}',${j(versionSnapshot)},${j(versionLines)});`;
+  sql(makeVersion('authenticated'),'Quotation write forbidden');
+  sql(`BEGIN; UPDATE auth.users SET banned_until=now()+interval '1 hour'; ${makeVersion()}`,'Quotation write forbidden');
+  sql(`BEGIN; UPDATE quote_facts SET fact_category='cargo'; ${makeVersion()}`,'not comparable');
+  sql(`BEGIN; UPDATE quote_facts SET is_validated=true; ${makeVersion()}`,'validation changed');
+  assert.equal(sql('SELECT count(*) FROM quotation_versions;'),'0');
+  const versions=(await Promise.all([concurrent(makeVersion()),concurrent(makeVersion())])).map(JSON.parse);
+  assert.equal(versions[0].version_id,versions[1].version_id);assert.equal(versions.filter(v=>v.idempotent).length,1);
+  assert.equal(sql('SELECT count(*) FROM quotation_versions;'),'1');
+  assert.equal(sql('SELECT count(*) FROM quotation_version_lines;'),'8');
+  assert.equal(sql('SELECT count(*) FROM quotation_version_lines WHERE amount IS NULL AND unit_price IS NULL;'),'3');
+  assert.equal(sql('SELECT is_selected FROM quotation_versions;'),'t');
+  assert.equal(sql(`SELECT snapshot->'operator_basis'->'reservations'=${j(adopted.outputs_json.operator_basis.reservations)} FROM quotation_versions;`),'t');
+  assert.equal(sql(`SELECT snapshot->'totals'=${j(adopted.outputs_json.totals)} FROM quotation_versions;`),'t');
+  assert.equal(sql('SELECT jsonb_agg(to_jsonb(f)) FROM quote_facts f;'),factsBefore);
+  assert.deepEqual(JSON.parse(sql(`SELECT to_jsonb(r) FROM pricing_runs r WHERE id='${adopted.id}';`)),adopted);
+
+
   assert.equal(sql("SELECT total_ht::text||'/'||total_ttc::text FROM pricing_runs WHERE run_number=2;"), '6550/6649');
   assert.equal(sql("SELECT outputs_json #>> '{operator_basis,assumptions,0,statement}' FROM pricing_runs WHERE run_number=2;"), 'Synthetic quantity');
   assert.equal(sql("SELECT outputs_json #>> '{totals,honoraires_ht}' FROM pricing_runs WHERE run_number=2;"), '550');
@@ -157,7 +212,7 @@ try {
   assert.equal(sql('SELECT count(*) FROM pricing_runs;'), '3');
   sql(rollback, 'ROLLBACK_REFUSED');
   assert.equal(sql('SELECT count(*) FROM pricing_runs;'), '3');
-  console.log('PASS: migration/rollback empty, ACL, stale scope/facts/assumptions/links, selection, state, intent, concurrency, #2/#3, totals, replay conflict, immutable facts, rollback refuses history. Focused synthetic schema only.');
+  console.log('PASS: category/validation snapshot contract, legacy refusal/replay, actual adoption to canonical version RPC, actor/banned/role guards, concurrent single version, 3 null reserve lines, totals/reserves/immutable history, plus existing migration/ACL/staleness/concurrency/rollback suite. Focused synthetic schema only.');
 } finally {
   if (started) spawnSync('docker', ['stop', container], { stdio: 'ignore' });
 }

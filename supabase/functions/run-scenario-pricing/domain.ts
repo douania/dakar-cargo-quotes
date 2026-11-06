@@ -127,6 +127,8 @@ export function validateScenarioPricingRequest(raw: unknown): RequestValidation 
 export interface PricingFactRow {
   id: string;
   fact_key: string;
+  fact_category?: unknown;
+  is_validated?: unknown;
   value_text?: unknown;
   value_number?: unknown;
   value_json?: unknown;

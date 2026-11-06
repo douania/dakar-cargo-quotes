@@ -180,6 +180,9 @@ async function withTransport(options: Options, check: (h: {
       if (req.method === "GET" && path === "/rest/v1/quote_facts") {
         assertEquals(url.searchParams.get("case_id"), `eq.${CASE}`);
         assertEquals(url.searchParams.get("is_current"), "eq.true");
+        const columns = String(url.searchParams.get("select")).split(",");
+        assert(columns.includes("fact_category"), "Canonical categories must be selected");
+        assert(columns.includes("is_validated"), "Validation state must be selected");
         return options.readError ? reply({ message: "Synthetic read error" }, 400) : reply(state.facts);
       }
       if (req.method === "GET" && path === "/rest/v1/quote_scenario_links") {
@@ -714,5 +717,35 @@ for (const kind of ["caseReadError", "missingCase"] as const) Deno.test(`AIR sce
     assertEquals((await h.invoke()).response.status, 500);
     assertEquals(h.engineBodies.length, 0);
     assertEquals(h.rpcBodies.length, 0);
+  });
+});
+
+Deno.test("scenario canonical facts retain exact categories and validation without changing scope or amounts", async () => {
+  await withTransport({ mutate: s => {
+    s.facts.forEach((f,i) => { f.fact_category = i % 2 ? "routing" : "cargo"; f.is_validated = i % 2 === 0; });
+  } }, async h => {
+    await h.invoke();
+    const result = h.rpcBodies[0].p_result as Json;
+    const saved = result.facts_snapshot as Json[];
+    assertEquals(saved.length, h.state.facts.length);
+    for (const f of h.state.facts) {
+      const copy = saved.find(x => x.id === f.id)!;
+      assertEquals(copy.fact_category, f.fact_category);
+      assertEquals(copy.is_validated, f.is_validated);
+      assertEquals(copy.value_text, f.value_text ?? null);
+      assertEquals(copy.value_number, f.value_number ?? null);
+    }
+    const first = h.rpcBodies[0].p_request_fingerprint;
+    h.state.facts[0].fact_category = "changed-synthetic-category";
+    await h.invoke();
+    assert(h.rpcBodies[1].p_request_fingerprint !== first, "Category changes must change pricing fingerprint");
+    assertEquals((h.rpcBodies[1].p_result as Json).tariff_lines, result.tariff_lines);
+    assertEquals((h.rpcBodies[1].p_result as Json).reservations, result.reservations);
+    const second = h.rpcBodies[1].p_request_fingerprint;
+    h.state.facts[0].is_validated = false;
+    await h.invoke();
+    assert(h.rpcBodies[2].p_request_fingerprint !== second, "Validation changes must change pricing fingerprint");
+    h.state.facts[0].fact_category = "cargo";
+    h.state.facts[0].is_validated = true;
   });
 });
